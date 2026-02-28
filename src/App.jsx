@@ -5458,7 +5458,7 @@ export default function OSCPAdventure() {
       {/* ── PHASE TRAIL ────────────────────── */}
       <div style={{
         width: "100%",
-        maxWidth: 780,
+        maxWidth: 1100,
         padding: "10px 28px 0",
         boxSizing: "border-box",
         display: "flex",
@@ -5489,7 +5489,7 @@ export default function OSCPAdventure() {
       {/* ── MAIN CARD ──────────────────────── */}
       <main style={{
         width: "100%",
-        maxWidth: 780,
+        maxWidth: 1100,
         padding: "16px 28px 48px",
         boxSizing: "border-box",
       }}>
