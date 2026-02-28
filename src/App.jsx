@@ -5069,12 +5069,12 @@ cewl http://$IP -d 2 -e -w /tmp/cewl_emails.txt
 # From a name list (First Last format):
 # Use username-anarchy or custom script
 cat names.txt | while read line; do
-  first=$(echo $line | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
-  last=$(echo $line | cut -d' ' -f2 | tr '[:upper:]' '[:lower:]')
-  echo "$first"
-  echo "$last"
-  echo "${first}.${last}"
-  echo "${first}${last}"
+  first=\$(echo \$line | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
+  last=\$(echo \$line | cut -d' ' -f2 | tr '[:upper:]' '[:lower:]')
+  echo "\$first"
+  echo "\$last"
+  echo "\${first}.\${last}"
+  echo "\${first}\${last}"
   echo "\${first:0:1}\${last}"
   echo "\${first:0:1}.\${last}"
 done > /tmp/usernames.txt
