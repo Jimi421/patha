@@ -5330,7 +5330,7 @@ export default function OSCPAdventure() {
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
             <div style={{
-              fontSize: 13,
+              fontSize: 17,
               fontWeight: 800,
               letterSpacing: 5,
               color: phase.color,
@@ -5341,7 +5341,7 @@ export default function OSCPAdventure() {
               THE PATH
             </div>
             <div style={{
-              fontSize: 7,
+              fontSize: 10,
               letterSpacing: 3,
               color: "#3a4858",
               textTransform: "uppercase",
@@ -5356,7 +5356,7 @@ export default function OSCPAdventure() {
             background: "#2a3040",
           }} />
           <div style={{
-            fontSize: 9,
+            fontSize: 17,
             letterSpacing: 3,
             color: "#4a5568",
             textTransform: "uppercase",
@@ -5376,7 +5376,7 @@ export default function OSCPAdventure() {
               padding: "5px 12px",
               cursor: history.length > 1 ? "pointer" : "default",
               fontFamily: "inherit",
-              fontSize: 9,
+              fontSize: 17,
               letterSpacing: 2,
               borderRadius: 2,
               textTransform: "uppercase",
@@ -5395,7 +5395,7 @@ export default function OSCPAdventure() {
               padding: "5px 12px",
               cursor: "pointer",
               fontFamily: "inherit",
-              fontSize: 9,
+              fontSize: 17,
               letterSpacing: 2,
               borderRadius: 2,
               textTransform: "uppercase",
@@ -5417,7 +5417,7 @@ export default function OSCPAdventure() {
         alignItems: "center",
         gap: 4,
         flexWrap: "wrap",
-        fontSize: 9,
+        fontSize: 17,
         color: "#3a4858",
         letterSpacing: 1,
       }}>
@@ -5468,7 +5468,7 @@ export default function OSCPAdventure() {
               padding: "18px 24px 14px",
             }}>
               <div style={{
-                fontSize: 8,
+                fontSize: 16,
                 letterSpacing: 4,
                 color: phase.color,
                 textTransform: "uppercase",
@@ -5479,7 +5479,7 @@ export default function OSCPAdventure() {
               </div>
               <h1 style={{
                 margin: 0,
-                fontSize: 20,
+                fontSize: 26,
                 fontWeight: 700,
                 color: "#e8f0f8",
                 letterSpacing: 0.5,
@@ -5495,7 +5495,7 @@ export default function OSCPAdventure() {
               {/* Body text */}
               <p style={{
                 margin: "0 0 20px",
-                fontSize: 13,
+                fontSize: 17,
                 lineHeight: 1.9,
                 color: "#8899aa",
                 paddingLeft: 14,
@@ -5513,7 +5513,7 @@ export default function OSCPAdventure() {
                   borderRadius: "0 4px 4px 0",
                   padding: "10px 14px",
                   marginBottom: 20,
-                  fontSize: 11,
+                  fontSize: 15,
                   color: "#ffd166cc",
                   lineHeight: 1.6,
                 }}>
@@ -5531,7 +5531,7 @@ export default function OSCPAdventure() {
                     marginBottom: 6,
                   }}>
                     <span style={{
-                      fontSize: 8,
+                      fontSize: 16,
                       letterSpacing: 3,
                       color: phase.color,
                       textTransform: "uppercase",
@@ -5548,7 +5548,7 @@ export default function OSCPAdventure() {
                         padding: "3px 10px",
                         cursor: "pointer",
                         fontFamily: "inherit",
-                        fontSize: 8,
+                        fontSize: 16,
                         letterSpacing: 2,
                         borderRadius: 2,
                         textTransform: "uppercase",
@@ -5564,7 +5564,7 @@ export default function OSCPAdventure() {
                     borderLeft: `3px solid ${phase.color}88`,
                     padding: "16px 18px",
                     margin: 0,
-                    fontSize: 11.5,
+                    fontSize: 15,
                     lineHeight: 1.75,
                     color: "#7ecb9e",
                     overflowX: "auto",
@@ -5579,7 +5579,7 @@ export default function OSCPAdventure() {
               {/* Choices */}
               <div>
                 <div style={{
-                  fontSize: 8,
+                  fontSize: 16,
                   letterSpacing: 3,
                   color: "#3a4858",
                   textTransform: "uppercase",
@@ -5603,7 +5603,7 @@ export default function OSCPAdventure() {
                           padding: "11px 16px",
                           cursor: "pointer",
                           fontFamily: "inherit",
-                          fontSize: 12,
+                          fontSize: 16,
                           textAlign: "left",
                           borderRadius: "0 4px 4px 0",
                           transition: "all 0.15s",
@@ -5623,7 +5623,7 @@ export default function OSCPAdventure() {
                         }}
                       >
                         <span style={{
-                          fontSize: 8,
+                          fontSize: 16,
                           color: nc,
                           opacity: 0.8,
                           minWidth: 14,
@@ -5632,7 +5632,7 @@ export default function OSCPAdventure() {
                         {c.label}
                         <span style={{
                           marginLeft: "auto",
-                          fontSize: 8,
+                          fontSize: 16,
                           color: nc,
                           opacity: 0.5,
                           letterSpacing: 1,
@@ -5656,7 +5656,7 @@ export default function OSCPAdventure() {
           gap: 14,
           flexWrap: "wrap",
           justifyContent: "center",
-          fontSize: 8,
+          fontSize: 16,
           letterSpacing: 2,
           color: "#3a4858",
           textTransform: "uppercase",
