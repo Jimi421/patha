@@ -5266,6 +5266,7 @@ export default function OSCPAdventure() {
   const [history, setHistory] = useState(["start"]);
   const [copied, setCopied] = useState(false);
   const [animKey, setAnimKey] = useState(0);
+  const [showAbout, setShowAbout] = useState(false);
   const topRef = useRef(null);
 
   const currentId = history[history.length - 1];
@@ -5348,6 +5349,22 @@ export default function OSCPAdventure() {
 
   const phaseList = history.map((h) => nodes[h]?.phase).filter(Boolean);
 
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (showAbout) { if (e.key === "Escape") setShowAbout(false); return; }
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      const num = parseInt(e.key);
+      if (!isNaN(num) && num >= 1 && num <= node.choices.length) {
+        go(node.choices[num - 1].next);
+      }
+      if (e.key === "Backspace" || e.key === "ArrowLeft") back();
+      if (e.key === "r" || e.key === "R") reset();
+      if (e.key === "?" || e.key === "a" || e.key === "A") setShowAbout(true);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [node, history, showAbout]);
+
   return (
     <div style={{
       minHeight: "100vh",
@@ -5413,7 +5430,51 @@ export default function OSCPAdventure() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <a
+            href="https://github.com/jimi421/patha"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              background: "transparent",
+              border: "1px solid #1e2838",
+              color: "#8899aa",
+              padding: "5px 12px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: 15,
+              letterSpacing: 2,
+              borderRadius: 2,
+              textTransform: "uppercase",
+              textDecoration: "none",
+              transition: "all 0.2s",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#3a4858"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#1e2838"}
+          >
+            ⎇ github
+          </a>
+          <button
+            onClick={() => setShowAbout(true)}
+            style={{
+              background: "transparent",
+              border: "1px solid #1e2838",
+              color: "#8899aa",
+              padding: "5px 12px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: 15,
+              letterSpacing: 2,
+              borderRadius: 2,
+              textTransform: "uppercase",
+              transition: "all 0.2s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#3a4858"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#1e2838"}
+          >? about</button>
           <button
             onClick={back}
             disabled={history.length <= 1}
@@ -5455,35 +5516,58 @@ export default function OSCPAdventure() {
         </div>
       </header>
 
-      {/* ── PHASE TRAIL ────────────────────── */}
+      {/* ── BREADCRUMB TRAIL ───────────────── */}
       <div style={{
         width: "100%",
         maxWidth: 1100,
-        padding: "10px 28px 0",
+        padding: "10px 28px 4px",
         boxSizing: "border-box",
         display: "flex",
         alignItems: "center",
-        gap: 4,
+        gap: 6,
         flexWrap: "wrap",
-        fontSize: 17,
+        fontSize: 13,
         color: "#3a4858",
         letterSpacing: 1,
+        overflowX: "auto",
       }}>
+        <span style={{ color: "#2a3848", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginRight: 4 }}>path:</span>
         {history.map((h, i) => {
           const n = nodes[h];
           const p = PHASES[n?.phase] || PHASES.RECON;
+          const isCurrent = i === history.length - 1;
           return (
-            <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{
-                color: i === history.length - 1 ? p.color : "#3a4858",
-                transition: "color 0.3s",
-              }}>
-                {n?.title?.replace(/[^a-zA-Z0-9 ]/g, "").trim().slice(0, 18) || ""}
+            <span key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span
+                onClick={() => {
+                  if (!isCurrent) setHistory(prev => prev.slice(0, i + 1));
+                }}
+                style={{
+                  color: isCurrent ? p.color : "#3a5068",
+                  cursor: isCurrent ? "default" : "pointer",
+                  background: isCurrent ? `${p.color}12` : "transparent",
+                  border: isCurrent ? `1px solid ${p.color}30` : "1px solid transparent",
+                  borderRadius: 2,
+                  padding: "1px 6px",
+                  fontSize: 12,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                  transition: "all 0.2s",
+                  whiteSpace: "nowrap",
+                }}
+                title={isCurrent ? "" : `Jump back to ${n?.title}`}
+              >
+                {p.icon} {n?.title?.replace(/[^a-zA-Z0-9 \-→]/g, "").trim().slice(0, 22) || h}
               </span>
-              {i < history.length - 1 && <span style={{ color: "#1e2838" }}>›</span>}
+              {i < history.length - 1 && (
+                <span style={{ color: "#1e2838", fontSize: 10 }}>›</span>
+              )}
             </span>
           );
         })}
+        <span style={{ marginLeft: "auto", color: "#2a3848", fontSize: 11, letterSpacing: 1 }}>
+          step {history.length} · press 1-9 to choose · backspace = back
+        </span>
       </div>
 
       {/* ── MAIN CARD ──────────────────────── */}
@@ -5737,6 +5821,79 @@ export default function OSCPAdventure() {
           ))}
         </div>
       </main>
+
+      {/* ── ABOUT MODAL ────────────────────── */}
+      {showAbout && (
+        <div
+          onClick={() => setShowAbout(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.85)",
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "#0c1018",
+              border: "1px solid #3b9eff33",
+              borderRadius: 8,
+              padding: "36px 40px",
+              maxWidth: 560,
+              width: "100%",
+              fontFamily: "inherit",
+              boxShadow: "0 0 80px #3b9eff18",
+            }}
+          >
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 4, color: "#3b9eff", marginBottom: 6, textTransform: "uppercase" }}>
+              The Path
+            </div>
+            <div style={{ fontSize: 12, letterSpacing: 3, color: "#3a4858", textTransform: "uppercase", marginBottom: 24 }}>
+              OSCP Field Guide
+            </div>
+            <p style={{ color: "#6a7a8a", lineHeight: 1.8, fontSize: 14, marginBottom: 16 }}>
+              An interactive decision-tree methodology for OSCP exam day and offensive security practice.
+              148 nodes covering every attack domain — web, AD, Linux, Windows, pivoting, shells,
+              documentation, and the inner game of operating under pressure.
+            </p>
+            <p style={{ color: "#6a7a8a", lineHeight: 1.8, fontSize: 14, marginBottom: 24 }}>
+              Built for practitioners who need a tool that thinks with them — not just a cheatsheet,
+              but a guide that makes decisions, surfaces failure modes, and keeps you oriented
+              when the clock is running.
+            </p>
+            <div style={{ borderTop: "1px solid #1e2838", paddingTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 13, color: "#4a5568" }}>
+                Built by <span style={{ color: "#cdd6e0" }}>Braxton Bailey</span> <span style={{ color: "#3a4858" }}>(jimi421)</span> — Security practitioner, perpetual student.
+              </div>
+              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                <a href="https://github.com/jimi421/patha" target="_blank" rel="noopener noreferrer"
+                  style={{ color: "#3b9eff", fontSize: 13, letterSpacing: 2, textDecoration: "none", textTransform: "uppercase", border: "1px solid #3b9eff33", padding: "4px 12px", borderRadius: 2 }}>
+                  ⎇ GitHub
+                </a>
+                <a href="https://www.linkedin.com/in/braxtonb-dev" target="_blank" rel="noopener noreferrer"
+                  style={{ color: "#3b9eff", fontSize: 13, letterSpacing: 2, textDecoration: "none", textTransform: "uppercase", border: "1px solid #3b9eff33", padding: "4px 12px", borderRadius: 2 }}>
+                  LinkedIn
+                </a>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowAbout(false)}
+              style={{
+                position: "absolute",
+                display: "none",
+              }}
+            />
+            <div style={{ marginTop: 20, fontSize: 11, color: "#2a3848", letterSpacing: 1 }}>
+              Press ESC to close · Not affiliated with OffSec
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes fadeSlide {
