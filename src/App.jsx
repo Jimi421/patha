@@ -3261,7 +3261,8 @@ hashcat -a 0 -m 16500 JWT_TOKEN /usr/share/wordlists/rockyou.txt
     warn: "Always intercept the login request in Burp before running any tool — parameter names vary wildly (/login, /api/auth, /signin) and failure strings must be exact for hydra/ffuf to work. Timing differences (slow = valid user hitting bcrypt vs fast = user not found) can enumerate users even when response bodies are identical.",
     choices: [
       { label: "Got access", next: "authenticated_enum" },
-      { label: "SQLi bypass worked", next: "sqli_test" },
+      { label: "SQLi bypass worked — authenticated", next: "file_upload" },
+      { label: "Login responded oddly to SQLi probes — investigate", next: "sqli_test" },
       { label: "JWT token in response", next: "jwt_attack" },
       { label: "File upload inside app", next: "file_upload" },
       { label: "Need usernames first", next: "web_fuzz_deep" },
