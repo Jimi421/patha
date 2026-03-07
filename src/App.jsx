@@ -289,7 +289,7 @@ grep -E "80|443|445|22|3389|5985|8080|1433|3306" mass_scan.txt`,
   pivot_start: {
     phase: "PIVOT",
     title: "Pivot — Orient First",
-    body: "You have a foothold on a machine with access to an internal network. Draw the map before you build anything. The routing table, ARP cache, and /etc/hosts tell you the topology. The question you are answering: what subnets can this machine reach that you cannot? That gap is your pivot. Tool choice depends on what you can upload, what ports are open outbound, and whether you have SSH creds.",
+    body: "You have a foothold on a machine with access to an internal network. Draw the map before you build anything. The routing table, ARP cache, and /etc/hosts tell you the topology. The question you are answering: what subnets can this machine reach that you cannot? That defines the pivot target. Tool choice depends on what you can upload, what ports are open outbound, and whether you have SSH creds.",
     cmd: `# ── LINUX — network orientation ──────────
 ip a                          # all interfaces + IPs
 ip route                      # routing table — look for non-tun0 subnets
@@ -601,7 +601,7 @@ proxychains ssh -D 1081 user@172.16.50.X -N &`,
   research_unknown: {
     phase: "RECON",
     title: "Identify the Unknown Service",
-    body: "nmap couldn't identify the service. That's not a dead end — it's an invitation. Unknown ports are gifts: non-standard services are usually less hardened, and the path forward is already in what nmap already returned. The discipline is reading before reaching for more tools. The REMOTEMOUSE lesson: the banner 'luminateOK' on port 1978 was sitting in the nmap output. The hostname 'REMOTEMOUSE' was in the smb-os-discovery block. The entire intended path was already there — it just needed to be read.",
+    body: "nmap couldn't identify the service. That's not a dead end — it's an invitation. Non-standard services are usually less hardened. The path forward is already in what nmap returned. The discipline is reading before reaching for more tools. The banner string and the hostname from smb-os-discovery are enumeration. The answer is often already in the nmap output — it just needs to be read.",
     cmd: `# ── STEP 1: READ WHAT NMAP ALREADY GAVE YOU ──
 # Do this before running any new commands
 # Look for these in your existing scan output:
@@ -736,7 +736,7 @@ searchsploit --nmap service.xml`,
   tomcat: {
     phase: "WEB",
     title: "Apache Tomcat",
-    body: "Manager console upload is the classic path. Default creds are shockingly common. AJP connector (8009) enables Ghostcat if exposed.",
+    body: "Manager console upload is the classic path. Default creds are common. AJP connector (8009) enables Ghostcat if exposed.",
     cmd: `# Manager console
 http://$ip:8080/manager/html
 http://$ip:8080/host-manager/html
@@ -3233,7 +3233,7 @@ cat scans/targeted.txt
   analyze_versions: {
     phase: "ANALYSIS",
     title: "Version Analysis — Is This Exploitable?",
-    body: "A version number is a gift. Most people searchsploit it once and move on. Do it properly — cross-reference multiple sources, understand what the exploit actually does before you run it.",
+    body: "Most people searchsploit a version once and move on. Do it properly — cross-reference multiple sources, understand what the exploit actually does before you run it.",
     cmd: `# ── SEARCHSPLOIT ─────────────────────────
 searchsploit [service] [version]
 searchsploit -x [exploit/path]   # read before running
@@ -3384,7 +3384,7 @@ enum4linux-ng $ip
   web_enum: {
     phase: "WEB",
     title: "Web Enumeration",
-    body: "Web is open. Run tools in parallel — but read manually while they run. The goal is not to finish the checklist, it is to find the one thing that moves you forward. Tools find paths; you find meaning in what those paths return.",
+    body: "Web is open. Run tools in parallel — but read manually while they run. The goal is not to finish the checklist, it is to find the one thing that moves you forward. Tools find paths; you interpret what they return.",
     cmd: `# ── AUTOMATED — run in background ────────
 # feroxbuster — recursive depth, good for nested dirs
 feroxbuster -u http://$ip \\
@@ -3695,7 +3695,7 @@ true                             # JSON boolean
   wordpress: {
     phase: "WEB",
     title: "WordPress",
-    body: "WordPress has a consistent attack surface. Vulnerable plugins are the most reliable path — more CVEs per square inch than any other CMS. xmlrpc.php enables amplified brute force (500 cred attempts per request). User enumeration via /wp-json/wp/v2/users or ?author=1 gives you valid usernames for targeted attacks. Admin access gives you the theme editor = RCE. The goal is: enumerate → users → admin creds → shell.",
+    body: "WordPress has a consistent attack surface. Vulnerable plugins are the most reliable path — the plugin ecosystem has more unpatched CVEs than any other CMS component. xmlrpc.php enables amplified brute force (500 cred attempts per request). User enumeration via /wp-json/wp/v2/users or ?author=1 gives you valid usernames for targeted attacks. Admin access gives you the theme editor = RCE. The goal is: enumerate → users → admin creds → shell.",
     cmd: `# ── STEP 0: CONFIRM WP AND VERSION ───────
 curl -s http://$ip | grep -i "wp-content\\|wp-includes\\|WordPress"
 curl -s http://$ip/wp-login.php | head -5
@@ -4813,7 +4813,7 @@ fetch('/api/admin/adduser', {
   searchsploit_web: {
     phase: "RECON",
     title: "Searchsploit — Find a Public Exploit",
-    body: "You have a version number. That is a gift. Every service version goes through searchsploit — no exceptions. This is the OffSec methodology: enumerate → get version → searchsploit → read code → copy → modify → fire. Do this for every service on every port. A version number on an obscure port has cracked more boxes than any fancy technique.",
+    body: "You have a version number. Every service version goes through searchsploit — no exceptions. This is the OffSec methodology: enumerate → get version → searchsploit → read code → copy → modify → fire. Do this for every service on every port. A version number on an obscure port has cracked more boxes than any fancy technique.",
     cmd: `# ── STEP 1: SEARCH ───────────────────────
 # Use the service name and version — be specific first, broad if nothing found
 searchsploit <service> <version>
@@ -5537,7 +5537,7 @@ run post/multi/recon/local_exploit_suggester`,
   shell_upgrade: {
     phase: "SHELL",
     title: "Shell Stabilization — Full TTY",
-    body: "Stabilize before you do anything else. A dumb shell dies on Ctrl+C, breaks sudo, and hides password prompts. The S1REN sequence is the standard: Python pty spawn → Ctrl+Z → stty raw -echo; fg → fix terminal size. Five steps, thirty seconds, done once. Every other technique is a fallback for when Python isn't on the box.",
+    body: "Stabilize before you do anything else. A dumb shell dies on Ctrl+C, breaks sudo, and hides password prompts. Five steps, thirty seconds: Python pty spawn → Ctrl+Z → stty raw -echo; fg → fix terminal size. Every other technique is a fallback for when Python isn't on the box.",
     cmd: `# ══ THE S1REN SEQUENCE — run this every time ══
 # ── ON THE TARGET (in your dumb shell) ───
 python3 -c 'import pty; pty.spawn("/bin/bash")'
@@ -6771,7 +6771,7 @@ type C:\\Users\\Administrator\\Desktop\\proof.txt
   ad_nocreds: {
     phase: "AD",
     title: "AD — No Creds Yet: Identify and Enumerate",
-    body: "You identified AD from the scan — ports 88 (Kerberos), 389 (LDAP), 445, 464, 3268 are the signature. Before you have any credentials the goal is: extract usernames, find null/anonymous access, hunt description fields for passwords, check SYSVOL/NETLOGON, and build a username list for kerbrute. Everything here is zero-auth or anonymous — no lockout risk. Add the domain and DC to /etc/hosts immediately. This is the S1REN first move: orient, then enumerate before touching anything authenticated.",
+    body: "You identified AD from the scan — ports 88 (Kerberos), 389 (LDAP), 445, 464, 3268 are the signature. Before you have any credentials the goal is: extract usernames, find null/anonymous access, hunt description fields for passwords, check SYSVOL/NETLOGON, and build a username list for kerbrute. Everything here is zero-auth or anonymous — no lockout risk. Add the domain and DC to /etc/hosts immediately. Orient, then enumerate before touching anything authenticated.",
     cmd: `# ── STEP 0: ORIENT — do this first ───────
 # Confirm it's AD (look for these in nmap output)
 # 88/tcp  open  kerberos-sec
@@ -7573,7 +7573,7 @@ mkdir -p ~/exam/{machine1,machine2,machine3,ad}/{scans,exploits,loot,screenshots
   mindset_stuck: {
     phase: "MINDSET",
     title: "Arjuna on Kurukshetra",
-    body: "You are not failing. The mind has contracted. Arjuna froze before the greatest battle of his life — not from lack of skill, but from overwhelm. Krishna did not tell him to try harder. He told him to see clearly. Stop. Work through this checklist now. The answer is usually in what you have already seen.",
+    body: "Stop. Work through this checklist. The answer is usually in what you already have — you just can't see it from inside the spiral.",
     cmd: `# ══ STOP. CLOSE EXTRA TERMINALS. ONE WINDOW. ══
 
 # ── LAYER 1: ENUMERATION COMPLETENESS ────
@@ -7639,7 +7639,7 @@ curl -s http://$ip | less
 # > 90 minutes with no forward movement = rotate to another machine
 # Mark this box: "PAUSED — [what you tried, what happened]"
 # Set it down completely. Minimum 45 minutes on another target.
-# This is not defeat. It is triage.`,
+# It is triage.`,
     warn: "The checklist items in order of payoff: (1) missed ports / UDP — catches the box immediately if there is a high-port service you skipped; (2) vhost enumeration — the most-missed technique on OSCP boxes; (3) re-reading existing nmap output — the answer is often already there; (4) credential spray — one cred sprayed everywhere is worth hours of new enumeration. Work through these in order before concluding the surface is locked.",
     choices: [
       { label: "Missed ports — going back to full scan", next: "full_portscan" },
@@ -7681,7 +7681,7 @@ curl -s http://$ip | less
 # Rotate to a different machine NOW.
 # Do not think about this machine for 45 minutes.
 # When you return you will see it differently.
-# This is not metaphor — it is how the brain processes problems offline.
+# 
 
 # ── COMMON FALSE RABBIT HOLES ────────────
 # "There must be a SQLi here" — have you tried other params?
