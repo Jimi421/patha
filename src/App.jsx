@@ -8248,91 +8248,105 @@ export default function OSCPAdventure() {
       lines.push('');
     }
 
-    // ── COMMANDS ──────────────────────────────
+    // ── COMMANDS — split into sections ─────────
     if (node.cmd) {
-      lines.push('## Commands');
-      lines.push('```bash');
-      lines.push(node.cmd);
-      lines.push('```');
-      lines.push('');
+      const cmdLines = node.cmd.split('\n');
+      // Check if cmd has named sections (══ or ──)
+      const hasSections = cmdLines.some(l => l.startsWith('# ══') || l.startsWith('# ──'));
+      if (hasSections) {
+        // Split into per-section code blocks
+        let currentSection = 'Commands';
+        let currentBlock = [];
+        const flushBlock = () => {
+          if (currentBlock.length > 0 && currentBlock.some(l => l.trim() && !l.startsWith('#'))) {
+            lines.push(`## ${currentSection}`);
+            lines.push('```bash');
+            currentBlock.forEach(l => lines.push(l));
+            lines.push('```');
+            lines.push('');
+          }
+          currentBlock = [];
+        };
+        cmdLines.forEach(line => {
+          if (line.startsWith('# ══') || line.startsWith('# ──')) {
+            flushBlock();
+            // Clean up section title: strip # ══ / # ── and trailing ══/──
+            currentSection = line.replace(/^# [═─]+ ?/, '').replace(/ ?[═─]+$/, '').trim();
+            if (!currentSection) currentSection = 'Commands';
+          } else {
+            currentBlock.push(line);
+          }
+        });
+        flushBlock();
+      } else {
+        // Single block — keep as-is
+        lines.push('## Commands');
+        lines.push('```bash');
+        lines.push(node.cmd);
+        lines.push('```');
+        lines.push('');
+      }
     }
 
     // ── PHASE-SPECIFIC LIVE NOTE BLOCKS ───────
     const phase = node.phase;
 
-    if (phase === 'RECON' || phase === 'DISCOVERY') {
+    // start node — IP only, this is where you set it once
+    if (currentId === 'start') {
       lines.push('## Target');
-      lines.push('| Field | Value |');
-      lines.push('|-------|-------|');
-      lines.push('| IP | |');
-      lines.push('| Hostname | |');
-      lines.push('| OS | |');
+      lines.push('| IP | Hostname | OS |');
+      lines.push('|----|----------|----|');
+      lines.push('| | | |');
       lines.push('');
+    }
+
+    // port scan nodes — ports table + raw output box
+    else if (currentId === 'full_portscan' || currentId === 'host_discovery') {
       lines.push('## Ports Found');
       lines.push('| Port | Service | Version | Notes |');
       lines.push('|------|---------|---------|-------|');
       lines.push('| | | | |');
       lines.push('');
-      lines.push('## Searchsploit Hits');
+      lines.push('## Scan Output');
       lines.push('```');
-      lines.push('# searchsploit --nmap targeted.xml output here');
+      lines.push('');
       lines.push('```');
       lines.push('');
     }
 
     else if (phase === 'WEB') {
-      lines.push('## Web Target');
-      lines.push('| Field | Value |');
-      lines.push('|-------|-------|');
-      lines.push('| URL | |');
-      lines.push('| Tech Stack | |');
-      lines.push('| App / Version | |');
-      lines.push('| Login Page | |');
-      lines.push('');
-      lines.push('## Directories Found');
-      lines.push('```');
-      lines.push('');
-      lines.push('```');
-      lines.push('');
-      lines.push('## Credentials Tried');
-      lines.push('| Username | Password | Result |');
-      lines.push('|----------|----------|--------|');
+      lines.push('## Target');
+      lines.push('| URL | App / Version | Login Page |');
+      lines.push('|-----|---------------|------------|');
       lines.push('| | | |');
+      lines.push('');
+      lines.push('## Output');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
       lines.push('');
     }
 
     else if (phase === 'SMB' || phase === 'FTP' || phase === 'SSH') {
-      lines.push('## Service Details');
-      lines.push('| Field | Value |');
-      lines.push('|-------|-------|');
-      lines.push('| Version | |');
-      lines.push('| Null/Anon session | Y / N |');
-      lines.push('| Searchsploit hit | |');
-      lines.push('');
-      lines.push('## Shares / Files Found');
-      lines.push('```');
-      lines.push('');
-      lines.push('```');
-      lines.push('');
-      lines.push('## Credentials Tried');
-      lines.push('| Username | Password | Result |');
-      lines.push('|----------|----------|--------|');
+      lines.push('## Service');
+      lines.push('| Version | Anon/Null | Notes |');
+      lines.push('|---------|-----------|-------|');
       lines.push('| | | |');
+      lines.push('');
+      lines.push('## Output');
+      lines.push('```');
+      lines.push('');
+      lines.push('```');
       lines.push('');
     }
 
     else if (phase === 'SHELL') {
-      lines.push('## Shell Details');
-      lines.push('| Field | Value |');
-      lines.push('|-------|-------|');
-      lines.push('| Payload used | |');
-      lines.push('| Delivery method | |');
-      lines.push('| LHOST | |');
-      lines.push('| LPORT | |');
-      lines.push('| Shell type caught | |');
-      lines.push('| Stabilized | Y / N |');
+      lines.push('## Shell');
+      lines.push('| Payload | Port | Stabilized |');
+      lines.push('|---------|------|------------|');
+      lines.push('| | | |');
       lines.push('');
-      lines.push('## Shell Output');
+      lines.push('## Output');
       lines.push('```');
       lines.push('');
       lines.push('```');
@@ -8341,21 +8355,18 @@ export default function OSCPAdventure() {
 
     else if (phase === 'LINUX') {
       lines.push('## Foothold');
-      lines.push('| Field | Value |');
-      lines.push('|-------|-------|');
-      lines.push('| User | |');
-      lines.push('| Shell | |');
-      lines.push('| Privesc vector | |');
+      lines.push('| User | Privesc Vector |');
+      lines.push('|------|----------------|');
+      lines.push('| | |');
       lines.push('');
-      lines.push('## Key Findings');
+      lines.push('## Output');
       lines.push('```bash');
-      lines.push('# whoami && id && hostname && ip a');
+      lines.push('# paste whoami && id && hostname && ip a here');
       lines.push('');
       lines.push('```');
       lines.push('');
-      lines.push('> [!important] Proof Capture');
-      lines.push('> `cat /root/proof.txt` + `ip addr` in same screenshot');
-      lines.push('> Must be interactive shell — not webshell');
+      lines.push('> [!important] Proof');
+      lines.push('> whoami + hostname + ip + cat /root/proof.txt — one screenshot');
       lines.push('');
       lines.push('## proof.txt');
       lines.push('```');
@@ -8366,22 +8377,18 @@ export default function OSCPAdventure() {
 
     else if (phase === 'WINDOWS') {
       lines.push('## Foothold');
-      lines.push('| Field | Value |');
-      lines.push('|-------|-------|');
-      lines.push('| User | |');
-      lines.push('| Integrity | Medium / High / SYSTEM |');
-      lines.push('| OS / Build | |');
-      lines.push('| Privesc vector | |');
+      lines.push('| User | Integrity | Privesc Vector |');
+      lines.push('|------|-----------|----------------|');
+      lines.push('| | Medium / High / SYSTEM | |');
       lines.push('');
-      lines.push('## Key Findings');
+      lines.push('## Output');
       lines.push('```');
-      lines.push('# whoami /priv output');
+      lines.push('# paste whoami /priv here');
       lines.push('');
       lines.push('```');
       lines.push('');
-      lines.push('> [!important] Proof Capture');
-      lines.push('> `type proof.txt` + `ipconfig` in same screenshot');
-      lines.push('> Must be SYSTEM or Administrator — interactive shell');
+      lines.push('> [!important] Proof');
+      lines.push('> whoami + hostname + ipconfig + type proof.txt — one screenshot');
       lines.push('');
       lines.push('## proof.txt');
       lines.push('```');
@@ -8391,20 +8398,17 @@ export default function OSCPAdventure() {
     }
 
     else if (phase === 'AD') {
-      lines.push('## Domain Details');
-      lines.push('| Field | Value |');
-      lines.push('|-------|-------|');
-      lines.push('| Domain | |');
-      lines.push('| DC IP | |');
-      lines.push('| Current User | |');
-      lines.push('| BloodHound path | |');
+      lines.push('## Domain');
+      lines.push('| Domain | DC IP | Current User |');
+      lines.push('|--------|-------|--------------|');
+      lines.push('| | | |');
       lines.push('');
-      lines.push('## Users / Groups Found');
+      lines.push('## Output');
       lines.push('```');
       lines.push('');
       lines.push('```');
       lines.push('');
-      lines.push('## Credentials');
+      lines.push('## Credentials Found');
       lines.push('| User | Password / Hash | Source |');
       lines.push('|------|-----------------|--------|');
       lines.push('| | | |');
@@ -8412,15 +8416,12 @@ export default function OSCPAdventure() {
     }
 
     else if (phase === 'PIVOT') {
-      lines.push('## Tunnel Details');
-      lines.push('| Field | Value |');
-      lines.push('|-------|-------|');
-      lines.push('| Pivot host | |');
-      lines.push('| Internal subnet | |');
-      lines.push('| Tunnel type | |');
-      lines.push('| Route added | |');
+      lines.push('## Tunnel');
+      lines.push('| Pivot Host | Subnet | Type |');
+      lines.push('|------------|--------|------|');
+      lines.push('| | | |');
       lines.push('');
-      lines.push('## Internal Hosts Found');
+      lines.push('## Internal Hosts');
       lines.push('| IP | Ports | Notes |');
       lines.push('|----|-------|-------|');
       lines.push('| | | |');
@@ -8428,10 +8429,10 @@ export default function OSCPAdventure() {
     }
 
     else if (phase === 'CREDS') {
-      lines.push('## Credentials Log');
-      lines.push('| Username | Password | Hash | Service | Source |');
-      lines.push('|----------|----------|------|---------|--------|');
-      lines.push('| | | | | |');
+      lines.push('## Credentials');
+      lines.push('| User | Password / Hash | Service | Source |');
+      lines.push('|------|-----------------|---------|--------|');
+      lines.push('| | | | |');
       lines.push('');
       lines.push('## Cracked Hashes');
       lines.push('```');
