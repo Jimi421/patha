@@ -52,6 +52,7 @@ cd ~/results/$IP`,
       { label: "Windows privesc", next: "jump_windows" },
       { label: "Active Directory", next: "jump_ad" },
       { label: "Services & ports", next: "jump_services" },
+      { label: "Password attacks hub", next: "password_attacks" },
       { label: "HTTP password brute force", next: "http_brute" },
       { label: "Scan notes — document findings", next: "scan_notes" },
       { label: "Version # danger reference", next: "version_ref" },
@@ -4202,6 +4203,49 @@ showmount -e $IP`,
   // ==========================================
   //  BRUTE FORCE / CREDS
   // ==========================================
+  password_attacks: {
+    phase: "CREDS",
+    title: "Password Attacks",
+    body: "Three phases — know which one you're in. Online attacks hit live services and are slow and noisy. Offline cracking is fast, silent, and unlimited. Wordlist building multiplies the effectiveness of both.",
+    cmd: `# ── WHICH PHASE ARE YOU IN? ──────────────────────────
+#
+# ONLINE (live service) → brute_force
+#   You have a running service (SSH, RDP, HTTP, SMB, FTP)
+#   You need to find valid credentials
+#   Hydra / Medusa / NetExec
+#   Risk: lockout, noise, rate limiting
+#
+# OFFLINE (hash cracking) → hashcrack
+#   You have a hash from /etc/shadow, SAM, NTDS, DB dump
+#   You need the plaintext behind the hash
+#   Hashcat / John — no network, no lockout risk
+#   Speed depends on hash type + hardware
+#
+# WORDLIST BUILDING → wordlist_build
+#   rockyou isn't finding it
+#   You have context — found passwords, password policy, target name
+#   Build targeted wordlist + rules to multiply coverage
+#
+# ── CRACKING TIME ESTIMATE ────────────────────────────
+# cracking_time = keyspace / hash_rate
+# keyspace = charset_size ^ password_length
+python3 -c "print(62**8)"          # 8-char alphanumeric keyspace
+python3 -c "print(62**8 / 9276300000)"  # seconds on RTX 3090 SHA256
+#
+# Rule of thumb:
+# MD5/NTLM   < 8 chars  → seconds on GPU
+# SHA256     < 8 chars  → minutes on GPU
+# bcrypt     any length → hours/days even on GPU
+# SHA512crypt (Linux $6$) → slow, use rules not brute`,
+    warn: null,
+    choices: [
+      { label: "Online — brute force live service", next: "bruteforce" },
+      { label: "Offline — crack a hash", next: "hashcrack" },
+      { label: "Build better wordlist / rules", next: "wordlist_build" },
+      { label: "Back to jump menu", next: "jump_menu" },
+    ],
+  },
+
   bruteforce: {
     phase: "CREDS",
     title: "Brute Force / Password Spray",
@@ -4283,38 +4327,81 @@ nxc smb $ip -u user -p 'Password1' 2>/dev/null | grep -v FAILURE`,
 
   hashcrack: {
     phase: "CREDS",
-    title: "Hash Cracking",
-    body: "Identify hash type first — wrong module wastes time. Rules multiply your wordlist effectiveness massively.",
-    cmd: `# Identify
+    title: "Hash Cracking — Offline",
+    body: "5-step methodology: (1) Extract hash, (2) Identify type + format, (3) Estimate cracking time, (4) Prepare wordlist, (5) Attack. Wrong hash mode = wasted time. Always verify the format before running.",
+    cmd: `# ── STEP 1: IDENTIFY HASH TYPE ───────────────────────
 hash-identifier <hash>
 hashid <hash>
-# Or: https://hashes.com/en/tools/hash_identifier
+# Online: https://hashes.com/en/tools/hash_identifier
 
-# Hashcat modules:
-# MD5           = -m 0
-# SHA1          = -m 100
-# NTLM          = -m 1000
-# NetNTLMv2     = -m 5600
-# sha512crypt   = -m 1800   (Linux $6$)
-# bcrypt        = -m 3200
-# Kerberoast    = -m 13100
-# AS-REP        = -m 18200
+# ── STEP 2: FORMAT FOR HASHCAT ────────────────────────
+# Remove any "filename:" prefix added by *2john tools
+# Extra spaces or newlines break cracking — copy carefully
 
-hashcat -m <module> hash.txt /usr/share/wordlists/rockyou.txt
-hashcat -m <module> hash.txt rockyou.txt \\
+# Transform file formats:
+keepass2john Database.kdbx > keepass.hash   # remove "Database:" prefix
+ssh2john id_rsa > ssh.hash                  # remove "id_rsa:" prefix
+zip2john archive.zip > zip.hash
+office2john doc.docx > doc.hash
+
+# ── STEP 3: HASH MODULE REFERENCE ────────────────────
+# MD5              = -m 0
+# SHA1             = -m 100
+# SHA256           = -m 1400
+# NTLM             = -m 1000
+# NetNTLMv2        = -m 5600
+# sha512crypt $6$  = -m 1800   (Linux /etc/shadow)
+# bcrypt $2y$      = -m 3200
+# Kerberoast       = -m 13100
+# AS-REP           = -m 18200
+# KeePass 2 (AES)  = -m 13400
+# SSH key ($6$)    = -m 22921
+# SSH key ($0$)    = -m 22911
+# SSH key ($1/$3$) = -m 22931
+# Find any mode:
+hashcat --help | grep -i "keepass"
+hashcat --help | grep -i "ssh"
+
+# ── STEP 4: BENCHMARK — know your speed ──────────────
+hashcat -b   # benchmark all modes on your hardware
+
+# ── STEP 5: CRACK ─────────────────────────────────────
+# Basic rockyou
+hashcat -m <mode> hash.txt /usr/share/wordlists/rockyou.txt
+
+# With rules — multiply coverage
+hashcat -m <mode> hash.txt rockyou.txt \\
   -r /usr/share/hashcat/rules/best64.rule
-hashcat -m <module> hash.txt rockyou.txt \\
-  -r /usr/share/hashcat/rules/d3ad0ne.rule
+hashcat -m <mode> hash.txt rockyou.txt \\
+  -r /usr/share/hashcat/rules/rockyou-30000.rule   # best for rockyou
+hashcat -m <mode> hash.txt rockyou.txt \\
+  -r /usr/share/hashcat/rules/d3ad0ne.rule         # broad mutations
+hashcat -m <mode> hash.txt rockyou.txt \\
+  -r /usr/share/hashcat/rules/dive.rule            # deepest coverage
 
-# John
+# KeePass — rockyou-30000.rule was made for this
+hashcat -m 13400 keepass.hash rockyou.txt \\
+  -r /usr/share/hashcat/rules/rockyou-30000.rule --force
+
+# SSH private key passphrase
+hashcat -m 22921 ssh.hash rockyou.txt \\
+  -r /usr/share/hashcat/rules/best64.rule --force
+
+# Show cracked result
+hashcat -m <mode> hash.txt --show
+
+# John fallback
 john hash.txt --wordlist=/usr/share/wordlists/rockyou.txt
-john hash.txt --format=NT --wordlist=rockyou.txt`,
-    warn: null,
+john hash.txt --format=NT --wordlist=rockyou.txt
+john hash.txt --show`,
+    warn: "rockyou-30000.rule was built specifically for use with rockyou.txt — use it together. bcrypt and sha512crypt are intentionally slow — GPU gives minimal advantage. For those, a targeted wordlist + rules beats a massive wordlist every time.",
     choices: [
-      { label: "Cracked — got plaintext password", next: "creds_found" },
-      { label: "rockyou failed — try larger list or more rules", next: "hashcrack" },
+      { label: "Cracked — got plaintext", next: "creds_found" },
+      { label: "rockyou failed — build better wordlist", next: "wordlist_build" },
+      { label: "Back to password attacks hub", next: "password_attacks" },
     ],
   },
+
 
   creds_found: {
     phase: "CREDS",
