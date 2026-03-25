@@ -52,6 +52,8 @@ cd ~/results/$IP`,
       { label: "Windows privesc", next: "jump_windows" },
       { label: "Active Directory", next: "jump_ad" },
       { label: "Services & ports", next: "jump_services" },
+      { label: "Windows persistence", next: "persistence" },
+      { label: "LOLBins — Windows built-in abuse", next: "lolbins" },
       { label: "Password attacks hub", next: "password_attacks" },
       { label: "HTTP password brute force", next: "http_brute" },
       { label: "Scan notes — document findings", next: "scan_notes" },
@@ -184,6 +186,7 @@ searchsploit -x <path/to/exploit>`,
       { label: "IDOR", next: "idor" },
       { label: "Command injection", next: "cmd_injection" },
       { label: "WordPress", next: "wordpress" },
+      { label: "SSTI — template injection", next: "ssti" },
       { label: "Login page — brute / bypass", next: "login_page" },
       { label: "HTTP password brute force", next: "http_brute" },
       { label: "Subdomain enumeration", next: "subdomain_enum" },
@@ -1663,7 +1666,24 @@ impacket-dpapi backupkeys --export -t domain/admin:'pass'@$IP`,
     phase: "SHELL",
     title: "Buffer Overflow (Windows x86)",
     body: "Stack-based BOF: fixed buffer on stack, input larger than buffer overwrites adjacent memory including the return address. When the function ends, ret pops return address into EIP — control that value, control execution. Flow: (1) large buffer triggers overflow, (2) padding fills to exact offset, (3) return address overwritten with JMP ESP gadget, (4) JMP ESP redirects to ESP which points into shellcode on the stack. ASLR/DEP are out of scope for PEN-200 BOF exercises.",
-    cmd: `# -- FUZZ — find crash length -----------------
+    cmd: `# ── GEF — modern GDB for Linux BOF (Kali 2026.1) ────
+# Install: pip3 install gef --break-system-packages
+# Or: bash -c "$(curl -fsSL https://gef.blah.cat/sh)"
+gdb -q ./vulnerable_binary
+# In GDB with GEF:
+gef➤  pattern create 200    # generate cyclic pattern
+gef➤  run                   # crash it
+gef➤  pattern offset $eip   # find offset automatically
+gef➤  checksec              # ASLR/NX/PIE/stack canary check
+gef➤  info functions        # list all functions
+gef➤  disas main            # disassemble
+gef➤  x/32wx $esp           # examine stack
+
+# Immunity Debugger (Windows BOF) — still the standard on OSCP
+# !mona findmsp             # find EIP offset
+# !mona jmp -r esp          # find JMP ESP
+
+# -- FUZZ — find crash length -----------------
 python3 -c "print(\'A\' * 2000)" | nc $IP <PORT>
 # Increment by 100 until crash
 
@@ -2923,70 +2943,118 @@ enum4linux-ng $IP
   web_enum: {
     phase: "WEB",
     title: "Web Enumeration",
-    body: "Web is open. Start fast with raft, escalate to dirbuster if stuck. They come from different sources — raft from real website crawl data, dirbuster from pentest experience. OSCP boxes often need both.",
-    cmd: `# -- WORDLIST DECISION TREE ---------------------------
-# raft-medium-directories (30k) — real crawl data, fast, clean
-#   → use first, always
-# directory-list-2.3-medium (220k) — pentest-derived, broader
-#   → escalate if raft finds nothing — covers CTF/legacy paths
-# raft-medium-files (real filenames) — for file pass only
-#   → NOT the dirbuster list — that's dirs only, no extensions
-# common.txt (4k) — quick sanity check, not thorough
-# CMS-specific lists — once you know the tech stack
+    body: "Start fast with raft, escalate to dirbuster if stuck. feroxbuster is recursive by default — it finds a dir then automatically fuzzes inside it. No /FUZZ needed, no trailing slash needed. Two separate passes: dirs first, then files.",
+    cmd: `# ── HOW FEROXBUSTER WORKS ────────────────────────────
+# feroxbuster -u http://$ip  ← no trailing slash needed, no /FUZZ
+# Recursive by default — finds /admin, auto-scans /admin/
+# -d controls depth (default: 4)
+# -n disables recursion for flat scan only
+# -x appends extensions to every word — use with files wordlist
+# --extract-links crawls response bodies for linked content too
+# --filter-similar-to filters wildcard responses (box returns 200 for everything)
 
-# -- Pass 1: Directories — start here -----------------
-# raft first — fast, good signal
-feroxbuster -u http://$ip \
-  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \
-  --depth 3 -o scans/ferox_dirs_raft.txt
+# ── WORDLIST DECISION TREE ────────────────────────────
+# raft-medium-directories (30k)  → dirs pass, always start here
+# raft-medium-files (real names) → files pass, different wordlist
+# directory-list-2.3-medium (220k) → escalate if raft finds nothing
+# dirbuster lists = dirs ONLY, no extensions — never use for files
 
-# -- Pass 2: Files — separate pass, different wordlist -
-# raft-medium-files has actual filenames with extensions
-# dirbuster lists are directories only — don't use for files
-feroxbuster -u http://$ip \
-  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \
-  --depth 3 -o scans/ferox_files.txt
+# ── PASS 1: DIRECTORIES ───────────────────────────────
+# raft-medium-directories = directory names without extensions
+# feroxbuster recurses into found dirs automatically
+feroxbuster -u http://$ip \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -d 3 --extract-links -o scans/ferox_dirs_raft.txt
 
-# -- Pass 3: Escalate — if raft found nothing ----------
-# directory-list-2.3-medium is 7x larger, slower
-# covers obscure paths, legacy apps, CTF-style names
-# this is why it finds things raft misses on OSCP boxes
-feroxbuster -u http://$ip \
-  -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \
-  --depth 3 -o scans/ferox_dirs_dirbuster.txt
+# HTTPS target (self-signed cert)
+feroxbuster -u https://$ip -k \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -d 3 --extract-links -o scans/ferox_dirs_raft.txt
 
-# -- Pass 4: Extensions on known dirs -----------------
-# once a dir is found, target it specifically
-feroxbuster -u http://$ip/FOUND_DIR \
-  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \
-  -x php,html,txt,bak,old,zip --depth 2 -o scans/ferox_ext.txt
+# Wildcard filter — if box returns 200 for everything
+# First get a wildcard URL to filter against:
+feroxbuster -u http://$ip \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  --filter-similar-to http://$ip/doesnotexist123 \\
+  -d 3 -o scans/ferox_dirs_raft.txt
 
-# -- gobuster — fast single-pass fallback --------------
-gobuster dir -u http://$ip \
-  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \
-  -t 40 -o scans/gobuster_raft.txt
-# escalate:
-gobuster dir -u http://$ip \
-  -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \
-  -t 40 -o scans/gobuster_dirbuster.txt
+# ── PASS 2: FILES ─────────────────────────────────────
+# raft-medium-files = actual filenames WITH extensions
+# (config.php, index.bak, login.html etc)
+feroxbuster -u http://$ip \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
+  -d 3 -o scans/ferox_files.txt
 
-# -- ffuf — false positive filtering ------------------
-# baseline first: note size of a known 404
+# ── PASS 3: TARGETED EXTENSIONS ON KNOWN DIR ─────────
+# once Pass 1 finds /admin, run extensions against it specifically
+feroxbuster -u http://$ip/FOUND_DIR \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
+  -x php,html,txt,bak,old,zip -d 2 -o scans/ferox_ext.txt
+
+# ── PASS 4: ESCALATE — if raft found nothing ──────────
+# directory-list-2.3-medium is 7x larger, pentest-derived
+# finds CTF paths, legacy app dirs, obscure endpoints
+feroxbuster -u http://$ip \\
+  -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \\
+  -d 3 -o scans/ferox_dirs_dirbuster.txt
+
+# ── VHOST FUZZING ─────────────────────────────────────
+# Virtual host enum — same IP, different Host header = different app
+# Get baseline first (size of response with unknown host)
+curl -s -H "Host: doesnotexist.example.com" http://$ip -o /dev/null -w "%{size_download}\n"
+
+# ffuf vhost fuzz — filter baseline size
+ffuf -u http://$ip \\
+  -H "Host: FUZZ.$domain" \\
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\
+  -fs BASELINE_SIZE -o scans/ffuf_vhosts.txt
+
+# If domain unknown — try common patterns
+ffuf -u http://$ip \\
+  -H "Host: FUZZ" \\
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\
+  -fs BASELINE_SIZE
+
+# gobuster vhost mode
+gobuster vhost -u http://$ip \\
+  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\
+  --append-domain -t 40
+
+# Add found vhosts to /etc/hosts then enumerate each
+echo "$ip found.domain.com" | sudo tee -a /etc/hosts
+feroxbuster -u http://found.domain.com \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -d 3 -o scans/ferox_vhost.txt
+
+# ── GOBUSTER — fast single-pass fallback ──────────────
+gobuster dir -u http://$ip \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -t 40 -o scans/gobuster_dirs.txt
+gobuster dir -u http://$ip \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
+  -t 40 -o scans/gobuster_files.txt
+
+# ── FFUF — fine-grained control ───────────────────────
 curl http://$ip/doesnotexist123 -s -o /dev/null -w "%{size_download}\n"
-ffuf -u http://$ip/FUZZ \
-  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \
+ffuf -u http://$ip/FUZZ \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
   -mc 200,301,302,403 -fs BASELINE_SIZE -o scans/ffuf_dirs.txt
-ffuf -u http://$ip/FUZZ \
-  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \
+ffuf -u http://$ip/FUZZ \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
   -mc 200,301,302 -fs BASELINE_SIZE -o scans/ffuf_files.txt
+# files in a known dir:
+ffuf -u http://$ip/FOUND_DIR/FUZZ \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
+  -mc 200,301,302 -fs BASELINE_SIZE
 
-# -- Tech fingerprint ----------------------------------
-nikto -h http://$ip -o scans/nikto.txt
+# ── TECH FINGERPRINT ──────────────────────────────────
 whatweb http://$ip
 curl -sv http://$ip 2>&1 | grep -i "server\\|x-powered\\|set-cookie\\|location"
 curl http://$ip/robots.txt
-curl http://$ip/sitemap.xml`,
-    warn: "If raft finds nothing — don't give up, escalate to directory-list-2.3-medium. OSCP boxes frequently use paths that only appear in the larger pentest-derived list. raft's strength is real web paths; its weakness is anything obscure or CTF-invented. Never use the dirbuster list for file enumeration — it has no extensions.",
+curl http://$ip/sitemap.xml
+# nikto is slow and noisy — background it or run last
+nikto -h http://$ip -o scans/nikto.txt &`,
+    warn: "feroxbuster recurses automatically — no trailing slash or /FUZZ needed. If every path returns 200, use --filter-similar-to with a known-bad URL to filter wildcards. If raft finds nothing escalate to directory-list-2.3-medium — OSCP boxes frequently hide paths there. Vhost fuzzing is often the hidden path — always check when you have a domain name or SSL cert CN.",
     choices: [
       { label: "Found WordPress", next: "wordpress" },
       { label: "Found login page", next: "login_page" },
@@ -2997,10 +3065,12 @@ curl http://$ip/sitemap.xml`,
       { label: "Grafana on 3000", next: "grafana" },
       { label: "Splunk on 8000/8089", next: "splunkd" },
       { label: "URL has parameter (?id=1, ?page=, ?file=)", next: "param_found" },
+      { label: "Found vhost / subdomain", next: "subdomain_enum" },
       { label: "Nothing obvious — fuzz deeper", next: "web_fuzz_deep" },
-      { label: "Found interesting subdomain", next: "subdomain_enum" },
     ],
   },
+
+
 
 
   subdomain_enum: {
@@ -3028,6 +3098,12 @@ echo "$IP sub.domain.org" >> /etc/hosts`,
     title: "Deep Web Fuzzing",
     body: "Go wider and deeper. Parameter brute force, LFI testing, XSS, command injection wordlists. Use wfuzz for fine-grained control.",
     cmd: `# Parameter brute force
+# XSStrike — advanced XSS scanner (Kali 2026.1)
+xsstrike -u "http://$ip/page?param=test"
+xsstrike -u "http://$ip/page?param=test" --crawl
+xsstrike -u "http://$ip/page?param=test" --blind
+# --blind for blind XSS (out-of-band callback)
+
 wfuzz -c -z file,/opt/SecLists/Discovery/Web-Content/burp-parameter-names.txt \\
   --hc 404 "http://$IP/page?FUZZ=test"
 
