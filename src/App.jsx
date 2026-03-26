@@ -5167,8 +5167,8 @@ Get-History
 # Transcript files = over-the-shoulder recording of PS sessions
 # Often contain plaintext passwords from PSCredential creation
 # Common locations:
-Get-ChildItem -Path C:\\Users -Include *transcript* -Recurse -EA SilentlyContinue
-Get-ChildItem -Path C:\\Users\\Public -Recurse -EA SilentlyContinue
+Get-ChildItem -Path C:\\Users -Include *transcript* -Recurse -ErrorAction SilentlyContinue
+Get-ChildItem -Path C:\\Users\\Public -Recurse -ErrorAction SilentlyContinue
 type C:\\Users\\Public\\Transcripts\\transcript01.txt
 # Also check:
 # C:\Users\<user>\Documents\PowerShell_transcript.<host>.<random>.<timestamp>.txt
@@ -5194,17 +5194,17 @@ reg query HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInsta
 reg query HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated
 
 # ── STEP 14: CREDENTIAL FILES ─────────────────────────
-Get-ChildItem -Path C:\ -Include unattend.xml,sysprep.xml,sysprep.inf -Recurse -EA SilentlyContinue
+Get-ChildItem -Path C:\ -Include unattend.xml,sysprep.xml,sysprep.inf -Recurse -ErrorAction SilentlyContinue
 type C:\\Windows\\Panther\\Unattend.xml
 type C:\\Windows\\System32\\sysprep\\sysprep.xml
 type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\FileZilla\\sitemanager.xml
 type C:\\xampp\\mysql\\bin\\my.ini
-Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -EA SilentlyContinue | Get-Content
+Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -ErrorAction SilentlyContinue | Get-Content
 Get-ChildItem Env: | Select Name,Value
 
 # ── STEP 15: GRAB FLAGS ───────────────────────────────
 type C:\\Users\\$env:USERNAME\\Desktop\\local.txt
-Get-ChildItem -Path C:\\Users -Include local.txt,proof.txt -Recurse -EA SilentlyContinue | Get-Content
+Get-ChildItem -Path C:\\Users -Include local.txt,proof.txt -Recurse -ErrorAction SilentlyContinue | Get-Content
 
 # ── HIGH VALUE TARGETS ────────────────────────────────
 # PSReadline history -> passwords typed in commands
@@ -5432,18 +5432,24 @@ impacket-secretsdump -sam sam -system system LOCAL
 # Always re-enumerate after gaining a new user
 
 # Search for KeePass databases
-Get-ChildItem -Path C:\ -Include *.kdbx -File -Recurse -EA SilentlyContinue
+Get-ChildItem -Path C:\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue
 
 # Search XAMPP config files
-Get-ChildItem -Path C:\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -EA SilentlyContinue
+Get-ChildItem -Path C:\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
 type C:\\xampp\\passwords.txt
 type C:\\xampp\\mysql\\bin\\my.ini
 
-# Search user home dirs for documents
-Get-ChildItem -Path C:\\Users\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -EA SilentlyContinue
+# Search user home dirs for documents (Module 17 pattern)
+Get-ChildItem -Path C:\\\\Users\\<username>\\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue
+
+# Specific user (swap dave for actual username)
+Get-ChildItem -Path C:\\\\Users\\dave\\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue
+
+# All users
+Get-ChildItem -Path C:\\\\Users\\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue
 
 # Broad password file search
-Get-ChildItem -Path C:\ -Include *pass*,*cred*,*secret*,*vnc*,*.kdbx,*config*,*unattend* -File -Recurse -EA SilentlyContinue
+Get-ChildItem -Path C:\ -Include *pass*,*cred*,*secret*,*vnc*,*.kdbx,*config*,*unattend* -File -Recurse -ErrorAction SilentlyContinue
 
 # cmd-style search
 dir /s /b C:\\Users\\*.xml
@@ -5483,7 +5489,7 @@ netsh wlan show profile <SSID> key=clear
 type C:\\Windows\\Panther\\Unattend.xml
 type C:\\Windows\\System32\\sysprep\\sysprep.xml
 type C:\\xampp\\phpMyAdmin\\config.inc.php
-Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -EA SilentlyContinue | Get-Content`,
+Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -ErrorAction SilentlyContinue | Get-Content`,
     warn: "Pattern: dave cant read a file, steve can, finds admin creds. ALWAYS re-enumerate after gaining access as a new user. Password reuse is extremely common on OSCP boxes.",
     choices: [
       { label: "Found NTLM hash — Pass the Hash", next: "pth" },
