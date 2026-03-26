@@ -5138,6 +5138,17 @@ Get-ChildItem "C:\\Program Files", "C:\\Program Files (x86)" | select Name
 
 # ── STEP 7: RUNNING PROCESSES ─────────────────────────
 Get-Process
+# Cross-ref PIDs with netstat
+
+# Get full binary path for each process — spot non-standard ones
+Get-Process | Sort-Object ProcessName | Select Id,ProcessName,Path
+
+# Find non-standard processes — filter out Windows + Program Files
+Get-Process | Select Id,ProcessName,Path | Where Path -notlike "*Windows*" | Where Path -notlike "*Program Files*"
+
+# Once you spot something unusual — get its directory and check for flags
+Get-Process -Name NonStandardProcess | Select -Expand Path
+# Then: Get-ChildItem "C:\path\to\dir\\" | type local.txt
 
 # ── STEP 8: SCHEDULED TASKS ───────────────────────────
 schtasks /query /fo LIST /v
