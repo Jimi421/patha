@@ -16,13 +16,24 @@ const methods = [
 ];
 
 const protocols = [
-  { id: "smb", label: "SMB", port: "445", tools: "smbclient -p {lport} //{host}/ -U {user} --password={pass}\ncrackmapexec smb {host} -p {lport} -u {user} -p {pass}" },
-  { id: "ssh", label: "SSH", port: "22", tools: "ssh {user}@{host} -p {lport}\n# Through SOCKS proxy (ncat required):\nssh -o ProxyCommand='ncat --proxy-type socks5 --proxy 127.0.0.1:1080 %h %p' {user}@{host}\n# Install ncat if missing: sudo apt install ncat" },
-  { id: "rdp", label: "RDP", port: "3389", tools: "xfreerdp /u:{user} /p:{pass} /v:{host}:{lport}" },
-  { id: "http", label: "HTTP", port: "80", tools: "curl http://{host}:{lport}\nferoxbuster -u http://{host}:{lport}" },
-  { id: "postgres", label: "PostgreSQL", port: "5432", tools: "psql -h {host} -p {lport} -U postgres" },
-  { id: "mysql", label: "MySQL", port: "3306", tools: "mysql -h {host} -P {lport} -u root -p" },
-  { id: "winrm", label: "WinRM", port: "5985", tools: "evil-winrm -i {host} -P {lport} -u {user} -p {pass}" },
+  { id: "scan", label: "Recon / Scan", port: "", tools:
+    "# proxychains nmap (may show filtered on 4.17 — use nc loop if so):\nproxychains nmap -sT -Pn -n --top-ports=20 {host}\n\n# nc loop — works when nmap shows everything filtered (proxychains 4.17 bug):\nfor port in $(seq 1 1024); do\n  proxychains nc -zv -w1 {host} $port 2>&1 | grep -i \"open\\|succeeded\"\ndone\n\n# Specific range:\nfor port in $(seq 9000 9100); do\n  proxychains nc -zv -w1 {host} $port 2>&1 | grep -i \"open\\|succeeded\"\ndone" },
+  { id: "ssh", label: "SSH → Shell", port: "22", tools:
+    "# Direct (port-forward methods):\nssh {user}@{host} -p {lport}\n\n# Through SOCKS (ncat ProxyCommand):\nssh -o ProxyCommand='ncat --proxy-type socks5 --proxy 127.0.0.1:1080 %h %p' {user}@{host}\n# sudo apt install ncat  (if missing)" },
+  { id: "winrm", label: "WinRM → Shell", port: "5985", tools:
+    "evil-winrm -i {host} -P {lport} -u {user} -p {pass}" },
+  { id: "rdp", label: "RDP → Shell", port: "3389", tools:
+    "xfreerdp /u:{user} /p:{pass} /v:{host}:{lport} /cert-ignore" },
+  { id: "smb", label: "SMB → Shell", port: "445", tools:
+    "# Enum shares:\nsmbclient -L //{host}/ -U {user} --password={pass}\ncrackmapexec smb {host} -u {user} -p {pass} --shares\n\n# Shell via psexec (needs admin):\nimpacket-psexec {user}:{pass}@{host}\nimpacket-smbexec {user}:{pass}@{host}\n\n# Through SOCKS:\nproxychains impacket-psexec {user}:{pass}@{host}" },
+  { id: "mssql", label: "MSSQL → Shell", port: "1433", tools:
+    "# Connect:\nimpacket-mssqlclient {user}:{pass}@{host} -port {lport}\n# Through SOCKS:\nproxychains impacket-mssqlclient {user}:{pass}@{host}\n\n# Enable xp_cmdshell for shell:\nEXEC sp_configure 'show advanced options', 1; RECONFIGURE;\nEXEC sp_configure 'xp_cmdshell', 1; RECONFIGURE;\nEXEC xp_cmdshell 'whoami';" },
+  { id: "http", label: "HTTP / Web", port: "80", tools:
+    "curl http://{host}:{lport}\nferoxbuster -u http://{host}:{lport}\n# Through SOCKS:\nproxychains curl http://{host}:{lport}\nproxychains feroxbuster -u http://{host}:{lport}" },
+  { id: "postgres", label: "PostgreSQL", port: "5432", tools:
+    "psql -h {host} -p {lport} -U postgres\n# Through SOCKS:\nproxychains psql -h {host} -p {lport} -U postgres" },
+  { id: "nfs", label: "NFS", port: "2049", tools:
+    "showmount -e {host}\nmkdir /tmp/nfs && mount -t nfs {host}:/ /tmp/nfs -o nolock\n# Through SOCKS:\nproxychains showmount -e {host}" },
   { id: "custom", label: "Custom", port: "", tools: "" },
 ];
 
@@ -336,12 +347,25 @@ export default function PivotCalc() {
   const toolHost = socks ? (f.targetIp||"<target>") : (f.pivotExtIp||"<pivot>");
   const toolPort = socks ? (f.targetPort||"<port>") : (f.listenPort||"4455");
 
+  // For scan protocol — use subnet not single host
+  const scanSubnet = f.targetIp
+    ? f.targetIp.split('.').slice(0,3).join('.') + '.0/24'
+    : "<target_subnet>/24";
+  const scanHost = proto === "scan"
+    ? (socks ? scanSubnet : f.pivotExtIp||"<pivot>")
+    : toolHost;
+
   const toolsRaw = selProto?.tools
-    ?.replace(/{host}/g, toolHost)
+    ?.replace(/{host}/g, scanHost)
     ?.replace(/{lport}/g, toolPort)
     ?.replace(/{user}/g, f.pivotUser||"user")
     ?.replace(/{pass}/g, f.pivotPass||"<pass>");
-  const tools = socks && toolsRaw ? toolsRaw.split('\n').map(l=>`proxychains ${l}`).join('\n') : toolsRaw;
+
+  // Scan protocol — don't blindly prepend proxychains to every line
+  // nc loop lines already have proxychains in them
+  const tools = (socks && toolsRaw && proto !== "scan")
+    ? toolsRaw.split('\n').map(l=>l.trim() && !l.startsWith('#') && !l.startsWith('proxychains') ? `proxychains ${l}` : l).join('\n')
+    : toolsRaw;
 
   const pcConf = `# /etc/proxychains4.conf — replace [ProxyList] at bottom:\nsocks5 ${pcHost} ${f.socksPort||"9999"}\n\n# Speed up nmap scans:\ntcp_read_time_out 800\ntcp_connect_time_out 700`;
 

