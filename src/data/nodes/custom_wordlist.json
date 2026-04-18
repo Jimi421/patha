@@ -1,0 +1,26 @@
+{
+  "id": "custom_wordlist",
+  "phase": "RECON",
+  "title": "Custom Wordlist Generation",
+  "body": "Rockyou fails when the password is application-specific or site-related. Generate custom wordlists from the target itself. CeWL scrapes the website. Username mutation covers credential stuffing. Crunch generates pattern-based lists.",
+  "cmd": "# -- CEWL — SCRAPE TARGET WEBSITE ---------\n# Generates wordlist from words found on the target site\ncewl http://$ip -d 3 -m 5 -w /tmp/cewl_wordlist.txt\n# -d 3 = crawl depth 3\n# -m 5 = minimum word length 5\n\n# With authentication\ncewl http://$ip -d 3 -m 5   --auth_type basic --auth_user admin --auth_pass password   -w /tmp/cewl_auth.txt\n\n# Include email addresses found\ncewl http://$ip -d 2 -e -w /tmp/cewl_emails.txt\n\n# -- USERNAME GENERATION -------------------\n# From a name list (First Last format):\n# Use username-anarchy or custom script\ncat names.txt | while read line; do\n  first=$(echo $line | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')\n  last=$(echo $line | cut -d' ' -f2 | tr '[:upper:]' '[:lower:]')\n  echo \"$first\"\n  echo \"$last\"\n  echo \"${first}.${last}\"\n  echo \"${first}${last}\"\n  echo \"${first:0:1}${last}\"\n  echo \"${first:0:1}.${last}\"\ndone > /tmp/usernames.txt\n\n# username-anarchy tool\nusername-anarchy -i names.txt > /tmp/usernames.txt\n\n# -- CRUNCH — PATTERN-BASED ----------------\n# Syntax: crunch [min] [max] [charset] -t [pattern] -o [file]\n\n# All 8-char lowercase\ncrunch 8 8 abcdefghijklmnopqrstuvwxyz -o /tmp/8char.txt\n\n# Pattern: Company + 4 digits (e.g. Corp1234)\ncrunch 8 8 -t Corp%%%% -o /tmp/corp_pass.txt\n\n# Pattern: Month + Year (Jan2023)\ncrunch 7 7 -t @@@%%%%   -p Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec   -o /tmp/months.txt\n\n# -- HASHCAT RULES ON WORDLIST -------------\n# Mutate cewl output with rules\nhashcat cewl_wordlist.txt -r /usr/share/hashcat/rules/best64.rule   --stdout > /tmp/mutated.txt\n\nhashcat cewl_wordlist.txt   -r /usr/share/hashcat/rules/dive.rule   --stdout > /tmp/mutated_dive.txt\n\n# -- LFI WORDLISTS -------------------------\n# Linux LFI\nls /opt/SecLists/Fuzzing/LFI/\n# Best: LFI-Jhaddix.txt (combined), LFI-gracefulsecurity-linux.txt\n\n# Windows LFI — specific to Windows paths\n/opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-windows.txt\n# Contains: C:Windowswin.ini, web.config, applicationHost.config, etc.\n\n# Use with ffuf:\nffuf -u \"http://$ip/page?file=FUZZ\"   -w /opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-windows.txt   -fw 0 -mc 200\n\n# -- WEB DIRECTORY WORDLISTS ---------------\n# Fast (CTF/exam): raft-medium-directories.txt\n# Thorough: directory-list-2.3-medium.txt\n# API endpoints: api/actions.txt, burp-parameter-names.txt\n# Backup files: /opt/SecLists/Discovery/Web-Content/raft-medium-extensions.txt\n\n# -- COMBINE WORDLISTS ---------------------\ncat rockyou.txt cewl_wordlist.txt | sort -u > /tmp/combined.txt",
+  "warn": "CeWL on a company portal often produces the exact password format used internally — CompanyName + year or product names. Run it before rockyou on any corporate-looking application.",
+  "choices": [
+    {
+      "label": "Wordlist ready — brute force login",
+      "next": "bruteforce"
+    },
+    {
+      "label": "Wordlist ready — LFI fuzzing",
+      "next": "lfi"
+    },
+    {
+      "label": "Wordlist ready — directory fuzzing",
+      "next": "web_fuzz_deep"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

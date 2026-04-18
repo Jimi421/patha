@@ -1,0 +1,26 @@
+{
+  "id": "analyze_versions",
+  "phase": "ANALYSIS",
+  "title": "Version Analysis — Is This Exploitable?",
+  "body": "A version number is a gift. Most people searchsploit it once and move on. Do it properly — cross-reference multiple sources, understand what the exploit actually does before you run it.",
+  "cmd": "# -- SEARCHSPLOIT -------------------------\nsearchsploit [service] [version]\nsearchsploit -x [exploit/path]   # read before running\n\n# -- CROSS-REFERENCE ----------------------\n# NVD: https://nvd.nist.gov/vuln/search\n# ExploitDB: https://www.exploit-db.com\n# GitHub: site:github.com [service] [version] exploit\n# PacketStorm: packetstormsecurity.com\n\n# -- VERSION READING TIPS ------------------\n# nmap shows: Apache httpd 2.4.49\n#   searchsploit apache 2.4.49   → CVE-2021-41773 path traversal/RCE\n#\n# nmap shows: OpenSSH 7.2p2\n#   searchsploit openssh 7.2     → user enumeration (less useful)\n#   but 7.2 on Ubuntu = Ubuntu 16.04 = kernel exploit candidates\n#\n# nmap shows: Samba 4.x.x\n#   check if < 4.6.4 → SambaCry (CVE-2017-7494)\n#   check if 3.x → very old, many exploits\n#\n# nmap shows: Microsoft IIS 10.0\n#   IIS 10 = Windows Server 2016/2019 or Windows 10\n#   look for WebDAV, PUT upload, ASPX execution\n\n# -- EXPLOIT QUALITY CHECK ----------------\n# Before running any exploit ask:\n# 1. Does the version match EXACTLY? (2.4.49 ≠ 2.4.50)\n# 2. Is there a Metasploit module? (fastest to test)\n# 3. Is the PoC Python 2 or 3? (check shebang line)\n# 4. Does it need modification? (LHOST/LPORT/target URL)\n# 5. What does success look like? (RCE? file read? DoS?)\n# 6. Will it crash the service? (avoid on OSCP — limited attempts)",
+  "warn": "Version numbers in nmap are detected by banners — services can lie or be misconfigured. If searchsploit returns nothing, try one version up and one version down. Banners are not always accurate.",
+  "choices": [
+    {
+      "label": "Found a CVE — test it",
+      "next": "searchsploit_web"
+    },
+    {
+      "label": "No CVE — back to attack surface priority",
+      "next": "analyze_multiservice"
+    },
+    {
+      "label": "Web version — enumerate the app instead",
+      "next": "web_enum"
+    },
+    {
+      "label": "SMB version — check MS17-010",
+      "next": "smb_enum"
+    }
+  ]
+}

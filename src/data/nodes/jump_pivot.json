@@ -1,0 +1,46 @@
+{
+  "id": "jump_pivot",
+  "phase": "JUMP",
+  "title": "Pivoting & Tunnels — Jump Menu",
+  "body": "Jump directly to a tunneling technique.",
+  "cmd": "# Pivot reference index",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Pivot strategy — map the network",
+      "next": "pivot_start"
+    },
+    {
+      "label": "Ligolo-ng tunnel",
+      "next": "ligolo"
+    },
+    {
+      "label": "SSH tunnel / SOCKS proxy",
+      "next": "ssh_tunnel"
+    },
+    {
+      "label": "Chisel tunnel",
+      "next": "chisel"
+    },
+    {
+      "label": "Manual socat / netsh port forward",
+      "next": "manual_portfwd"
+    },
+    {
+      "label": "Double pivot — chain through two hosts",
+      "next": "double_pivot"
+    },
+    {
+      "label": "Internal host discovery (post-pivot)",
+      "next": "pivot_discovery"
+    },
+    {
+      "label": "Port scan through tunnel",
+      "next": "pivot_portscan"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

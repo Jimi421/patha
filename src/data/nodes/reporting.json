@@ -1,0 +1,50 @@
+{
+  "id": "reporting",
+  "phase": "REPORT",
+  "title": "Documentation — The Path",
+  "body": "Structure your notes around MITRE ATT&CK tactics. Walk each tactic in order — it forces completeness and produces a report that speaks the language of every SOC, client, and hiring manager. Document AS YOU GO. OffSec has failed candidates with all flags for insufficient evidence.",
+  "cmd": "# Set up your machine folder NOW — before you hack\nmkdir -p ~/results/$ip/{scans,exploits,loot,screenshots,tunnels}\n\n# ATT&CK Tactic flow for each machine:\n# TA0043 → Reconnaissance\n# TA0001 → Initial Access\n# TA0002 → Execution\n# TA0004 → Privilege Escalation\n# TA0006 → Credential Access      (if applicable)\n# TA0008 → Lateral Movement       (if applicable)\n# TA0007 → Discovery              (post-shell enum)\n# TA0040 → Impact                 (flags)\n\n# Minimum screenshots per machine: 4\n# foothold + local.txt + privesc vector + proof.txt",
+  "warn": "Do not wait until the end to write notes. You will forget the middle — the middle is what OffSec grades.",
+  "choices": [
+    {
+      "label": "TA0043 — Reconnaissance",
+      "next": "doc_recon"
+    },
+    {
+      "label": "TA0001 — Initial Access",
+      "next": "doc_initial_access"
+    },
+    {
+      "label": "TA0004 — Privilege Escalation",
+      "next": "doc_privesc"
+    },
+    {
+      "label": "TA0006 — Credential Access",
+      "next": "doc_cred_access"
+    },
+    {
+      "label": "TA0008 — Lateral Movement",
+      "next": "doc_lateral"
+    },
+    {
+      "label": "TA0040 — Impact (flags)",
+      "next": "doc_impact"
+    },
+    {
+      "label": "Final submission checklist",
+      "next": "doc_submit"
+    },
+    {
+      "label": "Report writing structure",
+      "next": "report_writing"
+    },
+    {
+      "label": "Note-taking setup (Obsidian)",
+      "next": "note_setup"
+    },
+    {
+      "label": "Back to hacking",
+      "next": "start"
+    }
+  ]
+}

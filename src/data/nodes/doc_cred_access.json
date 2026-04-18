@@ -1,0 +1,18 @@
+{
+  "id": "doc_cred_access",
+  "phase": "REPORT",
+  "title": "TA0006 — Credential Access",
+  "body": "Document every credential found — hashes, plaintext, tokens, keys. These often chain into lateral movement. Even creds you didn't use are worth noting for the report.",
+  "cmd": "# TA0006 Credential Access — note template\n# Technique IDs to reference:\n#   T1003.001 — LSASS Memory (mimikatz, pypykatz)\n#   T1003.002 — SAM (reg save + impacket)\n#   T1003.003 — NTDS.dit (domain controller)\n#   T1003.006 — DCSync\n#   T1552.001 — Credentials in Files\n#   T1552.004 — Private Keys (SSH keys, PEM)\n#   T1558.003 — Kerberoasting\n#   T1558.004 — AS-REP Roasting\n\n## Credential Access — $ip\n\nMethod: [mimikatz / secretsdump / file search / kerberoast / etc.]\nTechnique: T1003.001 / T1552.001 / T1558.003 (pick closest)\n\n## Credentials Found\n| Type     | Username | Value                    | Cracked? |\n|----------|----------|--------------------------|----------|\n| NTLM     | admin    | aad3b435b51404ee...      | Y: Pass1 |\n| SSH Key  | root     | /home/user/.ssh/id_rsa   | N/A      |\n| Plaintext| svc_sql  | Winter2023!              | N/A      |\n\n## Cracking Commands Used\nhashcat -m 1000 hashes.txt /usr/share/wordlists/rockyou.txt\njohn --format=NT hashes.txt --wordlist=rockyou.txt\n\n## Evidence\n- Screenshot: dump command + output\n- Screenshot: cracked hash result\n- File: ~/results/$ip/loot/hashes.txt",
+  "warn": "Never paste real credentials into a report without client approval — mask with [REDACTED] in deliverables. For the OSCP exam, show the full value.",
+  "choices": [
+    {
+      "label": "TA0008 — Lateral Movement",
+      "next": "doc_lateral"
+    },
+    {
+      "label": "Back to tactic index",
+      "next": "reporting"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "start",
+  "phase": "RECON",
+  "title": "Engagement Start",
+  "body": "Set your variables first — every command references them. What is your current situation?",
+  "cmd": "export ip=10.10.10.10\nexport subnet=192.168.185.0/24\nexport lhost=10.10.14.x\nexport lport=443\nexport domain=domain.com\n\nmkdir -p ~/results/$ip/{scans,exploits,loot,screenshots,tunnels}\ncd ~/results/$ip",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Single target IP — full port scan",
+      "next": "full_portscan"
+    },
+    {
+      "label": "Subnet — need to find live hosts first",
+      "next": "host_discovery"
+    },
+    {
+      "label": "Got a shell — need to pivot deeper",
+      "next": "pivot_start"
+    },
+    {
+      "label": "Documentation — ATT&CK structured notes",
+      "next": "reporting"
+    },
+    {
+      "label": "Documentation — Report writing",
+      "next": "report_writing"
+    },
+    {
+      "label": "I am stuck / spinning / losing time",
+      "next": "mindset_stuck"
+    },
+    {
+      "label": "Pre-exam setup — before the clock starts",
+      "next": "mindset_preexam"
+    },
+    {
+      "label": "Jump to technique — skip the flow",
+      "next": "jump_menu"
+    }
+  ]
+}

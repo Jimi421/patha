@@ -1,0 +1,18 @@
+{
+  "id": "doc_recon",
+  "phase": "REPORT",
+  "title": "TA0043 — Reconnaissance",
+  "body": "Document every service you identified and how. This section justifies your attack path — reviewers need to see that you found the vulnerability through methodical enumeration, not luck.",
+  "cmd": "# TA0043 Reconnaissance — note template\n# Technique IDs to reference:\n#   T1595 — Active Scanning (nmap, masscan)\n#   T1592 — Gather Host Information (service versions)\n#   T1590 — Gather Network Information (DNS, subnet mapping)\n#   T1046 — Network Service Discovery\n\n## Recon Summary for $ip\nHost: $ip\nOS Guess: [Linux/Windows + version]\nOpen Ports: [list]\n\n## Services Identified\n| Port | Service | Version | Notes |\n|------|---------|---------|-------|\n| 80   | HTTP    | Apache 2.4.49 | CVE-2021-41773 candidate |\n| 445  | SMB     | Samba 4.x     | Anonymous auth? Y/N |\n\n## Key Findings\n- [What stood out — outdated version, misconfig, anonymous access]\n- [Why you chose the attack path you did]\n\n## Evidence\n- Screenshot: nmap full scan output\n- Screenshot: service version banner\n- File: ~/results/$ip/full.txt",
+  "warn": "Version numbers matter — 'Apache on port 80' fails. 'Apache 2.4.49 on port 80, CVE-2021-41773 confirmed' passes.",
+  "choices": [
+    {
+      "label": "TA0001 — Initial Access",
+      "next": "doc_initial_access"
+    },
+    {
+      "label": "Back to tactic index",
+      "next": "reporting"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "manual_portfwd",
+  "phase": "PIVOT",
+  "title": "Manual Port Forward",
+  "body": "No binary uploads possible. socat on Linux, netsh on Windows. One port at a time.",
+  "cmd": "# ── SOCAT PORT FORWARD ───────────────────────────────\n# Simplest — run on pivot host, no SSH needed\n# Listen on pivot, forward to internal host\n\n# Forward to PostgreSQL\nsocat -ddd TCP-LISTEN:2345,fork TCP:10.4.50.215:5432\n# From Kali: psql -h [pivot_ip] -p 2345 -U postgres\n\n# Forward to SSH on internal host\nsocat TCP-LISTEN:2222,fork TCP:10.4.50.215:22\n# From Kali: ssh user@[pivot_ip] -p 2222\n\n# Forward to SMB\nsocat TCP-LISTEN:4455,fork TCP:172.16.50.217:445\n# From Kali: smbclient -p 4455 //[pivot_ip]/ -U user\n\n# Kill socat when done\nkill $(pgrep socat)\n\n# ── RINETD (persistent daemon) ───────────────────────\n# Better for long-term forwards\n# /etc/rinetd.conf format:\n# bindaddress bindport connectaddress connectport\necho \"0.0.0.0 4455 172.16.50.217 445\" >> /etc/rinetd.conf\nservice rinetd restart\n\n# ── NETCAT + FIFO (if socat not available) ────────────\nmkfifo /tmp/pivot\nnc -lnvp 4455 < /tmp/pivot | nc 172.16.50.217 445 > /tmp/pivot\n\n# ── IPTABLES (root required) ──────────────────────────\n# Enable forwarding\necho 1 > /proc/sys/net/ipv4/ip_forward\n# Forward incoming port 4455 to internal host\niptables -t nat -A PREROUTING -p tcp --dport 4455 -j DNAT --to-destination 172.16.50.217:445\niptables -A FORWARD -p tcp -d 172.16.50.217 --dport 445 -j ACCEPT",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Port forwarded — access service on Kali",
+      "next": "web_enum"
+    },
+    {
+      "label": "Need full network access — try Chisel",
+      "next": "chisel"
+    }
+  ]
+}

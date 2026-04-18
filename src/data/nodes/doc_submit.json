@@ -1,0 +1,18 @@
+{
+  "id": "doc_submit",
+  "phase": "REPORT",
+  "title": "Submission Checklist",
+  "body": "Stop hacking 90 minutes before the exam ends. You need this time. Rushing the submission has failed people who had all the flags. Work through this list methodically.",
+  "cmd": "# SUBMISSION CHECKLIST — Do not skip steps\n\n## 1. Flag Verification\n# Confirm all flags are logged with correct screenshots\ngrep -r \"local|proof\" ~/results/*/screenshots/\n\n## 2. Screenshot Audit — per machine\n# For each machine confirm you have:\n# [ ] Recon: nmap output with versions\n# [ ] Foothold: exploit execution + shell callback\n# [ ] local.txt: whoami + hostname + ip + flag (single frame)\n# [ ] Privesc: vector identified + exploitation command\n# [ ] proof.txt: root/SYSTEM + hostname + ip + flag (single frame)\n\n## 3. Notes Completeness\n# Walk every ATT&CK tactic node for each machine\n# TA0043 Recon ✓ / TA0001 Access ✓ / TA0002 Exec ✓\n# TA0004 Privesc ✓ / TA0006 Creds ✓ / TA0008 Lateral ✓ / TA0040 Impact ✓\n\n## 4. Disconnect VPN\nsudo killall openvpn\n# Exam proctoring ends here — confirm with proctor\n\n## 5. Build Report Archive\ncd ~/results\nzip -r oscp_report_$(date +%Y%m%d).zip */\nmd5sum oscp_report_$(date +%Y%m%d).zip\n\n## 6. Upload\n# OffSec submission portal — upload zip\n# Note the confirmation number / email\n# Do not close the browser until confirmed\n\n## 7. Breathe\necho \"Done.\"",
+  "warn": "The MD5 hash proves your submission was not tampered with. Note it down before uploading. If the portal has issues, email support@offensive-security.com immediately with your hash.",
+  "choices": [
+    {
+      "label": "Back to tactic index",
+      "next": "reporting"
+    },
+    {
+      "label": "Start a new machine",
+      "next": "start"
+    }
+  ]
+}

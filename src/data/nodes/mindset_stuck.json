@@ -1,0 +1,22 @@
+{
+  "id": "mindset_stuck",
+  "phase": "MINDSET",
+  "title": "Arjuna on Kurukshetra",
+  "body": "You are not failing. The mind has contracted. Arjuna froze before the greatest battle of his life — not from lack of skill, but from overwhelm. Krishna did not tell him to try harder. He told him to see clearly. Stop. Do that now.",
+  "cmd": "# -- STOP THE SPIRAL ---------------------\n# Close unnecessary terminals. One window.\n# Write down — right now — what you actually know:\n\necho \"Machine: $ip\"\necho \"Ports open: [list them]\"\necho \"Services: [list them]\"\necho \"What I tried: [list it]\"\necho \"What actually happened: [not what you expected — what happened]\"\necho \"What I have NOT tried: [honest list]\"\n\n# -- THE THREE QUESTIONS ------------------\n# 1. Have I fully enumerated, or did I start exploiting too early?\n#    gobuster/feroxbuster still running? Nmap UDP done?\n# 2. Am I trying the same thing repeatedly expecting different results?\n#    If yes — that vector is closed. Move.\n# 3. Is there another machine I can make progress on right now?\n#    Rotate. Come back in 45 minutes. Fresh eyes find what tired eyes miss.\n\n# -- THE POMODORO RESET -------------------\n# Set a timer: 25 minutes.\n# Pick ONE specific thing to test. Not enumerate more. One thing.\n# When the timer ends — stop. Assess. Decide.",
+  "warn": "The most common OSCP failure is not insufficient skill — it is 4 hours on one rabbit hole while other machines sit untouched. Rotation is not giving up. It is strategy.",
+  "choices": [
+    {
+      "label": "I think I am in a rabbit hole",
+      "next": "mindset_rabbithole"
+    },
+    {
+      "label": "I need to triage my time",
+      "next": "mindset_triage"
+    },
+    {
+      "label": "Back to recon — fresh start on this machine",
+      "next": "start"
+    }
+  ]
+}

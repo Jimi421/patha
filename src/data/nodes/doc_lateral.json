@@ -1,0 +1,22 @@
+{
+  "id": "doc_lateral",
+  "phase": "REPORT",
+  "title": "TA0008 — Lateral Movement",
+  "body": "The section most candidates skip because it feels like 'just pivoting.' Document the full chain — how you moved from one host to another, what credential or technique enabled it, and what you found on the other side.",
+  "cmd": "# TA0008 Lateral Movement — note template\n# Technique IDs to reference:\n#   T1021.001 — Remote Desktop Protocol\n#   T1021.002 — SMB/Windows Admin Shares\n#   T1021.004 — SSH\n#   T1021.006 — WinRM\n#   T1550.002 — Pass the Hash\n#   T1550.003 — Pass the Ticket\n#   T1563 — Remote Service Session Hijacking\n\n## Lateral Movement — $ip → $target\n\nFrom: $ip ([username] @ [hostname])\nTo: $target ([username] @ [hostname])\nMethod: [PtH / SSH / WinRM / RDP / SMB exec]\nTechnique: T1021.002 / T1550.002 (pick closest)\n\n## Movement Steps\n1. [Credential/ticket used to move]\n2. [Exact command]\n3. [Confirmation of access]\n\n## Tunnel Setup (if applicable)\n# Document your pivot setup — Ligolo / Chisel / SSH\n# Include listener config, agent config, route added\n\n## Evidence\n- Screenshot: command on source machine\n- Screenshot: shell/access confirmed on target machine\n- Screenshot: tunnel established (if pivoting)\n- Network diagram: hand-drawn or ASCII showing the chain",
+  "warn": "Draw the network. Even ASCII art. 'Attacker → Machine 1 (pivot) → Machine 2 → DC' on one line is enough. Reviewers need to see you understood the topology.",
+  "choices": [
+    {
+      "label": "TA0007 — Discovery (post-shell)",
+      "next": "doc_discovery"
+    },
+    {
+      "label": "TA0040 — Impact (flags)",
+      "next": "doc_impact"
+    },
+    {
+      "label": "Back to tactic index",
+      "next": "reporting"
+    }
+  ]
+}

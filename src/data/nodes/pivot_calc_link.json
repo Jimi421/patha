@@ -1,0 +1,26 @@
+{
+  "id": "pivot_calc_link",
+  "phase": "PIVOT",
+  "title": "Pivot Calculator",
+  "body": "The Pivot Calculator at patha.pages.dev/pivot generates exact commands for your specific IPs and method. Fill in your Kali IP, pivot IPs, target IP and port — get copy-paste ready commands with verify blocks.",
+  "cmd": "# Open in browser:\n# patha.pages.dev/pivot\n#\n# Features:\n# - 12 methods: SSH local/dynamic/remote, sshuttle, socat, ligolo, chisel, netsh, plink, ssh.exe\n# - Fill in your IPs → commands auto-generate with your actual values\n# - Auto proxychains4.conf generation for SOCKS methods\n# - Verify commands for each step\n# - Double pivot (second hop) support\n# - Obsidian MD export — copy all commands to your notes\n# - Method wizard — answer 3 questions, get a recommendation",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Back to pivot methods",
+      "next": "pivot_start"
+    },
+    {
+      "label": "SSH tunneling",
+      "next": "ssh_tunnel"
+    },
+    {
+      "label": "Socat / port forward",
+      "next": "manual_portfwd"
+    },
+    {
+      "label": "Ligolo",
+      "next": "ligolo"
+    }
+  ]
+}

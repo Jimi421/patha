@@ -1,0 +1,66 @@
+{
+  "id": "jump_linux",
+  "phase": "JUMP",
+  "title": "Linux Privesc — Jump Menu",
+  "body": "Pick the vector directly.",
+  "cmd": "# Linux privesc reference",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Quick enum reference — one-liners",
+      "next": "linux_enum_quick"
+    },
+    {
+      "label": "Initial foothold — full enum flow",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "LinPEAS — automated enum",
+      "next": "linpeas"
+    },
+    {
+      "label": "sudo -l — quickest win",
+      "next": "sudo_check"
+    },
+    {
+      "label": "SUID binaries / capabilities",
+      "next": "suid_check"
+    },
+    {
+      "label": "Cron jobs",
+      "next": "cron_check"
+    },
+    {
+      "label": "/etc/passwd or /etc/shadow abuse",
+      "next": "passwd_shadow"
+    },
+    {
+      "label": "Groups — docker/lxd/disk/PATH hijack",
+      "next": "linux_privesc_extra"
+    },
+    {
+      "label": "Password hunting — files/history/configs",
+      "next": "linux_password_hunt"
+    },
+    {
+      "label": "Capabilities / NFS / writable files",
+      "next": "linux_manual_enum"
+    },
+    {
+      "label": "GTFOBins — Linux LOLBins reference",
+      "next": "gtfobins_linux"
+    },
+    {
+      "label": "Kernel exploit",
+      "next": "kernel_exploit"
+    },
+    {
+      "label": "Got root — loot and persist",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

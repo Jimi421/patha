@@ -1,0 +1,14 @@
+{
+  "id": "ad_complete",
+  "phase": "AD",
+  "title": "Domain Admin — AD Set Complete",
+  "body": "40 points locked in. Screenshot each machine in the chain: initial workstation, pivot machine, DC. All three need proof.txt + whoami + hostname + IP.",
+  "cmd": "# On Domain Controller\nwhoami\nhostname\nipconfig\ntype C:\\Users\\Administrator\\Desktop\\proof.txt\n\n# Screenshot checklist for full AD set:\n# ✅ Machine 1: whoami + hostname + IP + local.txt\n# ✅ Machine 2: whoami + hostname + IP + local.txt\n# ✅ DC: whoami (DA) + hostname + IP + proof.txt\n# ✅ Full attack chain documented in report",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Now hit the standalone machines",
+      "next": "start"
+    }
+  ]
+}

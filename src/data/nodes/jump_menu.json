@@ -1,0 +1,90 @@
+{
+  "id": "jump_menu",
+  "phase": "JUMP",
+  "title": "Jump to Technique",
+  "body": "Direct access to any section. Use this for labs, CTFs, or when you already know what you are dealing with and need the technique fast.",
+  "cmd": "# No commands here — pick your domain",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Web attacks",
+      "next": "jump_web"
+    },
+    {
+      "label": "SQL injection",
+      "next": "jump_sqli"
+    },
+    {
+      "label": "Shells & payloads",
+      "next": "jump_shells"
+    },
+    {
+      "label": "File transfer & exfil",
+      "next": "transfer_agnostic"
+    },
+    {
+      "label": "Linux privesc",
+      "next": "jump_linux"
+    },
+    {
+      "label": "Windows privesc",
+      "next": "jump_windows"
+    },
+    {
+      "label": "Active Directory",
+      "next": "jump_ad"
+    },
+    {
+      "label": "Services & ports",
+      "next": "jump_services"
+    },
+    {
+      "label": "Windows persistence",
+      "next": "persistence"
+    },
+    {
+      "label": "LOLBins — Windows built-in abuse",
+      "next": "lolbins"
+    },
+    {
+      "label": "GTFOBins — Linux built-in abuse",
+      "next": "gtfobins_linux"
+    },
+    {
+      "label": "Password attacks hub",
+      "next": "password_attacks"
+    },
+    {
+      "label": "HTTP password brute force",
+      "next": "bruteforce"
+    },
+    {
+      "label": "Scan notes — document findings",
+      "next": "scan_notes"
+    },
+    {
+      "label": "Version # danger reference",
+      "next": "version_ref"
+    },
+    {
+      "label": "Pivoting & tunnels",
+      "next": "jump_pivot"
+    },
+    {
+      "label": "Documentation & reporting",
+      "next": "reporting"
+    },
+    {
+      "label": "Metasploit (MSF)",
+      "next": "msfconsole"
+    },
+    {
+      "label": "msfvenom — payload generator",
+      "next": "msfvenom"
+    },
+    {
+      "label": "Back to start",
+      "next": "start"
+    }
+  ]
+}

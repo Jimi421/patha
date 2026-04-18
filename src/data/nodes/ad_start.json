@@ -1,0 +1,30 @@
+{
+  "id": "ad_start",
+  "phase": "AD",
+  "title": "Active Directory — Assumed Breach",
+  "body": "OSCP+ gives you low-priv domain creds. You're starting inside. Add DC to /etc/hosts, enumerate the domain, run BloodHound immediately.",
+  "cmd": "# Add DC to hosts\necho \"$ip dc01.domain.com domain.com\" >> /etc/hosts\n\n# -- Verify connectivity -----------------------\n# nxc (netexec) — CME successor, same syntax, actively maintained\nnxc smb $ip -u user -p 'pass'\ncrackmapexec smb $ip -u user -p 'pass'   # fallback if nxc not installed\n\n# -- Initial domain recon ----------------------\nnxc smb $ip -u user -p 'pass' --users\nnxc smb $ip -u user -p 'pass' --groups\nnxc smb $ip -u user -p 'pass' --shares\nnxc smb $ip -u user -p 'pass' --pass-pol   # CHECK LOCKOUT BEFORE SPRAYING\n\n# -- ldapdomaindump — fast HTML/JSON AD dump ---\n# Outputs users, groups, computers as HTML + JSON\nldapdomaindump -u 'domain\\user' -p 'pass' $ip -o /tmp/ldd/\n# Open domain_users.html and domain_groups.html for quick visual map\n\n# -- windapsearch — LDAP enum without domain join --\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m users\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m groups\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m computers\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m privileged-users\n\n# -- ldapsearch — raw fallback -----------------\nldapsearch -x -h $ip -D \"user@domain.com\" -w 'pass'   -b \"dc=domain,dc=com\" \"(objectClass=user)\" | grep sAMAccountName",
+  "warn": "Check password policy BEFORE any spraying — nxc smb --pass-pol. Lockouts on the exam are catastrophic. ldapdomaindump HTML output is the fastest way to visually map the domain before BloodHound finishes. nxc is the maintained fork of crackmapexec — prefer it where installed.",
+  "choices": [
+    {
+      "label": "Run BloodHound (mandatory)",
+      "next": "bloodhound"
+    },
+    {
+      "label": "Run Responder first (passive hash capture)",
+      "next": "responder"
+    },
+    {
+      "label": "AS-REP Roast first (no pre-auth accounts)",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "Kerberoast (SPN accounts)",
+      "next": "kerberoast"
+    },
+    {
+      "label": "Password spray (carefully)",
+      "next": "ad_spray"
+    }
+  ]
+}

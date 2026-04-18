@@ -1,0 +1,46 @@
+{
+  "id": "jump_sqli",
+  "phase": "JUMP",
+  "title": "SQL Injection — Jump Menu",
+  "body": "Pick by injection type or workflow stage.",
+  "cmd": "# SQLi reference index",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Detection — identify injection type",
+      "next": "sqli_test"
+    },
+    {
+      "label": "Error-based extraction",
+      "next": "sqli_error"
+    },
+    {
+      "label": "UNION-based extraction",
+      "next": "sqli_union"
+    },
+    {
+      "label": "Blind boolean extraction",
+      "next": "sqli_blind"
+    },
+    {
+      "label": "Time-based blind",
+      "next": "sqli_time"
+    },
+    {
+      "label": "WAF evasion",
+      "next": "sqli_waf"
+    },
+    {
+      "label": "sqlmap full escalation",
+      "next": "sqli_sqlmap"
+    },
+    {
+      "label": "SQLi → shell (INTO OUTFILE / xp_cmdshell)",
+      "next": "sqli_shell"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

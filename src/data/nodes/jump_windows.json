@@ -1,0 +1,82 @@
+{
+  "id": "jump_windows",
+  "phase": "JUMP",
+  "title": "Windows Privesc — Jump Menu",
+  "body": "Pick the vector directly.",
+  "cmd": "# Windows privesc reference",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Initial foothold — orient and enumerate",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Quick enum reference — one-liners",
+      "next": "windows_enum_quick"
+    },
+    {
+      "label": "WinPEAS — automated enum",
+      "next": "winpeas"
+    },
+    {
+      "label": "Token impersonation (Potato attacks)",
+      "next": "token_privs"
+    },
+    {
+      "label": "Unquoted service path",
+      "next": "unquoted_service"
+    },
+    {
+      "label": "Weak service permissions",
+      "next": "weak_service"
+    },
+    {
+      "label": "Compile Windows payloads (mingw/msfvenom)",
+      "next": "win_compile"
+    },
+    {
+      "label": "AlwaysInstallElevated",
+      "next": "always_install_elevated"
+    },
+    {
+      "label": "Scheduled Tasks privesc",
+      "next": "scheduled_tasks_win"
+    },
+    {
+      "label": "Credential hunting (registry/files/SAM)",
+      "next": "windows_creds"
+    },
+    {
+      "label": "Pass the Hash",
+      "next": "pth"
+    },
+    {
+      "label": "DPAPI credential extraction",
+      "next": "dpapi"
+    },
+    {
+      "label": "Manual enum (tasks/DLL/UAC)",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Scheduled task exploitation",
+      "next": "scheduled_tasks_win"
+    },
+    {
+      "label": "DLL hijacking",
+      "next": "win_dll_hijack"
+    },
+    {
+      "label": "UAC bypass",
+      "next": "win_uac_bypass"
+    },
+    {
+      "label": "AMSI / AV bypass",
+      "next": "amsi_bypass"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

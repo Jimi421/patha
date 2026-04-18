@@ -1,0 +1,26 @@
+{
+  "id": "analyze_dc",
+  "phase": "ANALYSIS",
+  "title": "Reading a Domain Controller",
+  "body": "A DC has a signature port combination. If you see it, you are in an AD environment. The attack path is completely different from a standalone machine — do not treat it like a normal box.",
+  "cmd": "# -- DC SIGNATURE PORTS -------------------\n# 53   DNS       — zone transfer attempt first\n# 88   Kerberos  — AS-REP roast, Kerberoast\n# 135  MSRPC\n# 139  NetBIOS\n# 389  LDAP      — anonymous bind? enumerate users\n# 445  SMB       — shares, relay, eternal blue\n# 464  Kpasswd\n# 593  RPC over HTTP\n# 636  LDAPS\n# 3268 Global Catalog LDAP\n# 3269 Global Catalog LDAPS\n# 5985 WinRM     — if you get DA creds, shell here\n\n# -- FIRST MOVES ON A DC ------------------\n# 1. Get the domain name\nnmap -p 389 --script ldap-rootdse $ip\ncrackmapexec smb $ip   # shows domain, hostname, OS\n\n# 2. DNS zone transfer\ndig axfr [domain] @$ip\n# If it works: full internal host map\n\n# 3. LDAP anonymous bind\nldapsearch -x -h $ip -b \"dc=[domain],dc=com\"\n# If it works: full user/group list without creds\n\n# 4. SMB null session\ncrackmapexec smb $ip -u \"\" -p \"\" --shares\nenum4linux-ng $ip\n\n# 5. Do NOT try to brute force Kerberos\n# Account lockout is real on DCs\n# Use AS-REP roast (no creds needed) and Kerberoast (creds needed)\n\n# -- KEY DECISION -------------------------\n# Do you have ANY credentials yet?\n# No creds: AS-REP roast, LDAP anon, DNS zone transfer, Responder\n# Have creds: BloodHound immediately, then follow the path",
+  "warn": "Never attack the DC directly in an OSCP AD set — you reach it last, through the chain. The DC is the destination, not the entry point. Start with the workstation or member server.",
+  "choices": [
+    {
+      "label": "No creds yet — AS-REP roast first",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "Have creds — run BloodHound",
+      "next": "bloodhound"
+    },
+    {
+      "label": "Run Responder to capture hashes",
+      "next": "responder"
+    },
+    {
+      "label": "Full AD methodology",
+      "next": "ad_start"
+    }
+  ]
+}

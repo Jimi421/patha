@@ -1,0 +1,22 @@
+{
+  "id": "ftp_enum",
+  "phase": "FTP",
+  "title": "FTP Enumeration",
+  "body": "Anonymous login is more common than people expect. If writable AND web-accessible, you can drop a shell directly.",
+  "cmd": "# Anonymous login test\nftp $ip\n# Try: anonymous / anonymous\n#      anonymous / (blank)\n\n# Nmap scripts\nnmap --script ftp-anon,ftp-bounce,ftp-syst -p 21 $ip\n\n# If login works — download everything\nftp> binary\nftp> mget *\nftp> passive\n\n# If FTP dir is under webroot — upload shell\nftp> put shell.php",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Anonymous access — found interesting files",
+      "next": "smb_loot"
+    },
+    {
+      "label": "FTP writable + webroot accessible = shell",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Need creds",
+      "next": "bruteforce"
+    }
+  ]
+}

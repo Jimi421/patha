@@ -1,0 +1,22 @@
+{
+  "id": "doc_privesc",
+  "phase": "REPORT",
+  "title": "TA0004 — Privilege Escalation",
+  "body": "The most important section for OSCP. Document the exact vector — not just 'I ran linpeas.' What specific finding led to root? Show before and after privilege states.",
+  "cmd": "# TA0004 Privilege Escalation — note template\n# Technique IDs to reference:\n#   T1548.001 — Setuid/Setgid (Linux SUID)\n#   T1548.003 — Sudo and Sudo Caching\n#   T1053.003 — Cron Job (scheduled task)\n#   T1053.005 — Scheduled Task (Windows)\n#   T1543.003 — Windows Service\n#   T1134 — Access Token Manipulation\n#   T1068 — Exploitation for Privilege Escalation (kernel/CVE)\n\n## Privilege Escalation — $ip\n\nVector: [SUID / sudo / cron / service / token / CVE / etc.]\nTechnique: T1548.001 / T1053.003 / etc. (pick closest)\n\n## Low-Privilege State (BEFORE)\nwhoami && id && hostname\n# [paste output]\n\n## Escalation Steps\n1. [How you found the vector — linpeas finding, manual check]\n2. [Exact command to exploit]\n3. [Any intermediate steps]\n\n## Root/SYSTEM State (AFTER)\nwhoami && id\n# [paste output — must show root or SYSTEM]\n\n## Evidence\n- Screenshot: low-priv whoami BEFORE escalation\n- Screenshot: the specific finding (sudo -l / find SUID / crontab)\n- Screenshot: exploitation command\n- Screenshot: root/SYSTEM whoami AFTER\n- Screenshot: proof.txt with whoami + hostname + ip in same frame",
+  "warn": "TWO whoami screenshots required — before AND after. One screenshot of root alone is not sufficient evidence of the escalation path.",
+  "choices": [
+    {
+      "label": "TA0006 — Credential Access",
+      "next": "doc_cred_access"
+    },
+    {
+      "label": "TA0040 — Impact (flags)",
+      "next": "doc_impact"
+    },
+    {
+      "label": "Back to tactic index",
+      "next": "reporting"
+    }
+  ]
+}

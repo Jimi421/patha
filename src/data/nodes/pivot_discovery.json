@@ -1,0 +1,22 @@
+{
+  "id": "pivot_discovery",
+  "phase": "PIVOT",
+  "title": "Internal Host Discovery",
+  "body": "You are on a routed network now — ARP is gone. ICMP and TCP probes only. Through Ligolo scan directly. Through proxychains use -sT and drop the rate.",
+  "cmd": "sudo nmap -sn $pivot_subnet -oG pivot_scan.txt\ngrep Up pivot_scan.txt | cut -d \" \" -f 2 > pivot_hosts.txt\nfping -a -g $pivot_subnet 2>/dev/null >> pivot_hosts.txt\n\nproxychains nmap -sT -sn $pivot_subnet --min-rate 200\n\nfor i in $(seq 1 254); do\n  ping -c1 -W1 172.16.50.$i &>/dev/null && echo \"172.16.50.$i\" &\ndone; wait\n\nfor /L %i in (1,1,254) do @ping -n 1 -w 100 172.16.50.%i | findstr \"TTL\"\n\nsort -u pivot_hosts.txt > internal_live.txt",
+  "warn": "Max --min-rate 200 through proxychains. Higher rates drop packets.",
+  "choices": [
+    {
+      "label": "Found internal hosts — port scan them",
+      "next": "pivot_portscan"
+    },
+    {
+      "label": "Found AD / DC",
+      "next": "ad_start"
+    },
+    {
+      "label": "Found another subnet — double pivot",
+      "next": "double_pivot"
+    }
+  ]
+}

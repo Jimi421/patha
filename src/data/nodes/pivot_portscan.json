@@ -1,0 +1,30 @@
+{
+  "id": "pivot_portscan",
+  "phase": "PIVOT",
+  "title": "Port Scan Through Tunnel",
+  "body": "Ligolo: treat like a direct connection. Proxychains: -sT required, lower rate. Never -sS through SOCKS.",
+  "cmd": "# ── WITH NMAP / PROXYCHAINS ──────────────────────────\nproxychains nmap -sT -p 22,80,139,443,445,3389,5985,8080 172.16.50.5 --open\nnmap -p- --min-rate 2000 -T3 172.16.50.5 -oN pivot_allports.txt\n\n# ── NO NMAP — LIVING OFF THE LAND ────────────────────\n# Run directly on pivot host — no tools needed\n# Lab validated: Confluence box behind DMZ\n\n# nc — single port sweep\nfor i in $(seq 1 254); do\n  nc -zv -w 1 172.16.50.$i 445 2>&1 | grep -v refused | grep -v timed\ndone\n\n# ⚠️  PROXYCHAINS + NMAP 4.17 BUG\n# If nmap through proxychains shows all ports \"filtered\" but curl/nc works\n# = proxychains 4.17 bug, not a firewall issue\n# Use nc loop THROUGH proxychains instead:\nfor port in $(seq 9050 9100); do\n  proxychains nc -zv -w1 $ip $port 2>&1 | grep -i \"open|succeeded|connected\"\ndone\n# Lab: found port 9062 on MULTISERVER03 this way — PEN-200 Module 19\n\n# nc — multi-port clean output\nfor i in $(seq 1 254); do\n  for p in 22 80 139 443 445 3389 5985 8080 1433 3306; do\n    r=$(nc -zv -w 1 172.16.50.$i $p 2>&1)\n    echo $r | grep -q \"open|succeeded\" && echo \"OPEN: 172.16.50.$i:$p\"\n  done\ndone\n\n# /dev/tcp — bash builtin, no nc needed\nfor i in $(seq 1 254); do\n  for p in 22 80 445 3389 5985 8080; do\n    (echo >/dev/tcp/172.16.50.$i/$p) 2>/dev/null && echo \"OPEN: 172.16.50.$i:$p\"\n  done\ndone\n\n# Python3 — threaded, fastest option\n# copy-paste this block directly into the shell:\npython3 -c \"\nimport socket,concurrent.futures\nsubnet,ports=\"172.16.50\",[22,80,139,443,445,1433,3306,3389,5985,8080,8443]\ndef scan(h,p):\n  try:\n    s=socket.socket();s.settimeout(0.5);s.connect((h,p));s.close();print(f\"OPEN:{h}:{p}\")\n  except:pass\nwith concurrent.futures.ThreadPoolExecutor(max_workers=100) as e:\n  [e.submit(scan,f\"{subnet}.{i}\",p) for i in range(1,255) for p in ports]\n\"\n\n# Python2 fallback\npython -c \"import socket\nsubnet=\"172.16.50\"\nports=[22,80,445,3389,5985,8080]\nfor i in range(1,255):\n  for p in ports:\n    try:\n      s=socket.socket();s.settimeout(0.5);s.connect((subnet+\".\"+str(i),p));s.close();print(\"OPEN:\"+subnet+\".\"+str(i)+\":\"+str(p))\n    except:pass\n\"\n\n# Windows PowerShell\n# 1..254|%{$i=$_;@(22,80,445,3389,5985,8080)|%{$t=New-Object Net.Sockets.TcpClient;try{$t.Connect(\"172.16.50.$i\",$_);if($t.Connected){Write-Host \"OPEN:172.16.50.$i:$_\"};$t.Close()}catch{}}}\n\n# Update subnet variable first:\n# subnet=\"172.16.50\" in python, or change the for loop IP range",
+  "warn": "Never -sS through proxychains. Always -sT.",
+  "choices": [
+    {
+      "label": "Found internal web",
+      "next": "web_enum"
+    },
+    {
+      "label": "Found internal SMB",
+      "next": "smb_enum"
+    },
+    {
+      "label": "Found internal AD / DC",
+      "next": "ad_start"
+    },
+    {
+      "label": "Found another pivot layer",
+      "next": "double_pivot"
+    },
+    {
+      "label": "Full service enum",
+      "next": "targeted_scan"
+    }
+  ]
+}

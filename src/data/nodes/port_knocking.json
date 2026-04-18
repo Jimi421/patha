@@ -1,0 +1,22 @@
+{
+  "id": "port_knocking",
+  "phase": "RECON",
+  "title": "Port Knocking",
+  "body": "A firewall rule opens a port after receiving connections to a specific sequence of ports. Common on OSCP — usually hinted at in a config file or readme. The sequence is the key.",
+  "cmd": "# -- HOW TO DETECT ------------------------\n# Hints that port knocking is in use:\n# - /etc/knockd.conf readable (gives you the sequence)\n# - README or note file mentions a sequence\n# - nmap shows a port as filtered that should be open (SSH on filtered)\n# - Searchsploit shows knockd on the target\n\n# -- FIND THE SEQUENCE ---------------------\n# If you have LFI or file read:\nhttp://$ip/page?file=/etc/knockd.conf\n# knockd.conf shows sequence like:\n# sequence = 7000,8000,9000\n\n# If you have a shell already:\ncat /etc/knockd.conf\ncat /etc/knockd.conf 2>/dev/null || find / -name knockd.conf 2>/dev/null\n\n# -- EXECUTE THE KNOCK ---------------------\n# Method 1: knock tool\nknock $ip 7000 8000 9000\nknock $ip 7000:udp 8000:tcp 9000:tcp   # if mix of UDP/TCP\n\n# Method 2: nmap (no knock tool)\nnmap -Pn --host-timeout 100 --max-retries 0 -p 7000 $ip\nnmap -Pn --host-timeout 100 --max-retries 0 -p 8000 $ip\nnmap -Pn --host-timeout 100 --max-retries 0 -p 9000 $ip\n\n# Method 3: nc\nnc -z $ip 7000\nnc -z $ip 8000\nnc -z $ip 9000\n\n# -- VERIFY PORT OPENED --------------------\n# After knock — check if target port is now open\nnmap -Pn -p 22 $ip\n# Should now show open instead of filtered\n\n# -- TIMING --------------------------------\n# knockd has a timeout window (default 5 seconds between knocks)\n# If sequence times out — repeat from beginning\n# Some configs require specific intervals:\nknock $ip 7000 && sleep 1 && knock $ip 8000 && sleep 1 && knock $ip 9000",
+  "warn": "The sequence must be executed in exact order with no extra connections in between. If nmap scans between knocks — the sequence resets. Use the knock tool or careful nc, not nmap for the knock itself.",
+  "choices": [
+    {
+      "label": "Port opened — SSH now accessible",
+      "next": "ssh_only"
+    },
+    {
+      "label": "Port opened — web service",
+      "next": "web_enum"
+    },
+    {
+      "label": "Still filtered — wrong sequence",
+      "next": "analyze_ambiguous"
+    }
+  ]
+}

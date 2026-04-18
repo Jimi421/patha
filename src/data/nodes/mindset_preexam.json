@@ -1,0 +1,18 @@
+{
+  "id": "mindset_preexam",
+  "phase": "MINDSET",
+  "title": "Pre-Exam — Before the Clock Starts",
+  "body": "The exam begins before you click Start. Environment failure at hour 3 is not bad luck — it is skipped preparation. Do this now, while the mind is calm.",
+  "cmd": "# -- ENVIRONMENT -------------------------\n# VPN connected and stable\nsudo openvpn ~/oscp.ovpn &\nping 10.10.10.1   # confirm routing\n\n# File descriptor limit — required for rustscan full port scans\nulimit -n 5000\n\n# Kali updated, tools present\nwhich nmap gobuster feroxbuster ligolo-ng evil-winrm impacket-secretsdump\n\n# Wordlists in place\nls /usr/share/wordlists/rockyou.txt\nls /usr/share/seclists/Discovery/Web-Content/\n\n# Results folder template ready\nmkdir -p ~/exam/{machine1,machine2,machine3,ad}/{scans,exploits,loot,screenshots,tunnels}\n\n# -- TIME PLAN ----------------------------\n# 23h 45m total. Suggested blocks:\n# Hour  0-2:  Recon ALL machines in parallel. Do not exploit yet.\n# Hour  2-6:  Attack highest-confidence target first.\n# Hour  6-10: Second machine. AD set — push this if recon is clear.\n# Hour 10-14: Third machine. Revisit stalled machines fresh.\n# Hour 14-18: Fill gaps. Partial flags count.\n# Hour 18-22: Documentation. Stop hacking at hour 22.\n# Hour 22-24: Report finalization and submission.\n\n# -- MENTAL CONTRACT ----------------------\n# You will get stuck. That is part of the exam.\n# Stuck is not failing. Stuck is information.\n# When stuck: document what you know, rotate machine, return fresh.",
+  "warn": "Enumerate ALL machines before deep-diving any single one. Parallel recon in the first 2 hours is the highest-leverage action of the entire exam.",
+  "choices": [
+    {
+      "label": "Clock is running — start recon",
+      "next": "start"
+    },
+    {
+      "label": "I am already stuck mid-exam",
+      "next": "mindset_stuck"
+    }
+  ]
+}

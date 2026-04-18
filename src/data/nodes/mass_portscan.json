@@ -1,0 +1,30 @@
+{
+  "id": "mass_portscan",
+  "phase": "DISCOVERY",
+  "title": "Mass Port Scan",
+  "body": "Scan the full live host list. Grep for high-value ports to triage targets fast.",
+  "cmd": "nmap -iL live_hosts.txt -p- --min-rate 5000 -T4 -oG mass_scan.txt\ngrep \"open\" mass_scan.txt\n\nrustscan -a live_hosts.txt -- -sC -sV -oN rustscan.txt\n\ngrep -E \"80|443|445|22|3389|5985|8080|1433|3306\" mass_scan.txt",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Found web target",
+      "next": "web_enum"
+    },
+    {
+      "label": "Found SMB target",
+      "next": "smb_enum"
+    },
+    {
+      "label": "Found Windows (RDP/WinRM)",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Found AD/DC",
+      "next": "ad_start"
+    },
+    {
+      "label": "Single target — targeted scan",
+      "next": "targeted_scan"
+    }
+  ]
+}

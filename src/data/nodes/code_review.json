@@ -1,0 +1,18 @@
+{
+  "id": "code_review",
+  "phase": "SMB",
+  "title": "Code / Script Review",
+  "body": "Scripts and executables on shares are often goldmines. Hardcoded creds, command execution, scheduled task payloads.",
+  "cmd": "# Grep for hardcoded creds\ngrep -rih \"password\\|passwd\\|secret\\|key\\|token\" . 2>/dev/null\n\n# Grep for execution / injection\ngrep -rih \"exec\\|system\\|popen\\|eval\\|invoke\" . 2>/dev/null\n\n# Strings on binaries\nstrings binary_file | grep -i \"pass\\|user\\|http\\|key\"\n\n# Decompile .NET assemblies\nilspycmd binary.dll > output.cs\ndnspy binary.exe   # GUI",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Found hardcoded credentials",
+      "next": "creds_found"
+    },
+    {
+      "label": "Found command execution vector",
+      "next": "cmd_injection"
+    }
+  ]
+}

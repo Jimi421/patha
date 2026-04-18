@@ -1,0 +1,26 @@
+{
+  "id": "scan_notes",
+  "phase": "RECON",
+  "title": "Engagement Scan Notes",
+  "body": "Fill this in as you read nmap output. One row per interesting port. This is your attack surface map — build it before you touch anything.",
+  "cmd": "# -- SCAN NOTES TEMPLATE ------------------------------\n# Target: $ip\n# OS:     [Windows / Linux — TTL: ~128=Win, ~64=Lin]\n# Date:   [date]\n#\n# PORT    SERVICE         VERSION                 NOTES\n# ----------------------------------------------------\n# 21      ftp             vsftpd x.x              [anon? writable?]\n# 22      ssh             OpenSSH x.x             [version vuln?]\n# 80      http            Apache x.x              [app? CMS?]\n# 139     netbios-ssn     Samba x.x               [null session?]\n# 443     https           nginx x.x               [cert hostname?]\n# 445     microsoft-ds    Windows x               [signing? EB?]\n# 1978    unknown         luminateOK              [banner + google]\n# 3306    mysql           MySQL x.x               [creds?]\n# 8080    http            Tomcat x.x              [manager?]\n#\n# Highest value port:  [fill in]\n# Attack path:         [fill in]\n# Creds found:         [fill in]\n#\n# -- BANNER GRAB unknown ports -------------------------\nnc -nv $ip <PORT>\ncurl -sv http://$ip:<PORT>\n\n# -- TTL OS fingerprint --------------------------------\nping -c 1 $ip | grep ttl\n# TTL ~128 = Windows  /  TTL ~64 = Linux\n\n# -- Feed nmap XML to searchsploit ---------------------\nnmap -sV -oX nmap.xml $ip\nsearchsploit --nmap nmap.xml",
+  "warn": "Unknown ports with banners are often the intended path. If nmap shows unrecognized service, banner grab manually and google the string. luminateOK = WiFi Mouse / Remote Mouse — searchsploit it.",
+  "choices": [
+    {
+      "label": "Got versions — check danger reference",
+      "next": "version_ref"
+    },
+    {
+      "label": "Unknown service — banner grab it",
+      "next": "unknown_service"
+    },
+    {
+      "label": "Ready to attack",
+      "next": "targeted_scan"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

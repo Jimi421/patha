@@ -1,0 +1,106 @@
+{
+  "id": "jump_services",
+  "phase": "JUMP",
+  "title": "Services & Ports — Jump Menu",
+  "body": "Jump directly to a service. Same as unknown_service but organized by category.",
+  "cmd": "# Service reference index",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Web (HTTP/HTTPS) — full enum",
+      "next": "web_enum"
+    },
+    {
+      "label": "SMB (445)",
+      "next": "smb_enum"
+    },
+    {
+      "label": "FTP (21)",
+      "next": "ftp_enum"
+    },
+    {
+      "label": "SSH (22)",
+      "next": "ssh_only"
+    },
+    {
+      "label": "RDP (3389)",
+      "next": "rdp"
+    },
+    {
+      "label": "WinRM (5985)",
+      "next": "winrm_access"
+    },
+    {
+      "label": "MySQL (3306)",
+      "next": "mysql"
+    },
+    {
+      "label": "MSSQL (1433)",
+      "next": "mssql"
+    },
+    {
+      "label": "PostgreSQL (5432)",
+      "next": "postgres"
+    },
+    {
+      "label": "MongoDB (27017)",
+      "next": "mongodb"
+    },
+    {
+      "label": "Redis (6379)",
+      "next": "redis"
+    },
+    {
+      "label": "NFS (2049)",
+      "next": "nfs_enum"
+    },
+    {
+      "label": "DNS (53)",
+      "next": "dns_enum"
+    },
+    {
+      "label": "SMTP (25/587)",
+      "next": "smtp_enum"
+    },
+    {
+      "label": "Tomcat / Java",
+      "next": "tomcat"
+    },
+    {
+      "label": "Jenkins",
+      "next": "jenkins"
+    },
+    {
+      "label": "Grafana (3000)",
+      "next": "grafana"
+    },
+    {
+      "label": "Splunk (8000/8089)",
+      "next": "splunkd"
+    },
+    {
+      "label": "Docker API (2375)",
+      "next": "docker_api"
+    },
+    {
+      "label": "Elasticsearch (9200)",
+      "next": "elasticsearch"
+    },
+    {
+      "label": "Port knocking",
+      "next": "port_knocking"
+    },
+    {
+      "label": "Credential reuse — spray everywhere",
+      "next": "cred_reuse"
+    },
+    {
+      "label": "File transfer — get tools on target",
+      "next": "file_transfer"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

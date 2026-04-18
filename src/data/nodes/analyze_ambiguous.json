@@ -1,0 +1,34 @@
+{
+  "id": "analyze_ambiguous",
+  "phase": "ANALYSIS",
+  "title": "Ambiguous Output — Reading the Signal",
+  "body": "Nothing obvious in the scan. This is not the same as nothing there. Ambiguous output has a specific set of follow-up moves. Work through them systematically before concluding the surface is locked.",
+  "cmd": "# -- WHEN NMAP OUTPUT LOOKS THIN ----------\n\n# 1. DID YOU SCAN ALL PORTS?\nnmap -p- --min-rate 5000 $ip -oN allports.txt\n# Services on high ports (8080, 8443, 8888, 9090, 10000) are common\n\n# 2. UDP — HAVE YOU CHECKED IT?\nsudo nmap -sU --top-ports 100 $ip -oN udp.txt\n# SNMP (161), TFTP (69), DNS (53) often only on UDP\n# SNMP especially — community string \"public\" = info dump\n\n# 3. WEB — IS THERE A VIRTUAL HOST?\ncurl -sv http://$ip   # check the response title\n# If title shows a domain name: add to /etc/hosts and revisit\n# If 400 Bad Request on HTTPS: server requires SNI — use -k and hostname\n\n# 4. ARE YOU READING 403 CORRECTLY?\n# 403 Forbidden = the resource EXISTS but you lack permission\n# 403 is NOT the same as 404. It is a door that is locked, not absent.\n# Try: different HTTP method (OPTIONS, PUT, PATCH)\n# Try: path traversal (/../admin, /./admin)\n# Try: different User-Agent (Googlebot, curl)\n# Try: add trailing slash (/admin/)\n\n# 5. RESPONSE SIZE VARIATION\n# Two 403s with different response sizes = different content behind them\n# Feroxbuster: filter by size to find anomalies\nferoxbuster -u http://$ip --filter-size [common_size]\n\n# 6. NOTHING AT ALL?\n# Check if the service is actually up\nnc -nv $ip [port]\ntelnet $ip [port]\n# Sometimes nmap misfires on rate-limited or filtered hosts",
+  "warn": "A wall of 403s from feroxbuster is not nothing — it means content exists. The question is what HTTP method, header, or path variation gets you past the filter.",
+  "choices": [
+    {
+      "label": "Found content on high port",
+      "next": "web_enum"
+    },
+    {
+      "label": "SNMP is open — enumerate it",
+      "next": "other_services"
+    },
+    {
+      "label": "Virtual host discovered",
+      "next": "subdomain_enum"
+    },
+    {
+      "label": "403s everywhere — dig into them",
+      "next": "web_fuzz_deep"
+    },
+    {
+      "label": "Genuinely nothing — try UDP fully",
+      "next": "analyze_output"
+    },
+    {
+      "label": "I think I am in a rabbit hole",
+      "next": "mindset_rabbithole"
+    }
+  ]
+}

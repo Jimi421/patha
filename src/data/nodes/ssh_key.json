@@ -1,0 +1,18 @@
+{
+  "id": "ssh_key",
+  "phase": "SSH",
+  "title": "SSH Key Found",
+  "body": "Always check permissions first — SSH will refuse a key that's world-readable. If passphrase-protected, crack it with ssh2john.",
+  "cmd": "chmod 600 id_rsa\nssh -i id_rsa user@$ip\nssh -i id_rsa -o StrictHostKeyChecking=no user@$ip\n\n# Crack passphrase\nssh2john id_rsa > id_rsa.hash\njohn id_rsa.hash --wordlist=/usr/share/wordlists/rockyou.txt\nhashcat -m 22921 id_rsa.hash /usr/share/wordlists/rockyou.txt\n\n# Try all users from /etc/passwd\nfor user in $(cat users.txt); do\n  ssh -i id_rsa $user@$ip -o StrictHostKeyChecking=no 2>/dev/null && echo \"HIT: $user\"\ndone",
+  "warn": null,
+  "choices": [
+    {
+      "label": "SSH'd in — Linux privesc",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Cracking passphrase",
+      "next": "hashcrack"
+    }
+  ]
+}

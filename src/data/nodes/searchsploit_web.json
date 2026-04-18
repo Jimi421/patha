@@ -1,0 +1,38 @@
+{
+  "id": "searchsploit_web",
+  "phase": "WEB",
+  "title": "Searchsploit / CVE Hunt",
+  "body": "Check every service version you found. ExploitDB, GitHub, Google. Read the exploit before running it — most need minor modification. ExploitDB and PacketStorm review code before hosting. GitHub does not — treat every GitHub exploit as untrusted until you've read it.",
+  "cmd": "searchsploit <service> <version>\nsearchsploit -m <id>         # copy to CWD — never modify originals in place\nsearchsploit -x <id>         # read in terminal before using\nsearchsploit --www <service> # open on exploit-db.com\nsearchsploit -s apache 2.4.49  # strict version match — no fuzzy range\n\n# Best workflow: nmap XML output piped straight into searchsploit\nnmap -p <PORTS> -sV -oX targeted.xml $ip\nsearchsploit --nmap targeted.xml\n# reads every detected service/version and searches all at once\n\n# Also check:\n# https://github.com/search?q=CVE-XXXX-YYYY\n# https://packetstormsecurity.com\n# Google: \"<service> <version> exploit site:github.com\"\n\n# Most Python exploits just need:\npython3 exploit.py $ip $lhost $lport\n\n# Decode suspicious hex arrays before trusting them:\npython3 -c \"print(b'\\x72\\x6d\\x20\\x2d\\x72\\x66...')\"",
+  "warn": "Read every exploit before running it. Modify LHOST/LPORT, fix paths, test it. Check for hardcoded ports — exploits assume default ports (James admin 4555, SMTP 25, etc). GitHub exploits are unreviewed — a real published exploit hid 'rm -rf ~ /*' inside a hex shellcode array. Decode any hex payload you don't recognize. Can't read the code? Test in a snapshot VM, never on your Kali host.",
+  "choices": [
+    {
+      "label": "Found working exploit — got shell",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Exploit staged — waiting for trigger",
+      "next": "trigger_dependent_rce"
+    },
+    {
+      "label": "Exploit needs fixing — C / compiled",
+      "next": "exploit_fix_c"
+    },
+    {
+      "label": "Exploit needs fixing — Python / web",
+      "next": "exploit_fix_web"
+    },
+    {
+      "label": "Service looks like custom app — try BOF",
+      "next": "bof"
+    },
+    {
+      "label": "Can deliver files to user — client-side",
+      "next": "client_side"
+    },
+    {
+      "label": "No exploit — back to brute force / creds",
+      "next": "bruteforce"
+    }
+  ]
+}

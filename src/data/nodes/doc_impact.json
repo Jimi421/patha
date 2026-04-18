@@ -1,0 +1,22 @@
+{
+  "id": "doc_impact",
+  "phase": "REPORT",
+  "title": "TA0040 — Impact (Flags)",
+  "body": "The proof section. This is what OffSec grades. Every flag needs the holy trinity in a single screenshot: whoami/id + hostname + ip + flag content. No exceptions.",
+  "cmd": "# TA0040 Impact — flag capture template\n# Technique IDs:\n#   T1565 — Data Manipulation (you achieved impact)\n#   T1486 — Data Encrypted / T1496 — Resource Hijacking (conceptual)\n\n## Flag Capture — $ip\n\n### local.txt (low privilege)\n# Linux\nwhoami && hostname && ip a && cat /home/*/local.txt 2>/dev/null || find / -name local.txt 2>/dev/null -exec cat {} ;\n\n# Windows\nwhoami && hostname && ipconfig && type C:Users*Desktoplocal.txt\n\n### proof.txt (root / SYSTEM)\n# Linux\nid && hostname && ip a && cat /root/proof.txt\n\n# Windows — MUST use interactive shell (not web shell)\nwhoami && hostname && ipconfig && type C:UsersAdministratorDesktopproof.txt\n\n## Flag Log\n| Machine IP | User Flag (local.txt) | Root Flag (proof.txt) | Time |\n|------------|----------------------|----------------------|------|\n| $ip        | [hash value]         | [hash value]         | 00:00|\n\n## Evidence Requirements\n- ✅ local.txt: whoami + hostname + ip + flag — SINGLE screenshot\n- ✅ proof.txt: whoami (root/SYSTEM) + hostname + ip + flag — SINGLE screenshot\n- ✅ proof.txt on Windows captured via interactive shell only",
+  "warn": "Windows proof.txt MUST be captured from an interactive shell — RDP, WinRM, or evil-winrm. A web shell screenshot alone will not be accepted by OffSec.",
+  "choices": [
+    {
+      "label": "Final submission checklist",
+      "next": "doc_submit"
+    },
+    {
+      "label": "Back to tactic index",
+      "next": "reporting"
+    },
+    {
+      "label": "Next machine",
+      "next": "start"
+    }
+  ]
+}

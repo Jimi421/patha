@@ -1,0 +1,46 @@
+{
+  "id": "web_fuzz_deep",
+  "phase": "WEB",
+  "title": "Deep Web Fuzzing",
+  "body": "Go wider and deeper. Parameter brute force, LFI testing, XSS, command injection wordlists. Use wfuzz for fine-grained control.",
+  "cmd": "# Parameter brute force\n# XSStrike — advanced XSS scanner (Kali 2026.1)\nxsstrike -u \"http://$ip/page?param=test\"\nxsstrike -u \"http://$ip/page?param=test\" --crawl\nxsstrike -u \"http://$ip/page?param=test\" --blind\n# --blind for blind XSS (out-of-band callback)\n\nwfuzz -c -z file,/opt/SecLists/Discovery/Web-Content/burp-parameter-names.txt \\\n  --hc 404 \"http://$ip/page?FUZZ=test\"\n\n# LFI wordlist\nwfuzz -c -z file,/opt/SecLists/Fuzzing/LFI/LFI-Jhaddix.txt \\\n  --hc 404 \"http://$ip/page?file=FUZZ\"\n\n# XSS fuzz\nwfuzz -c -z file,/usr/share/wordlists/Fuzzing/XSS.txt \\\n  \"http://$ip/page?param=FUZZ\"\n\n# Command injection fuzz (POST)\nwfuzz -c -z file,/usr/share/wordlists/Fuzzing/command-injection.txt \\\n  -d \"field=FUZZ\" \"http://$ip/page\"\n\n# HTML escape fuzz\nwfuzz -c -z file,/usr/share/wordlists/Fuzzing/yeah.txt \\\n  \"http://$ip/page?param=FUZZ\"",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Found LFI",
+      "next": "lfi"
+    },
+    {
+      "label": "Found command injection",
+      "next": "cmd_injection"
+    },
+    {
+      "label": "Found XSS",
+      "next": "xss"
+    },
+    {
+      "label": "Found parameter — test for SQLi",
+      "next": "sqli_test"
+    },
+    {
+      "label": "Template injection ({{7*7}} returns 49)",
+      "next": "ssti"
+    },
+    {
+      "label": "URL/redirect parameter — SSRF",
+      "next": "ssrf"
+    },
+    {
+      "label": "XML input / SOAP endpoint / file upload",
+      "next": "xxe"
+    },
+    {
+      "label": "Numeric ID in URL or API — IDOR test",
+      "next": "idor"
+    },
+    {
+      "label": "Still nothing — searchsploit service versions",
+      "next": "searchsploit_web"
+    }
+  ]
+}

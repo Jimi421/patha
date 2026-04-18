@@ -1,0 +1,22 @@
+{
+  "id": "dns_enum",
+  "phase": "RECON",
+  "title": "DNS (53)",
+  "body": "DNS zone transfers dump the entire domain map — every host, IP, subdomain. Even without zone transfer, brute-forcing reveals hidden internal hosts to pivot to.",
+  "cmd": "nmap -p 53 -sV --script dns-zone-transfer $ip\nnmap -p 53 --script dns-brute --script-args dns-brute.domain=target.com $ip\n\n# Zone transfer — often misconfigured on internal DNS\ndig axfr target.com @$ip\ndig axfr @$ip target.com\nhost -l target.com $ip\ndnsrecon -d target.com -t axfr\n\n# Standard enumeration\ndig @$ip target.com any        # All records\ndig @$ip target.com ns         # Name servers\ndig @$ip target.com mx         # Mail servers\ndig @$ip target.com txt        # TXT/SPF records (username hints)\nnslookup -type=any target.com $ip\n\n# Subdomain brute force\ndnsrecon -d target.com -t brt -D /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt\ngobuster dns -d target.com -r $ip -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt\n\n# Reverse DNS (find hosts on subnet)\ndnsrecon -r 192.168.1.0/24 -n $ip\nfor i in $(seq 1 254); do host 192.168.1.$i $ip 2>/dev/null | grep \"domain name\"; done\n\n# Add discovered hosts to /etc/hosts\necho \"$ip hostname.target.com\" >> /etc/hosts",
+  "warn": "Zone transfer (AXFR) works when DNS server is misconfigured to allow any client. Common on internal networks. Always try it — it takes one command.",
+  "choices": [
+    {
+      "label": "Zone transfer worked — full host list",
+      "next": "targeted_scan"
+    },
+    {
+      "label": "Found subdomains — add to /etc/hosts",
+      "next": "web_enum"
+    },
+    {
+      "label": "Found internal hostnames — pivot target",
+      "next": "pivot_start"
+    }
+  ]
+}

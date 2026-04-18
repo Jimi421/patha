@@ -1,0 +1,18 @@
+{
+  "id": "subdomain_enum",
+  "phase": "WEB",
+  "title": "Subdomain Enumeration",
+  "body": "Subdomains often expose dev, admin, or internal panels. Always add discovered subs to /etc/hosts before testing.",
+  "cmd": "gobuster dns -d domain.org \\\n  -w /opt/SecLists/Discovery/DNS/subdomains-top1million-110000.txt \\\n  -t 30\n\nffuf -w /opt/SecLists/Discovery/DNS/subdomains-top1million-110000.txt \\\n  -u http://FUZZ.domain.org -o subdomains.txt\n\n# Add to /etc/hosts\necho \"$ip sub.domain.org\" >> /etc/hosts",
+  "warn": "Verify every subdomain resolves to an in-scope IP before testing.",
+  "choices": [
+    {
+      "label": "Found subdomain — enumerate it as new web target",
+      "next": "web_enum"
+    },
+    {
+      "label": "Nothing — keep fuzzing main host",
+      "next": "web_fuzz_deep"
+    }
+  ]
+}

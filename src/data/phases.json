@@ -1,0 +1,74 @@
+{
+  "ANALYSIS": {
+    "color": "#34d399",
+    "icon": "◎"
+  },
+  "JUMP": {
+    "color": "#f0abfc",
+    "icon": "⟡"
+  },
+  "RECON": {
+    "color": "#3b9eff",
+    "icon": "◉"
+  },
+  "DISCOVERY": {
+    "color": "#38bdf8",
+    "icon": "◎"
+  },
+  "PIVOT": {
+    "color": "#f472b6",
+    "icon": "⟳"
+  },
+  "WEB": {
+    "color": "#ff8c42",
+    "icon": "◈"
+  },
+  "SMB": {
+    "color": "#ff6b9d",
+    "icon": "◆"
+  },
+  "FTP": {
+    "color": "#ff6b9d",
+    "icon": "◆"
+  },
+  "SSH": {
+    "color": "#ff6b9d",
+    "icon": "◆"
+  },
+  "CREDS": {
+    "color": "#ffd166",
+    "icon": "◐"
+  },
+  "SHELL": {
+    "color": "#ffd166",
+    "icon": "◐"
+  },
+  "LINUX": {
+    "color": "#06d6a0",
+    "icon": "▲"
+  },
+  "WINDOWS": {
+    "color": "#ffbe0b",
+    "icon": "■"
+  },
+  "AD": {
+    "color": "#b5179e",
+    "icon": "◈"
+  },
+  "REPORT": {
+    "color": "#a0aec0",
+    "icon": "✎"
+  },
+  "MINDSET": {
+    "color": "#c084fc",
+    "icon": "◯"
+  },
+  "EXPLOIT": {
+    "color": "#f87171",
+    "icon": "⚡"
+  },
+  "POST": {
+    "color": "#fb923c",
+    "icon": "★"
+  }
+}

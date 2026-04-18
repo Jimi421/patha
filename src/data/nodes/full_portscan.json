@@ -1,0 +1,14 @@
+{
+  "id": "full_portscan",
+  "phase": "RECON",
+  "title": "Full TCP Scan",
+  "body": "Run all 65535 ports in the background while you start UDP in parallel. Never skip this — services on high ports get people caught out.",
+  "cmd": "# -- Rustscan (faster — labs) --------------------------\nulimit -n 5000\nrustscan -a $ip --ulimit 5000 -- -sV -sC -oN targeted.txt\n# Scans all ports in seconds, hands open ports to nmap automatically\n# The -- passes remaining args directly to nmap\n\n# -- Nmap (exam-safe, always works) --------------------\n# Full TCP (background it)\nnmap -p- --min-rate 5000 -T4 $ip -oN allports.txt\n\n# UDP top 20 (background)\nsudo nmap -sU --top-ports 20 $ip -oN udp.txt &\n\n# HTTP methods check while you wait\nnmap -p80,443 --script=http-methods $ip \\\n  --script-args http-methods.url-path='/'",
+  "warn": "Rustscan is faster but verify it's on the allowed tools list before exam day — OffSec's policy updates. When in doubt on exam day, use nmap. In labs, rustscan + ulimit 5000 is the move.",
+  "choices": [
+    {
+      "label": "Scan complete — run targeted scan on open ports",
+      "next": "targeted_scan"
+    }
+  ]
+}

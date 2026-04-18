@@ -1,0 +1,18 @@
+{
+  "id": "double_pivot",
+  "phase": "PIVOT",
+  "title": "Double Pivot",
+  "body": "Three-hop chain: Kali to Pivot1 to Pivot2 to Target. Chain Ligolo listeners or nest SSH tunnels. Draw the map first.",
+  "cmd": "listener_add --addr 0.0.0.0:11601 --to 127.0.0.1:11601\n\n./agent -connect 172.16.50.X:11601 -ignore-cert\n\nsession\n[select pivot2]\nstart\n\nsudo ip route add 10.10.10.0/24 dev ligolo\n\nssh -D 1080 user@pivot1 -N &\nproxychains ssh -D 1081 user@172.16.50.X -N &",
+  "warn": "Every hop adds latency. Drop scan rates further with each layer.",
+  "choices": [
+    {
+      "label": "Double pivot up — discover third network",
+      "next": "pivot_discovery"
+    },
+    {
+      "label": "Reached target — enumerate it",
+      "next": "targeted_scan"
+    }
+  ]
+}

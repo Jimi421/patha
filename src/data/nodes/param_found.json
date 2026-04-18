@@ -1,0 +1,30 @@
+{
+  "id": "param_found",
+  "phase": "WEB",
+  "title": "Parameter Found",
+  "body": "URL parameter detected. Test for SQLi, LFI, and command injection manually first before reaching for tools — understand what the app is doing.",
+  "cmd": "# Quick manual tests\ncurl \"http://$ip/page?id=1'\"          # SQLi probe\ncurl \"http://$ip/page?file=../../../etc/passwd\"  # LFI probe\ncurl \"http://$ip/page?cmd=;id\"        # CMDi probe\n\n# Check response differences carefully",
+  "warn": null,
+  "choices": [
+    {
+      "label": "SQLi looks promising",
+      "next": "sqli_test"
+    },
+    {
+      "label": "LFI response detected",
+      "next": "lfi"
+    },
+    {
+      "label": "Command injection response",
+      "next": "cmd_injection"
+    },
+    {
+      "label": "URL/redirect param — SSRF",
+      "next": "ssrf"
+    },
+    {
+      "label": "Template syntax reflected — SSTI",
+      "next": "ssti"
+    }
+  ]
+}

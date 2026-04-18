@@ -1,0 +1,38 @@
+{
+  "id": "linux_enum_quick",
+  "phase": "LINUX",
+  "title": "Linux Enum — Quick Reference",
+  "body": "One-liners only. No explanations. Run top to bottom on a new foothold. Full detail in linux_post_exploit.",
+  "cmd": "# ── IDENTITY ─────────────────────────────────────────\nid\nwhoami\nid | grep -i \"sudo|docker|lxd|disk|adm|wheel\"\ncat /etc/passwd | grep -v nologin | grep -v false\ngrep -v -E \"^#\" /etc/passwd | awk -F: '$3 == 0 { print $1 }'   # UID 0 users\n\n# ── OS / KERNEL ──────────────────────────────────────\nuname -a\ncat /etc/issue\ncat /etc/os-release | head -5\n\n# ── SUDO ─────────────────────────────────────────────\nsudo -l\n\n# ── SUID ─────────────────────────────────────────────\nfind / -perm -u=s -type f 2>/dev/null\ngetcap -r / 2>/dev/null\n\n# ── NETWORK ──────────────────────────────────────────\nip a\nip route\nss -anp | grep LISTEN\nss -anp | grep \"127.0.0.1\"\narp -a\n\n# ── PROCESSES ────────────────────────────────────────\nps aux | grep root\nwatch -n 1 \"ps aux | grep pass\"\n\n# ── CRON ─────────────────────────────────────────────\ncat /etc/crontab\nls -la /etc/cron*\ncat /var/spool/cron/crontabs/* 2>/dev/null\ngrep \"CRON\" /var/log/syslog | tail -20\n\n# ── WRITABLE / INTERESTING ───────────────────────────\nfind / -writable -type f 2>/dev/null | grep -v proc | grep -v sys | grep -v run\nfind / -writable -type d 2>/dev/null | grep -v proc | grep -v sys\nls -la /etc/passwd /etc/shadow /etc/sudoers /etc/crontab\n\n# ── HISTORY / ENV ────────────────────────────────────\ncat ~/.bash_history\ncat ~/.bashrc | grep export\nenv | grep -i \"pass|key|secret|token\"\ncat ~/.nano_history ~/.mysql_history ~/.atftp_history 2>/dev/null\n\n# ── SERVICES / PACKAGES ──────────────────────────────\nps aux | grep -v \"[\" | awk '{print $11}' | sort -u\ndpkg -l 2>/dev/null | grep -i \"^ii\" | awk '{print $2,$3}'\nrpm -qa 2>/dev/null\n\n# ── FILE HUNTING ─────────────────────────────────────\nfind / -name \"*.conf\" -o -name \"*.config\" -o -name \".env\" 2>/dev/null | xargs grep -il \"pass\" 2>/dev/null\nfind / -name \"id_rsa\" -o -name \"*.kdbx\" -o -name \"wp-config.php\" 2>/dev/null\nls -la /var/www/html/ /opt/ /srv/ 2>/dev/null\ncat /var/log/auth.log 2>/dev/null | grep -i \"pass|fail\" | tail -20\n\n# ── /ETC/PASSWD WRITABLE? ────────────────────────────\nls -la /etc/passwd\n# -rw-rw-rw- = instant root\n\n# ── COMPILERS AVAILABLE? ─────────────────────────────\nwhich gcc g++ python python3 perl ruby 2>/dev/null",
+  "warn": null,
+  "choices": [
+    {
+      "label": "sudo -l shows something",
+      "next": "sudo_check"
+    },
+    {
+      "label": "SUID binary found",
+      "next": "suid_check"
+    },
+    {
+      "label": "Cron job found",
+      "next": "cron_check"
+    },
+    {
+      "label": "Creds in env/history",
+      "next": "linux_password_hunt"
+    },
+    {
+      "label": "Interesting group membership",
+      "next": "linux_privesc_extra"
+    },
+    {
+      "label": "Run LinPEAS",
+      "next": "linpeas"
+    },
+    {
+      "label": "Kernel exploit path",
+      "next": "kernel_exploit"
+    }
+  ]
+}

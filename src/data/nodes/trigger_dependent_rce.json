@@ -1,0 +1,18 @@
+{
+  "id": "trigger_dependent_rce",
+  "phase": "WEB",
+  "title": "Trigger-Dependent RCE",
+  "body": "Some exploits don't give you a shell immediately — they stage a payload that fires when a user action occurs. Common patterns: file written to a home directory that executes on SSH login (.bashrc, .bash_profile), cron job that picks up a dropped file, service restart, or a user opening mail. The exploit reports success but nothing happens until the trigger fires. This is expected behavior — not a failure.",
+  "cmd": "# Stage your listener BEFORE running the exploit\nnc -lvnp $lport\n\n# Apache James 2.3.2 example — payload fires on SSH login\n# After exploit runs: trigger it manually\nssh -p <james_ssh_port> <created_user>@$ip\n# James creates a user via admin port, sends payload via SMTP\n# Payload lands in user home dir and executes on next login\n\n# If you can't SSH as that user, check for other login vectors:\n# - POP3 login (port 110 or custom)\n# - Any web login that triggers a shell\n# - Check if a cron is already running as that user\n\n# Confirm payload was staged — reconnect to admin port and verify user exists:\nnc $ip <admin_port>\n# login: james / james  (or root / root)\n# listusers",
+  "warn": "Don't wait 20 minutes staring at a listener. While it sits open: enumerate other services, check for creds, try SSH on both ports. If you can't force the trigger — note it, move on, come back. On exam day flag this box and check back after pivoting elsewhere.",
+  "choices": [
+    {
+      "label": "Triggered — shell caught",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Can't trigger — moving to next box",
+      "next": "start"
+    }
+  ]
+}

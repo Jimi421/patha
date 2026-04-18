@@ -1,0 +1,22 @@
+{
+  "id": "doc_initial_access",
+  "phase": "REPORT",
+  "title": "TA0001 — Initial Access",
+  "body": "The foothold section. Be exact — command, payload, response. This is the section most candidates under-document because they're excited to move on. Slow down.",
+  "cmd": "# TA0001 Initial Access — note template\n# Technique IDs to reference:\n#   T1190 — Exploit Public-Facing Application\n#   T1078 — Valid Accounts (found creds)\n#   T1566 — Phishing (client-side attacks)\n#   T1203 — Exploitation for Client Execution\n\n## Initial Access — $ip\n\nVulnerability: [CVE / vuln name / misconfiguration]\nService: [port + service]\nTechnique: T1190 / T1078 / T1566 (pick one)\n\n## Exploitation Steps\n1. [Exact command or tool used]\n2. [Payload delivered / creds used]\n3. [Response confirming execution]\n\n## Shell Obtained\nType: [reverse/bind/web shell]\nUser: [whoami output]\nCommand used:\n  [paste exact command that got the shell]\n\n## Evidence\n- Screenshot: exploit execution + response\n- Screenshot: whoami + hostname + ip immediately after shell\n- File: ~/results/$ip/exploits/payload.txt (save your payload)",
+  "warn": "Save your exact payload to disk before moving on. You will need to reproduce this in the report and you will not remember the exact syntax 8 hours later.",
+  "choices": [
+    {
+      "label": "TA0002 — Execution",
+      "next": "doc_execution"
+    },
+    {
+      "label": "TA0004 — Privilege Escalation",
+      "next": "doc_privesc"
+    },
+    {
+      "label": "Back to tactic index",
+      "next": "reporting"
+    }
+  ]
+}

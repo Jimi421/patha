@@ -1,0 +1,86 @@
+{
+  "id": "unknown_service",
+  "phase": "RECON",
+  "title": "Unknown Service / Port",
+  "body": "nmap gave you a port you don't recognize. Banner grab first, then version-specific research. Every service has a fingerprint.",
+  "cmd": "nc -nv $ip <PORT>\ncurl -sv http://$ip:<PORT>\ncurl -sv https://$ip:<PORT>\n\nnmap -p <PORT> -sC -sV --version-intensity 9 $ip\n\n# Common high-port services:\n# 8080/8443/8009 — Tomcat, JBoss, GlassFish\n# 9200/9300     — Elasticsearch\n# 6379          — Redis\n# Common high-port services:\n# 8080/8443/8009 — Tomcat, JBoss, GlassFish\n# 9200/9300     — Elasticsearch\n# 6379          — Redis\n# 27017         — MongoDB\n# 2181          — Zookeeper → look for Exhibitor UI on 8080/8081 → CVE-2019-5029\n# 8080/8081     — Exhibitor Web UI (no auth) → command injection → shell\n# 17001         — MS .NET Remoting (SmarterMail RCE — CVE-2019-7214)\n# GoAhead-Webs  — Embedded/industrial mgmt software → old CVEs → searchsploit\n#                 HP Power Manager: admin:admin → buffer overflow → SYSTEM\n# HP Power Mgr  — port 80, GoAhead WebServer, admin:admin, MSF exploit\n# 9998          — SmarterMail web UI (check version here)\n# NOTE: .NET remoting exploit port ≠ web UI port — use remoting portngoDB\n# 1433          — MSSQL\n# 1099          — Java RMI\n# 5432          — PostgreSQL\n# 11211         — Memcached\n# 2181          — ZooKeeper\n# 4848          — GlassFish admin\n\nsearchsploit $(nmap -p <PORT> -sV $ip | grep open | awk '{print $3,$4}')",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Tomcat / JBoss / Java app server",
+      "next": "tomcat"
+    },
+    {
+      "label": "Redis (6379)",
+      "next": "redis"
+    },
+    {
+      "label": "MSSQL (1433)",
+      "next": "mssql"
+    },
+    {
+      "label": "PostgreSQL (5432)",
+      "next": "postgres"
+    },
+    {
+      "label": "MongoDB (27017)",
+      "next": "mongodb"
+    },
+    {
+      "label": "MySQL (3306)",
+      "next": "mysql"
+    },
+    {
+      "label": "NFS (2049)",
+      "next": "nfs_enum"
+    },
+    {
+      "label": "Rsync (873)",
+      "next": "rsync"
+    },
+    {
+      "label": "SMTP (25/587)",
+      "next": "smtp_enum"
+    },
+    {
+      "label": "Elasticsearch (9200)",
+      "next": "elasticsearch"
+    },
+    {
+      "label": "Docker API (2375/2376)",
+      "next": "docker_api"
+    },
+    {
+      "label": "VNC (5900)",
+      "next": "vnc"
+    },
+    {
+      "label": "DNS (53)",
+      "next": "dns_enum"
+    },
+    {
+      "label": "Grafana (3000)",
+      "next": "grafana"
+    },
+    {
+      "label": "Splunk (8000/8089)",
+      "next": "splunkd"
+    },
+    {
+      "label": "Memcached (11211)",
+      "next": "memcached"
+    },
+    {
+      "label": "Java RMI (1099)",
+      "next": "java_rmi"
+    },
+    {
+      "label": "Web interface found",
+      "next": "web_enum"
+    },
+    {
+      "label": "Searchsploit hit",
+      "next": "searchsploit_web"
+    }
+  ]
+}

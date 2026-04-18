@@ -1,0 +1,18 @@
+{
+  "id": "doc_discovery",
+  "phase": "REPORT",
+  "title": "TA0007 — Discovery",
+  "body": "Post-shell enumeration. What did you find once inside? This section ties recon to lateral movement and shows situational awareness — you didn't just exploit and move on, you understood the environment.",
+  "cmd": "# TA0007 Discovery — note template\n# Technique IDs to reference:\n#   T1082 — System Information Discovery\n#   T1049 — System Network Connections Discovery\n#   T1033 — System Owner/User Discovery\n#   T1087 — Account Discovery\n#   T1069 — Permission Groups Discovery\n#   T1016 — System Network Configuration Discovery\n#   T1018 — Remote System Discovery\n#   T1135 — Network Share Discovery\n\n## Post-Shell Discovery — $ip\n\nShell as: [username + privilege level]\n\n## System Info\nhostname && whoami && id\nuname -a          # Linux\nsysteminfo        # Windows\n\n## Network Awareness\nip a / ipconfig   # Interfaces — any dual-homed?\nip route          # Subnets reachable\narp -a            # Other hosts seen recently\nss -tnp / netstat -ano  # Active connections\n\n## Interesting Users / Groups\ncat /etc/passwd | grep -v nologin  # Linux\nnet user && net localgroup administrators  # Windows\n\n## Key Findings\n- [Any new subnets discovered]\n- [Other live hosts found]\n- [Interesting shares, files, configs]\n\n## Evidence\n- Screenshot: ifconfig/ipconfig showing all interfaces\n- Screenshot: arp table or other host discovery\n- Note: any new IPs to add to scope",
+  "warn": "Check for dual-homed machines every time — a second interface means a new subnet and potentially the pivot you need to reach the AD set.",
+  "choices": [
+    {
+      "label": "TA0040 — Impact (flags)",
+      "next": "doc_impact"
+    },
+    {
+      "label": "Back to tactic index",
+      "next": "reporting"
+    }
+  ]
+}

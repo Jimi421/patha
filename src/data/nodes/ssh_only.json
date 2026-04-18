@@ -1,0 +1,22 @@
+{
+  "id": "ssh_only",
+  "phase": "SSH",
+  "title": "SSH Only Exposed",
+  "body": "SSH alone is rarely the initial attack vector. You need creds or a key from somewhere. Check non-standard web ports — something else is almost always running.",
+  "cmd": "# Check non-standard ports\nnmap -p 8000,8080,8443,8888,9000,9090,3000,5000 $ip\n\n# SSH version / algo audit\nssh-audit $ip\n\n# Banner grab\nnc -nv $ip 22\n\n# Username enum (if older OpenSSH)\nssh-user-enum.py -U /opt/SecLists/Usernames/Names/names.txt -t $ip",
+  "warn": "Brute forcing SSH without a targeted username list is almost never the path.",
+  "choices": [
+    {
+      "label": "Found web on non-standard port",
+      "next": "web_enum"
+    },
+    {
+      "label": "Got creds from elsewhere — SSH in",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Got SSH key",
+      "next": "ssh_key"
+    }
+  ]
+}

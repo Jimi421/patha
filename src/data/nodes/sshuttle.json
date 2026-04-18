@@ -1,0 +1,18 @@
+{
+  "id": "sshuttle",
+  "phase": "PIVOT",
+  "title": "sshuttle — VPN-like Tunnel",
+  "body": "sshuttle turns SSH into a transparent VPN. No proxychains needed — route whole subnets through SSH directly. Requires root on Kali and Python3 on SSH server.",
+  "cmd": "# ── REQUIREMENTS ─────────────────────────────────────\n# Root on Kali (sudo)\n# Python3 on SSH server\n# Direct SSH access to pivot host\n\n# ── BASIC USAGE ───────────────────────────────────────\n# Route internal subnet through pivot\nsshuttle -r database_admin@192.168.50.63:2222 10.4.50.0/24 172.16.50.0/24\n# After this — connect directly to internal hosts, no proxychains:\nsmbclient -L //172.16.50.217/ -U hr_admin --password=Welcome1234\npsql -h 10.4.50.215 -U postgres\n\n# ── WITH SOCAT PORT FORWARD (no direct SSH to pivot) ──\n# First set up socat on pivot (port 2222 → internal SSH port 22)\n# socat TCP-LISTEN:2222,fork TCP:10.4.50.215:22\n# Then sshuttle through that forward:\nsshuttle -r database_admin@192.168.50.63:2222 10.4.50.0/24 172.16.50.0/24\n\n# ── ROUTE ALL TRAFFIC ─────────────────────────────────\nsshuttle -r user@pivot 0/0   # routes everything (careful)\n\n# ── EXCLUDE SUBNETS ───────────────────────────────────\nsshuttle -r user@pivot 10.4.50.0/24 -x 10.4.50.215  # exclude pivot itself\n\n# ── DNS THROUGH TUNNEL ────────────────────────────────\nsshuttle -r user@pivot --dns 10.4.50.0/24\n\n# ── IGNORE HOST KEY ───────────────────────────────────\nsshuttle -r user@pivot --ssh-cmd \"ssh -o StrictHostKeyChecking=no\" 10.4.50.0/24\n\n# ── TROUBLESHOOT ─────────────────────────────────────\n# \"Failed to flush caches\" = harmless DNS warning, ignore\n# If connection drops — restart sshuttle\n# Not working? check Python3 is on the remote host: python3 --version",
+  "warn": "sshuttle requires root on Kali and Python3 on the SSH server. Not stealthy — creates routing table changes. Clean up when done. Lab validated: PEN-200 Module 19.",
+  "choices": [
+    {
+      "label": "Tunneling — scan internal hosts directly",
+      "next": "pivot_portscan"
+    },
+    {
+      "label": "Back to pivot methods",
+      "next": "pivot_start"
+    }
+  ]
+}

