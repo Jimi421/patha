@@ -3,7 +3,7 @@
   "phase": "JUMP",
   "title": "Jump to Technique",
   "body": "Direct access to any section. Use this for labs, CTFs, or when you already know what you are dealing with and need the technique fast.",
-  "cmd": "# No commands here — pick your domain",
+  "cmd": "# No commands here \u2014 pick your domain",
   "warn": null,
   "choices": [
     {
@@ -43,11 +43,11 @@
       "next": "persistence"
     },
     {
-      "label": "LOLBins — Windows built-in abuse",
+      "label": "LOLBins \u2014 Windows built-in abuse",
       "next": "lolbins"
     },
     {
-      "label": "GTFOBins — Linux built-in abuse",
+      "label": "GTFOBins \u2014 Linux built-in abuse",
       "next": "gtfobins_linux"
     },
     {
@@ -59,7 +59,7 @@
       "next": "bruteforce"
     },
     {
-      "label": "Scan notes — document findings",
+      "label": "Scan notes \u2014 document findings",
       "next": "scan_notes"
     },
     {
@@ -79,7 +79,11 @@
       "next": "msfconsole"
     },
     {
-      "label": "msfvenom — payload generator",
+      "label": "Sliver C2 \u2014 modern post-ex framework",
+      "next": "sliver_c2"
+    },
+    {
+      "label": "msfvenom \u2014 payload generator",
       "next": "msfvenom"
     },
     {
