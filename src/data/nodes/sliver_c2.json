@@ -7,6 +7,10 @@
   "warn": "Sliver implants with --skip-symbols leak 'bishopfox/sliver' strings \u2014 verify with 'strings beacon.exe | grep sliver' and rebuild without flag if engagement is OPSEC-sensitive. socks5 pivoting only works in SESSION mode, not beacon \u2014 run 'interactive' first. DNS and WireGuard listeners both default to port 53 and conflict if run together. Armory install fails silently on bad DNS \u2014 set 8.8.8.8 in /etc/resolv.conf. Proxychains integration is flaky in v1.5.x \u2014 use Ligolo-NG alias instead. Always kill beacons/sessions before ending engagement or you leave persistent callbacks in the environment.",
   "choices": [
     {
+  "label": "Token privesc via SharpEfsPotato (SeImpersonate → SYSTEM)",
+  "next": "sharp_efs_potato_sliver"
+    },
+    {
       "label": "Need to pivot into internal network",
       "next": "ligolo"
     },
