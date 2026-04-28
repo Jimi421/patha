@@ -59,6 +59,10 @@
       "next": "wordpress"
     },
     {
+      "label": "Grav CMS",
+      "next": "grav_cms"
+    },
+    {
       "label": "SSTI — template injection",
       "next": "ssti"
     },
