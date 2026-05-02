@@ -15,6 +15,18 @@
       "next": "ad_ldap_enum"
     },
     {
+  "label": "BloodHound — comprehensive graph guide",
+  "next": "bloodhound_guide"
+   },
+   {
+  "label": "PowerView — command guide",
+  "next": "powerview_commands"
+   },
+   {
+  "label": "Users, computers & logged-on user playbook",
+  "next": "ad_loggedon_playbook"
+  }
+    {
       "label": "BloodHound — run and read",
       "next": "bloodhound"
     },
