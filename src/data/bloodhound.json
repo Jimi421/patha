@@ -7,21 +7,21 @@
   "warn": null,
   "choices": [
     {
-      "label": "Open full BloodHound guide",
-      "next": "bloodhound_guide"
-    },
-    {
-      "label": "Validate path with PowerView",
-      "next": "powerview_commands"
-    },
-    {
-      "label": "Validate sessions with PsLoggedOn",
-      "next": "ad_loggedon_playbook"
-    },
-    {
       "label": "Kerberoastable accounts found",
       "next": "kerberoast"
     },
+    {
+      "label": "Open full BloodHound guide",
+      "next": "bloodhound_guide"
+    },
+    {  
+       "label": "Validate path with PowerView",
+       "next": "powerview_commands"
+    },
+    {
+  "label": "Validate sessions with PsLoggedOn",
+  "next": "ad_loggedon_playbook"
+   }
     {
       "label": "AS-REP Roastable accounts found",
       "next": "asrep_roast"
