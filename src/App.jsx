@@ -605,7 +605,7 @@ export default function OSCPAdventure() {
             </div>
             <p style={{ color: "#6a7a8a", lineHeight: 1.8, fontSize: 14, marginBottom: 16 }}>
               An interactive decision-tree methodology for OSCP exam day and offensive security practice.
-              148 nodes covering every attack domain — web, AD, Linux, Windows, pivoting, shells,
+              {' '}{Object.keys(nodes).length} nodes covering every attack domain — web, AD, Linux, Windows, pivoting, shells,
               documentation, and the inner game of operating under pressure.
             </p>
             <p style={{ color: "#6a7a8a", lineHeight: 1.8, fontSize: 14, marginBottom: 24 }}>

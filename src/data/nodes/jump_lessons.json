@@ -1,0 +1,30 @@
+{
+  "id": "jump_lessons",
+  "phase": "MINDSET",
+  "title": "Lessons from the Lab — Retrospectives",
+  "body": "Post-engagement breakdowns from real lab boxes. Each one is a complete chain — recon to root — with timing, the specific decisions that mattered, and the reusable patterns extracted from them. Read these between machines, not during one. The methodology is the asset; the specific CVEs rotate.",
+  "cmd": null,
+  "warn": "These are after-action reports, not technique references. If you're stuck on a live box, use the Jump menu or mindset_stuck. Come back here once the machine is rooted.",
+  "choices": [
+    {
+      "label": "Exghost — File-upload RCE chain (ExifTool → PwnKit)",
+      "next": "exghost_lessons"
+    },
+    {
+      "label": "Vault — AD chain (SMB → NTLMv2 → WriteDacl → DCSync)",
+      "next": "vault_lessons"
+    },
+    {
+      "label": "Shenzi — XAMPP + WordPress + AlwaysInstallElevated",
+      "next": "shenzi_lessons"
+    },
+    {
+      "label": "Back to Jump menu",
+      "next": "jump_menu"
+    },
+    {
+      "label": "Back to start",
+      "next": "start"
+    }
+  ]
+}

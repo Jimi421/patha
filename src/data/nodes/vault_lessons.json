@@ -23,6 +23,10 @@
       "next": "mindset_preexam"
     },
     {
+      "label": "Back to lessons hub",
+      "next": "jump_lessons"
+    },
+    {
       "label": "Back to AD start (new box)",
       "next": "ad_start"
     }

@@ -71,6 +71,10 @@
       "next": "jump_pivot"
     },
     {
+      "label": "Lessons from the lab \u2014 retrospectives",
+      "next": "jump_lessons"
+    },
+    {
       "label": "Documentation & reporting",
       "next": "reporting"
     },
