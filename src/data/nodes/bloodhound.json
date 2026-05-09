@@ -31,6 +31,14 @@
       "next": "acl_abuse"
     },
     {
+      "label": "WriteDacl/GenericWrite on a GPO — exploit it",
+      "next": "gpo_abuse"
+    },
+    {
+      "label": "Need fresh collection — full bloodhound-python walkthrough",
+      "next": "bloodhound_authenticated"
+    },
+    {
       "label": "Delegation abuse path found",
       "next": "delegation"
     },

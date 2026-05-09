@@ -39,6 +39,10 @@
       "next": "pivot_portscan"
     },
     {
+      "label": "Open Pivot Calculator — generate commands for your IPs",
+      "next": "pivot_calc_link"
+    },
+    {
       "label": "Back to jump menu",
       "next": "jump_menu"
     }

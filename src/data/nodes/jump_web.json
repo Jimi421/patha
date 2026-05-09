@@ -59,6 +59,10 @@
       "next": "wordpress"
     },
     {
+      "label": "XAMPP — Apache + PHP + MariaDB stack",
+      "next": "xampp_default"
+    },
+    {
       "label": "Grav CMS",
       "next": "grav_cms"
     },

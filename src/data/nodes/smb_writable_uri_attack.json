@@ -36,7 +36,7 @@
     },
     {
       "label": "Back to phase jump",
-      "next": "jump_smb"
+      "next": "jump_menu"
     }
   ]
 }

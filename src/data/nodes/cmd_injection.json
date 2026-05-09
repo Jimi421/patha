@@ -9,6 +9,10 @@
     {
       "label": "Confirmed RCE — get reverse shell",
       "next": "reverse_shell"
+    },
+    {
+      "label": "Server processes uploaded images — try ExifTool RCE",
+      "next": "exiftool_rce"
     }
   ]
 }

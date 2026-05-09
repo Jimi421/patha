@@ -13,6 +13,18 @@
     {
       "label": "I am already stuck mid-exam",
       "next": "mindset_stuck"
+    },
+    {
+      "label": "Review Vault retrospective — AD chain lessons",
+      "next": "vault_lessons"
+    },
+    {
+      "label": "Review Exghost retrospective — file upload RCE chain",
+      "next": "exghost_lessons"
+    },
+    {
+      "label": "Review Shenzi retrospective — XAMPP+WordPress chain",
+      "next": "shenzi_lessons"
     }
   ]
 }

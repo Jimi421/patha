@@ -19,6 +19,10 @@
       "next": "winpeas"
     },
     {
+      "label": "PowerUp — PowerShell privesc audit",
+      "next": "powerup"
+    },
+    {
       "label": "Token impersonation (Potato attacks)",
       "next": "token_privs"
     },

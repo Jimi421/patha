@@ -11,6 +11,10 @@
       "next": "wordpress"
     },
     {
+      "label": "XAMPP detected — full XAMPP recon",
+      "next": "xampp_default"
+    },
+    {
       "label": "Found login page",
       "next": "login_page"
     },

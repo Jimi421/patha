@@ -27,6 +27,10 @@
       "next": "kernel_exploit"
     },
     {
+      "label": "pkexec annotated CVE-2021-4034 — try PwnKit",
+      "next": "pwnkit"
+    },
+    {
       "label": "Interesting group (docker/lxd/disk)",
       "next": "linux_privesc_extra"
     }
