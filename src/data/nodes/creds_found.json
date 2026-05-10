@@ -19,6 +19,10 @@
       "next": "file_upload"
     },
     {
+      "label": "Need to extract more creds — Mimikatz",
+      "next": "mimikatz"
+    },
+    {
       "label": "Spray these creds everywhere NOW",
       "next": "cred_reuse"
     }

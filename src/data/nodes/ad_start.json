@@ -7,6 +7,10 @@
   "warn": "Check password policy BEFORE any spraying — nxc smb --pass-pol. Lockouts on the exam are catastrophic. ldapdomaindump HTML output is the fastest way to visually map the domain before BloodHound finishes. nxc is the maintained fork of crackmapexec — prefer it where installed.",
   "choices": [
     {
+      "label": "First time? Read the AD authentication primer",
+      "next": "ad_auth_primer"
+    },
+    {
       "label": "Run BloodHound (mandatory)",
       "next": "bloodhound"
     },

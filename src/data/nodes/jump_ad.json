@@ -7,6 +7,10 @@
   "warn": null,
   "choices": [
     {
+      "label": "AD authentication primer — how NTLM/Kerberos work",
+      "next": "ad_auth_primer"
+    },
+    {
       "label": "AD entry — assumed breach",
       "next": "ad_start"
     },
@@ -43,6 +47,10 @@
       "next": "kerberoast"
     },
     {
+      "label": "Silver tickets — forge service tickets",
+      "next": "silver_tickets"
+    },
+    {
       "label": "Password spraying",
       "next": "ad_spray"
     },
@@ -61,6 +69,10 @@
     {
       "label": "DCSync — domain owned",
       "next": "dcsync"
+    },
+    {
+      "label": "Mimikatz — credential extraction toolkit",
+      "next": "mimikatz"
     },
     {
       "label": "Lateral movement (PtH/WinRM/SMB)",

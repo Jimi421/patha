@@ -11,6 +11,14 @@
       "next": "got_root_windows"
     },
     {
+      "label": "Need to extract the hash first — Mimikatz",
+      "next": "mimikatz"
+    },
+    {
+      "label": "PTH failing — try Overpass-the-Hash (Kerberos-only target)",
+      "next": "mimikatz_advanced"
+    },
+    {
       "label": "Need to crack hash first",
       "next": "hashcrack"
     }

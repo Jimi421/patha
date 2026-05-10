@@ -7,6 +7,14 @@
   "warn": null,
   "choices": [
     {
+      "label": "Got SPN hashes — forge silver tickets",
+      "next": "silver_tickets"
+    },
+    {
+      "label": "Got krbtgt hash — golden tickets via lateral movement",
+      "next": "lateral_movement"
+    },
+    {
       "label": "Domain Admin shell on DC — grab proof",
       "next": "ad_complete"
     }

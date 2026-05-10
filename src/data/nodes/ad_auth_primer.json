@@ -1,0 +1,46 @@
+{
+  "id": "ad_auth_primer",
+  "phase": "AD",
+  "title": "AD Authentication — How NTLM and Kerberos Actually Work",
+  "body": "Read this once. Every AD attack you'll perform is exploiting a specific step in one of these two flows. Understanding *which* step makes the difference between running tools blindly and knowing why an attack fails so you can pivot.\n\n— NTLM IN ONE PARAGRAPH —\n\nClient sends username to server. Server replies with a random nonce (challenge). Client encrypts the nonce with the user's NTLM hash and sends it back as the response. Server forwards (username, nonce, response) to the DC. DC encrypts the same nonce with its stored copy of the user's NTLM hash and compares. Match = authenticated. The hash is the secret — the password itself never crosses the wire.\n\nKey consequence: if you have the hash, you don't need the password. Pass-the-Hash works because the protocol only ever uses the hash.\n\n— KERBEROS IN FIVE STEPS —\n\n1. AS-REQ: Client → DC. 'I'm jeff, here's a timestamp encrypted with my password hash.'\n2. AS-REP: DC → Client. 'Verified. Here's a session key (encrypted with your hash) and a TGT (encrypted with the krbtgt hash, opaque to you).'\n3. TGS-REQ: Client → DC. 'I want to access cifs/web04. Here's my TGT and a timestamp encrypted with the session key.'\n4. TGS-REP: DC → Client. 'Approved. Here's a service ticket (encrypted with web04's service account hash) containing your group memberships.'\n5. AP-REQ: Client → web04. 'Here's the service ticket.' Web04 decrypts it with its own hash, reads the groups, grants access.\n\n— ATTACK SURFACE BY STEP —\n\n  Step 1 (AS-REQ): If pre-auth is disabled for a user, anyone can request an AS-REP\n                   for them. The AS-REP contains material encrypted with their\n                   password hash → crack offline → AS-REP ROASTING.\n\n  Step 2 (AS-REP): The TGT is encrypted with the krbtgt hash. If you have krbtgt's\n                   hash (DCSync), you can forge any TGT for any user in the\n                   domain → GOLDEN TICKETS (covered in lateral_movement).\n\n  Step 4 (TGS-REP): Any authenticated user can request a service ticket for any SPN.\n                    The ticket is encrypted with the service account's hash →\n                    crack offline → KERBEROASTING.\n\n  Step 5 (AP-REQ): The target service trusts whatever's in the ticket. If you have\n                   the service account's hash, you can forge tickets directly →\n                   SILVER TICKETS.\n\n  Plus: replication abuse → DCSYNC pulls every user's hash from the DC by\n        impersonating another DC (no Kerberos involvement, just DRSUAPI).\n\n— WHERE HASHES LIVE ON A COMPROMISED HOST —\n\n  LSASS process memory  — All currently logged-on users (NTLM, Kerberos tickets,\n                          sometimes plaintext via WDigest). SYSTEM/Admin to read.\n                          Mimikatz sekurlsa::logonpasswords.\n  SAM database          — Local accounts only. NTLM hashes. Mimikatz lsadump::sam.\n  ntds.dit (on DC)      — Every user in the domain. The crown jewel. DCSync extracts\n                          this remotely without touching the file.\n  DPAPI vault           — Saved browser passwords, RDP creds, Wi-Fi keys.\n                          Per-user master key derived from password hash.\n\n— WHEN NTLM vs KERBEROS GETS USED —\n\nKerberos is the default. NTLM falls back when:\n  - Authentication is by IP address (Kerberos requires SPN/hostname)\n  - The hostname isn't in AD-integrated DNS\n  - The application explicitly chose NTLM\n  - Cross-forest scenarios where Kerberos transitively fails\n\nThis matters for attack selection: Pass-the-Hash needs NTLM auth to be enabled.\nOverpass-the-Hash converts a stolen NTLM hash into a Kerberos TGT for environments\nthat have NTLM disabled.\n\n— ETYPES (ENCRYPTION TYPES) IN HASHCAT —\n\n  etype 23 = RC4-HMAC          — uses NTLM hash, fastest to crack\n  etype 17 = AES128            — slower\n  etype 18 = AES256            — slowest, modern default\n\nWhen Kerberoasting, RC4 hashes (mode 13100) crack 100x faster than AES (19700).\nIf the SPN supports both, ticket requests prefer the strongest — but Rubeus\nand impacket can sometimes force RC4 for cracking purposes.",
+  "cmd": "# Quick reference — what file/tool to look at when investigating each attack:\n\n# AS-REP roasting:    impacket-GetNPUsers / Rubeus asreproast / hashcat -m 18200\n# Kerberoasting:      impacket-GetUserSPNs / Rubeus kerberoast / hashcat -m 13100 (RC4) or 19700 (AES256)\n# Silver ticket:      impacket-ticketer / mimikatz kerberos::golden /service:...\n# Golden ticket:      mimikatz kerberos::golden (requires krbtgt hash, see lateral_movement)\n# DCSync:             impacket-secretsdump / mimikatz lsadump::dcsync\n# Pass-the-Hash:      impacket-psexec -hashes :NTHASH / evil-winrm -H NTHASH\n# Overpass-the-Hash:  rubeus asktgt /rc4:NTHASH (gets TGT from NTLM hash)\n\n# View tickets currently cached on a Windows host:\nklist\n\n# View hashes/tickets in LSASS (need SYSTEM):\nmimikatz # privilege::debug\nmimikatz # sekurlsa::logonpasswords\nmimikatz # sekurlsa::tickets\n\n# Get domain SID (needed for ticket forging):\nwhoami /user                                      # strip the trailing -RID\nGet-ADDomain | select DomainSID                   # cleaner if RSAT available",
+  "warn": "Don't try to memorize this — bookmark it. The point isn't recall, it's recognizing which step you're attacking when a tool fails. 'Hash won't crack' means etype is wrong. 'Ticket rejected' means wrong hash or PAC validation. 'Access denied with valid creds' means NTLM is disabled and you need OPTH.",
+  "choices": [
+    {
+      "label": "AS-REP roasting — pre-auth disabled accounts",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "Kerberoasting — crack SPN service accounts",
+      "next": "kerberoast"
+    },
+    {
+      "label": "Silver tickets — forge with SPN hash",
+      "next": "silver_tickets"
+    },
+    {
+      "label": "DCSync — pull all domain hashes",
+      "next": "dcsync"
+    },
+    {
+      "label": "Pass-the-Hash — use NTLM hash directly",
+      "next": "pth"
+    },
+    {
+      "label": "Mimikatz — credential extraction toolkit",
+      "next": "mimikatz"
+    },
+    {
+      "label": "Password spraying — start here if no creds",
+      "next": "ad_spray"
+    },
+    {
+      "label": "Back to AD menu",
+      "next": "jump_ad"
+    },
+    {
+      "label": "Back to AD start",
+      "next": "ad_start"
+    }
+  ]
+}

@@ -17,6 +17,10 @@
     {
       "label": "Check PS history / transcripts",
       "next": "windows_post_exploit"
+    },
+    {
+      "label": "Dump LSASS / SAM with Mimikatz",
+      "next": "mimikatz"
     }
   ]
 }

