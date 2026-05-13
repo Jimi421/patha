@@ -17,6 +17,10 @@
     {
       "label": "Back to recon — fresh start on this machine",
       "next": "start"
+    },
+    {
+      "label": "PoC returns unexpected status but creds work in browser — Comparer",
+      "next": "burp_comparer"
     }
   ]
 }

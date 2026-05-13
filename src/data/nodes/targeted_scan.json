@@ -49,6 +49,10 @@
     {
       "label": "Multiple internal subnets visible",
       "next": "pivot_start"
+    },
+    {
+      "label": "Unknown service banner with menu/prompts — expect brute",
+      "next": "bruteforce_custom_tcp"
     }
   ]
 }

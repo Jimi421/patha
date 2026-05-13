@@ -81,6 +81,10 @@
     {
       "label": "Searchsploit hit",
       "next": "searchsploit_web"
+    },
+    {
+      "label": "Service has interactive menu — try expect brute force",
+      "next": "bruteforce_custom_tcp"
     }
   ]
 }

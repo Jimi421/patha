@@ -57,6 +57,10 @@
     {
       "label": "Nothing obvious — fuzz deeper",
       "next": "web_fuzz_deep"
+    },
+    {
+      "label": "Banner shows Nexus Repository Manager 3.21.x",
+      "next": "nexus_el_injection"
     }
   ]
 }

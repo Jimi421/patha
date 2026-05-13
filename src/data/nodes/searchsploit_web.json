@@ -33,6 +33,10 @@
     {
       "label": "No exploit — back to brute force / creds",
       "next": "bruteforce"
+    },
+    {
+      "label": "Nexus Repository Manager 3.21.x — Java EL injection",
+      "next": "nexus_el_injection"
     }
   ]
 }

@@ -17,6 +17,10 @@
     {
       "label": "AD environment — careful with lockout",
       "next": "ad_spray"
+    },
+    {
+      "label": "Custom TCP service with menu prompts — expect script",
+      "next": "bruteforce_custom_tcp"
     }
   ]
 }
