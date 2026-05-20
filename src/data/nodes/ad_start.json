@@ -29,6 +29,14 @@
     {
       "label": "Password spray (carefully)",
       "next": "ad_spray"
+    },
+    {
+      "label": "No usernames yet — kerbrute userenum",
+      "next": "kerbrute"
+    },
+    {
+      "label": "Have no creds yet — unauthenticated AD recon",
+      "next": "ad_unauth_enum"
     }
   ]
 }

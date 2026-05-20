@@ -29,6 +29,10 @@
     {
       "label": "Back to AD menu",
       "next": "jump_ad"
+    },
+    {
+      "label": "SSP injection — persistent cleartext credential harvesting",
+      "next": "ssp_injection_persistence"
     }
   ]
 }

@@ -37,6 +37,14 @@
     {
       "label": "Jump to technique — skip the flow",
       "next": "jump_menu"
+    },
+    {
+      "label": "Fresh Kali setup — install the toolkit first",
+      "next": "tools_appendix"
+    },
+    {
+      "label": "Hit an AD domain with no creds — unauth recon",
+      "next": "ad_unauth_enum"
     }
   ]
 }

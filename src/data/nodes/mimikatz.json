@@ -41,6 +41,10 @@
     {
       "label": "Back to jump menu",
       "next": "jump_menu"
+    },
+    {
+      "label": "Capture FUTURE logons (not just current) — SSP injection",
+      "next": "ssp_injection_persistence"
     }
   ]
 }

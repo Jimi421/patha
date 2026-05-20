@@ -17,6 +17,10 @@
     {
       "label": "Found internal hostnames — pivot target",
       "next": "pivot_start"
+    },
+    {
+      "label": "Looks like AD domain — start AD-specific enum",
+      "next": "ad_unauth_enum"
     }
   ]
 }
