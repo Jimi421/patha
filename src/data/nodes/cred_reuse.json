@@ -19,12 +19,20 @@
       "next": "winrm_access"
     },
     {
+      "label": "Got access as a new user — re-run BloodHound/PowerView as them",
+      "next": "bloodhound_authenticated"
+    },
+    {
       "label": "Valid creds, no admin — keep enumerating",
       "next": "targeted_scan"
     },
     {
       "label": "Nothing worked — hash cracking",
       "next": "hashcrack"
+    },
+    {
+      "label": "Cred works on a remote box — lateral move there",
+      "next": "wmi_cim_lateral"
     }
   ]
 }

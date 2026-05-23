@@ -7,12 +7,52 @@
   "warn": null,
   "choices": [
     {
+      "label": "From a Windows foothold (no Kali) — native WMI/CIM",
+      "next": "wmi_cim_lateral"
+    },
+    {
       "label": "On DC — DCSync everything",
       "next": "dcsync"
     },
     {
       "label": "On member server — privesc further",
       "next": "windows_post_exploit"
+    },
+    {
+      "label": "Moved successfully — re-enumerate as new context",
+      "next": "bloodhound_authenticated"
+    },
+    {
+      "label": "PsExec — interactive shell (creates a service)",
+      "next": "psexec_lateral"
+    },
+    {
+      "label": "DCOM / MMC20 — no service, quieter",
+      "next": "dcom_lateral"
+    },
+    {
+      "label": "Have a hash — pass-the-hash",
+      "next": "pth"
+    },
+    {
+      "label": "Hash -> Kerberos TGT — overpass-the-hash",
+      "next": "overpass_the_hash"
+    },
+    {
+      "label": "Steal an existing ticket — pass-the-ticket",
+      "next": "pass_the_ticket"
+    },
+    {
+      "label": "WinRM open — winrm/winrs",
+      "next": "winrm_access"
+    },
+    {
+      "label": "Back to AD menu",
+      "next": "jump_ad"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
     }
   ]
 }

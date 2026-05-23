@@ -21,6 +21,10 @@
     {
       "label": "Need to crack hash first",
       "next": "hashcrack"
+    },
+    {
+      "label": "From a Windows foothold — native WMI/CIM lateral",
+      "next": "wmi_cim_lateral"
     }
   ]
 }

