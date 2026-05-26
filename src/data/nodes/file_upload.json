@@ -7,6 +7,10 @@
   "warn": "Always check the HTTP response after uploading — the path is often in the response body or Location header. If you can't find the upload dir, upload a unique filename then fuzz for it. Magic bytes bypass works when server checks file content but not extension. exiftool embed is stealthier than a naked PHP file.",
   "choices": [
     {
+      "label": "PHP webshell executing — get a shell",
+      "next": "php_webshell"
+    },
+    {
       "label": "Got webshell executing commands",
       "next": "reverse_shell"
     },

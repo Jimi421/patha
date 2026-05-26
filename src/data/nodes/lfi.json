@@ -7,6 +7,10 @@
   "warn": "Windows LFI: always try win.ini first as your canary. If it reads, LFI is confirmed on Windows. web.config and applicationHost.config frequently contain plaintext credentials — highest value reads on a Windows/IIS target.",
   "choices": [
     {
+      "label": "RCE achieved — drop a PHP webshell / get shell",
+      "next": "php_webshell"
+    },
+    {
       "label": "Log poisoning RCE — get shell",
       "next": "reverse_shell"
     },

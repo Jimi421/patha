@@ -2,7 +2,7 @@
   "id": "jump_lessons",
   "phase": "MINDSET",
   "title": "Lessons from the Lab — Retrospectives",
-  "body": "Post-engagement breakdowns from real lab boxes. Six chains so far (Exghost, Vault, Shenzi, Sona, Hacktrack, plus the AD Auth capstones) covering file-upload RCE, AD compromise, XAMPP/WordPress, custom-protocol brute force, the AD enumeration loop, and two contrasting routes to a DC (roast-to-memory-theft vs spray-to-kerberoast). Each one is a complete chain — recon to root — with timing, the specific decisions that mattered, and the reusable patterns extracted from them. Read these between machines, not during one. The methodology is the asset; the specific CVEs rotate.",
+  "body": "Post-engagement breakdowns from real lab boxes. Eight chains so far (Exghost, Vault, Shenzi, Sona, Hacktrack, Payday, Snookums, plus the AD Auth capstones) covering file-upload RCE, AD compromise, XAMPP/WordPress, custom-protocol brute force, the AD enumeration loop, and two contrasting routes to a DC (roast-to-memory-theft vs spray-to-kerberoast). Each one is a complete chain — recon to root — with timing, the specific decisions that mattered, and the reusable patterns extracted from them. Read these between machines, not during one. The methodology is the asset; the specific CVEs rotate.",
   "cmd": null,
   "warn": "These are after-action reports, not technique references. If you're stuck on a live box, use the Jump menu or mindset_stuck. Come back here once the machine is rooted.",
   "choices": [
@@ -25,6 +25,14 @@
     {
       "label": "Hacktrack — AD enum loop + ForceChangePassword chain",
       "next": "hacktrack_lessons"
+    },
+    {
+      "label": "Payday — LFI → SSH brute → passwordless sudo",
+      "next": "payday_lessons"
+    },
+    {
+      "label": "Snookums — RFI → creds → writable /etc/passwd → root",
+      "next": "snookums_lessons"
     },
     {
       "label": "Back to Jump menu",
