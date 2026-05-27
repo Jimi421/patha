@@ -3,7 +3,7 @@
   "phase": "RECON",
   "title": "Engagement Start",
   "body": "Set your variables first — every command references them. What is your current situation?",
-  "cmd": "export ip=10.10.10.10\nexport subnet=192.168.185.0/24\nexport lhost=10.10.14.x\nexport lport=443\nexport domain=domain.com\n\nmkdir -p ~/results/$ip/{scans,exploits,loot,screenshots,tunnels}\ncd ~/results/$ip",
+  "cmd": "export ip=10.10.10.10\nexport subnet=192.168.185.0/24\nexport lhost=10.10.14.x\nexport lport=443\nexport domain=domain.com\n\nmkdir -p $ip/{scans,exploits,screenshots,loot}\ncd $ip\ntouch users passwords hashes   # running cred lists - append as you enumerate",
   "warn": null,
   "choices": [
     {

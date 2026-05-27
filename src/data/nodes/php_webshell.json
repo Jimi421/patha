@@ -11,6 +11,10 @@
       "next": "shell_upgrade"
     },
     {
+      "label": "Host shell + fetch it (curl/wget) — cleaner",
+      "next": "hosted_shell"
+    },
+    {
       "label": "Shell still won't catch — deeper troubleshooting",
       "next": "shell_troubleshoot"
     },

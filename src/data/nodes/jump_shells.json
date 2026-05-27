@@ -7,6 +7,10 @@
   "warn": null,
   "choices": [
     {
+      "label": "Hosted shell — RCE to session via fetch",
+      "next": "hosted_shell"
+    },
+    {
       "label": "Catch a reverse shell",
       "next": "reverse_shell"
     },
