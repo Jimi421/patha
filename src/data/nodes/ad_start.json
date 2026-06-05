@@ -1,10 +1,10 @@
 {
   "id": "ad_start",
   "phase": "AD",
-  "title": "Active Directory — Assumed Breach",
+  "title": "Active Directory \u2014 Assumed Breach",
   "body": "OSCP+ gives you low-priv domain creds. You're starting inside. Add DC to /etc/hosts, enumerate the domain, run BloodHound immediately.",
-  "cmd": "# Add DC to hosts\necho \"$ip dc01.domain.com domain.com\" >> /etc/hosts\n\n# -- Verify connectivity -----------------------\n# nxc (netexec) — CME successor, same syntax, actively maintained\nnxc smb $ip -u user -p 'pass'\ncrackmapexec smb $ip -u user -p 'pass'   # fallback if nxc not installed\n\n# -- Initial domain recon ----------------------\nnxc smb $ip -u user -p 'pass' --users\nnxc smb $ip -u user -p 'pass' --groups\nnxc smb $ip -u user -p 'pass' --shares\nnxc smb $ip -u user -p 'pass' --pass-pol   # CHECK LOCKOUT BEFORE SPRAYING\n\n# -- ldapdomaindump — fast HTML/JSON AD dump ---\n# Outputs users, groups, computers as HTML + JSON\nldapdomaindump -u 'domain\\user' -p 'pass' $ip -o /tmp/ldd/\n# Open domain_users.html and domain_groups.html for quick visual map\n\n# -- windapsearch — LDAP enum without domain join --\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m users\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m groups\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m computers\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m privileged-users\n\n# -- ldapsearch — raw fallback -----------------\nldapsearch -x -h $ip -D \"user@domain.com\" -w 'pass'   -b \"dc=domain,dc=com\" \"(objectClass=user)\" | grep sAMAccountName",
-  "warn": "Check password policy BEFORE any spraying — nxc smb --pass-pol. Lockouts on the exam are catastrophic. ldapdomaindump HTML output is the fastest way to visually map the domain before BloodHound finishes. nxc is the maintained fork of crackmapexec — prefer it where installed.",
+  "cmd": "# Add DC to hosts\necho \"$ip dc01.domain.com domain.com\" >> /etc/hosts\n\n# -- Verify connectivity -----------------------\n# nxc (netexec) \u2014 CME successor, same syntax, actively maintained\nnxc smb $ip -u user -p 'pass'\ncrackmapexec smb $ip -u user -p 'pass'   # fallback if nxc not installed\n\n# -- Initial domain recon ----------------------\nnxc smb $ip -u user -p 'pass' --users\nnxc smb $ip -u user -p 'pass' --groups\nnxc smb $ip -u user -p 'pass' --shares\nnxc smb $ip -u user -p 'pass' --pass-pol   # CHECK LOCKOUT BEFORE SPRAYING\n\n# -- ldapdomaindump \u2014 fast HTML/JSON AD dump ---\n# Outputs users, groups, computers as HTML + JSON\nldapdomaindump -u 'domain\\user' -p 'pass' $ip -o /tmp/ldd/\n# Open domain_users.html and domain_groups.html for quick visual map\n\n# -- windapsearch \u2014 LDAP enum without domain join --\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m users\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m groups\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m computers\nwindapsearch --dc-ip $ip -d domain.com -u user@domain.com -p 'pass' -m privileged-users\n\n# -- ldapsearch \u2014 raw fallback -----------------\nldapsearch -x -h $ip -D \"user@domain.com\" -w 'pass'   -b \"dc=domain,dc=com\" \"(objectClass=user)\" | grep sAMAccountName",
+  "warn": "Check password policy BEFORE any spraying \u2014 nxc smb --pass-pol. Lockouts on the exam are catastrophic. ldapdomaindump HTML output is the fastest way to visually map the domain before BloodHound finishes. nxc is the maintained fork of crackmapexec \u2014 prefer it where installed.",
   "choices": [
     {
       "label": "First time? Read the AD authentication primer",
@@ -31,11 +31,15 @@
       "next": "ad_spray"
     },
     {
-      "label": "No usernames yet — kerbrute userenum",
+      "label": "No usernames yet \u2014 kerbrute userenum",
       "next": "kerbrute"
     },
     {
-      "label": "Have no creds yet — unauthenticated AD recon",
+      "label": "Lateral movement \u2014 attacker setup",
+      "next": "ad_lateral_setup"
+    },
+    {
+      "label": "Have no creds yet \u2014 unauthenticated AD recon",
       "next": "ad_unauth_enum"
     }
   ]

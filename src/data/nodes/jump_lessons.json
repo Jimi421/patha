@@ -1,37 +1,37 @@
 {
   "id": "jump_lessons",
   "phase": "MINDSET",
-  "title": "Lessons from the Lab — Retrospectives",
-  "body": "Post-engagement breakdowns from real lab boxes. Eight chains so far (Exghost, Vault, Shenzi, Sona, Hacktrack, Payday, Snookums, plus the AD Auth capstones) covering file-upload RCE, AD compromise, XAMPP/WordPress, custom-protocol brute force, the AD enumeration loop, and two contrasting routes to a DC (roast-to-memory-theft vs spray-to-kerberoast). Each one is a complete chain — recon to root — with timing, the specific decisions that mattered, and the reusable patterns extracted from them. Read these between machines, not during one. The methodology is the asset; the specific CVEs rotate.",
+  "title": "Lessons from the Lab \u2014 Retrospectives",
+  "body": "Post-engagement breakdowns from real lab boxes. Eight chains so far (Exghost, Vault, Shenzi, Sona, Hacktrack, Payday, Snookums, plus the AD Auth capstones) covering file-upload RCE, AD compromise, XAMPP/WordPress, custom-protocol brute force, the AD enumeration loop, and two contrasting routes to a DC (roast-to-memory-theft vs spray-to-kerberoast). Each one is a complete chain \u2014 recon to root \u2014 with timing, the specific decisions that mattered, and the reusable patterns extracted from them. Read these between machines, not during one. The methodology is the asset; the specific CVEs rotate.",
   "cmd": null,
   "warn": "These are after-action reports, not technique references. If you're stuck on a live box, use the Jump menu or mindset_stuck. Come back here once the machine is rooted.",
   "choices": [
     {
-      "label": "Exghost — File-upload RCE chain (ExifTool → PwnKit)",
+      "label": "Exghost \u2014 File-upload RCE chain (ExifTool \u2192 PwnKit)",
       "next": "exghost_lessons"
     },
     {
-      "label": "Vault — AD chain (SMB → NTLMv2 → WriteDacl → DCSync)",
+      "label": "Vault \u2014 AD chain (SMB \u2192 NTLMv2 \u2192 WriteDacl \u2192 DCSync)",
       "next": "vault_lessons"
     },
     {
-      "label": "Shenzi — XAMPP + WordPress + AlwaysInstallElevated",
+      "label": "Shenzi \u2014 XAMPP + WordPress + AlwaysInstallElevated",
       "next": "shenzi_lessons"
     },
     {
-      "label": "Sona — Custom TCP brute + Java EL injection + PwnKit",
+      "label": "Sona \u2014 Custom TCP brute + Java EL injection + PwnKit",
       "next": "sona_lessons"
     },
     {
-      "label": "Hacktrack — AD enum loop + ForceChangePassword chain",
+      "label": "Hacktrack \u2014 AD enum loop + ForceChangePassword chain",
       "next": "hacktrack_lessons"
     },
     {
-      "label": "Payday — LFI → SSH brute → passwordless sudo",
+      "label": "Payday \u2014 LFI \u2192 SSH brute \u2192 passwordless sudo",
       "next": "payday_lessons"
     },
     {
-      "label": "Snookums — RFI → creds → writable /etc/passwd → root",
+      "label": "Snookums \u2014 RFI \u2192 creds \u2192 writable /etc/passwd \u2192 root",
       "next": "snookums_lessons"
     },
     {
@@ -43,7 +43,11 @@
       "next": "start"
     },
     {
-      "label": "AD Auth Capstones — two chains to the DC",
+      "label": "AD lateral movement lessons",
+      "next": "ad_lateral_lessons"
+    },
+    {
+      "label": "AD Auth Capstones \u2014 two chains to the DC",
       "next": "ad_auth_capstone_lessons"
     }
   ]

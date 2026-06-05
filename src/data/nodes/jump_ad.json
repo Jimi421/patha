@@ -1,29 +1,29 @@
 {
   "id": "jump_ad",
   "phase": "JUMP",
-  "title": "Active Directory — Jump Menu",
+  "title": "Active Directory \u2014 Jump Menu",
   "body": "Pick the AD technique directly.",
   "cmd": "# AD reference index",
   "warn": null,
   "choices": [
     {
-      "label": "AD authentication primer — how NTLM/Kerberos work",
+      "label": "AD authentication primer \u2014 how NTLM/Kerberos work",
       "next": "ad_auth_primer"
     },
     {
-      "label": "AD entry — assumed breach",
+      "label": "AD entry \u2014 assumed breach",
       "next": "ad_start"
     },
     {
-      "label": "LDAP enum — .NET/PowerShell/PowerView",
+      "label": "LDAP enum \u2014 .NET/PowerShell/PowerView",
       "next": "ad_ldap_enum"
     },
     {
-      "label": "BloodHound — comprehensive graph guide",
+      "label": "BloodHound \u2014 comprehensive graph guide",
       "next": "bloodhound_guide"
     },
     {
-      "label": "PowerView — command guide",
+      "label": "PowerView \u2014 command guide",
       "next": "powerview_commands"
     },
     {
@@ -31,7 +31,7 @@
       "next": "ad_loggedon_playbook"
     },
     {
-      "label": "BloodHound — run and read",
+      "label": "BloodHound \u2014 run and read",
       "next": "bloodhound"
     },
     {
@@ -47,7 +47,7 @@
       "next": "kerberoast"
     },
     {
-      "label": "Silver tickets — forge service tickets",
+      "label": "Silver tickets \u2014 forge service tickets",
       "next": "silver_tickets"
     },
     {
@@ -67,11 +67,11 @@
       "next": "adcs"
     },
     {
-      "label": "DCSync — domain owned",
+      "label": "DCSync \u2014 domain owned",
       "next": "dcsync"
     },
     {
-      "label": "Mimikatz — credential extraction toolkit",
+      "label": "Mimikatz \u2014 credential extraction toolkit",
       "next": "mimikatz"
     },
     {
@@ -79,8 +79,16 @@
       "next": "lateral_movement"
     },
     {
-      "label": "Manual enum — BloodHound dead end",
+      "label": "Manual enum \u2014 BloodHound dead end",
       "next": "ad_manual"
+    },
+    {
+      "label": "AD lateral \u2014 attacker setup",
+      "next": "ad_lateral_setup"
+    },
+    {
+      "label": "winrs lateral movement",
+      "next": "winrs_lateral"
     },
     {
       "label": "Back to jump menu",

