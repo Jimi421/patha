@@ -1,0 +1,24 @@
+{
+  "id": "template_creds",
+  "phase": "REPORT",
+  "title": "\ud83d\udccb Credentials Tracker (template)",
+  "body": "Hit the obsidian button to copy this template verbatim, then paste into your vault.",
+  "cmd": "# obsidian button copies the template below as-is.",
+  "warn": "Pastes verbatim (no technique scaffolding) because this is a template node.",
+  "template": true,
+  "markdown": "---\ntype: credentials\n---\n\n# Credentials\n\n| User | Password / Hash | Type | Source | Works On | Priv |\n|------|-----------------|------|--------|----------|------|\n|  |  | pw / NTLM / key |  |  | user / local admin / DA |\n\n## Reuse Tracking\n> A cred from one box often works on others. Track the spray.\n\n| Cred | Host A | Host B | Host C | DC |\n|------|--------|--------|--------|----|\n|  | no | no | no | no |\n\n## Detail\n\n### <user>\n- Secret: (password, :NThash, or key path)\n- Type: password / NTLM / Kerberos / SSH key\n- Found on:\n- Validated against:\n- Unlocks:\n- Notes:\n",
+  "choices": [
+    {
+      "label": "Back to templates",
+      "next": "templates"
+    },
+    {
+      "label": "Back to start",
+      "next": "start"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

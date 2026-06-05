@@ -1,0 +1,24 @@
+{
+  "id": "template_engagement",
+  "phase": "REPORT",
+  "title": "\ud83d\udccb Engagement Sheet (template)",
+  "body": "Hit the obsidian button to copy this template verbatim, then paste into your vault.",
+  "cmd": "# obsidian button copies the template below as-is.",
+  "warn": "Pastes verbatim (no technique scaffolding) because this is a template node.",
+  "template": true,
+  "markdown": "---\ntype: engagement\nstatus: active\n---\n\n# Engagement Notes\n\n> [!info] Scope\n> - Target / scope:\n> - Started:\n> - Type: assumed-breach / black-box / creds provided\n\n## Hosts\n\n| Host | IP | OS / Role | Foothold? | Root/Admin? |\n|------|----|-----------|-----------|-------------|\n|  |  |  | no | no |\n\n## Credentials\n\n| User | Password / Hash | Type | Source | Works On | Priv |\n|------|-----------------|------|--------|----------|------|\n|  |  | pw / NTLM / key |  |  | user / local admin / DA |\n\n## Progress\n- [ ] Recon complete\n- [ ] First foothold\n- [ ] Local privesc\n- [ ] Lateral movement\n- [ ] Network / domain compromise\n- [ ] All flags collected\n- [ ] Notes ready for report\n\n## Network / Lateral Map\n```\nattacker --> [host A] --(creds X)--> [host B] --(PTH)--> [DC]\n```\n\n## Loot / Files Pulled\n-\n",
+  "choices": [
+    {
+      "label": "Back to templates",
+      "next": "templates"
+    },
+    {
+      "label": "Back to start",
+      "next": "start"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

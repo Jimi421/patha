@@ -91,6 +91,10 @@
       "next": "msfvenom"
     },
     {
+      "label": "\ud83d\udccb Note templates",
+      "next": "templates"
+    },
+    {
       "label": "Back to start",
       "next": "start"
     }

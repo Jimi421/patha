@@ -47,6 +47,13 @@ export default function OSCPAdventure() {
   const [copiedMd, setCopiedMd] = useState(false);
 
   const copyObsidian = () => {
+    // Template nodes paste their raw markdown verbatim — no technique scaffolding.
+    if (node.template && node.markdown) {
+      navigator.clipboard.writeText(node.markdown);
+      setCopiedMd(true);
+      setTimeout(() => setCopiedMd(false), 1800);
+      return;
+    }
     const lines = [];
     lines.push(`# ${node.title}`);
     lines.push(`**Phase:** ${node.phase}  `);

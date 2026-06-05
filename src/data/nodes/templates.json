@@ -1,0 +1,30 @@
+{
+  "id": "templates",
+  "phase": "REPORT",
+  "title": "\ud83d\udccb Note Templates \u2014 paste into Obsidian",
+  "body": "Blank engagement-notes templates. Navigate to the one you want and hit the obsidian button \u2014 it copies that template's markdown verbatim (no technique scaffolding), ready to paste into your vault. These are for capturing what you find: hosts, services, users, creds, progress.",
+  "cmd": "# Pick a template below, then hit the obsidian button to copy it.\n#   engagement -> full multi-host engagement sheet\n#   host       -> single-host siren breakdown (ports/services/users/proof)\n#   creds      -> credentials + reuse tracker",
+  "warn": "The obsidian button copies these templates as-is. On any normal technique node it still does the per-node export \u2014 only template nodes paste verbatim.",
+  "choices": [
+    {
+      "label": "Full engagement sheet (hosts/creds/progress)",
+      "next": "template_engagement"
+    },
+    {
+      "label": "Single-host breakdown (ports/services/users)",
+      "next": "template_host"
+    },
+    {
+      "label": "Credentials + reuse tracker",
+      "next": "template_creds"
+    },
+    {
+      "label": "Back to start",
+      "next": "start"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

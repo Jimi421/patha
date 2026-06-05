@@ -1,0 +1,24 @@
+{
+  "id": "template_host",
+  "phase": "REPORT",
+  "title": "\ud83d\udccb Host Breakdown (template)",
+  "body": "Hit the obsidian button to copy this template verbatim, then paste into your vault.",
+  "cmd": "# obsidian button copies the template below as-is.",
+  "warn": "Pastes verbatim (no technique scaffolding) because this is a template node.",
+  "template": true,
+  "markdown": "---\ntype: host\nstatus: scanning\n---\n\n# <hostname> \u2014 <ip>\n\n> [!info] Host\n> - IP:\n> - Hostname:\n> - OS / Build:\n> - Role: (DC / web / file server / workstation)\n\n## Open Ports & Services\n\n| Port | Proto | Service | Version | Notes |\n|------|-------|---------|---------|-------|\n|  | tcp |  |  |  |\n\n## Enumeration\n```\n\n```\n\n## Findings / Attack Surface\n-\n\n## Users Found\n\n| User | Where seen | Notes |\n|------|-----------|-------|\n|  |  |  |\n\n## Exploitation (what worked + exact command)\n```\n\n```\n\n## Privilege Escalation\n- Vector:\n- Command:\n- Result:\n\n## Proof / Evidence\n- Flag:\n- Screenshot:\n\n## Loot\n-\n",
+  "choices": [
+    {
+      "label": "Back to templates",
+      "next": "templates"
+    },
+    {
+      "label": "Back to start",
+      "next": "start"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

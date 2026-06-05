@@ -2,28 +2,28 @@
   "id": "start",
   "phase": "RECON",
   "title": "Engagement Start",
-  "body": "Set your variables first — every command references them. What is your current situation?",
+  "body": "Set your variables first \u2014 every command references them. What is your current situation?",
   "cmd": "export ip=10.10.10.10\nexport subnet=192.168.185.0/24\nexport lhost=10.10.14.x\nexport lport=443\nexport domain=domain.com\n\nmkdir -p $ip/{scans,exploits,screenshots,loot}\ncd $ip\ntouch users passwords hashes   # running cred lists - append as you enumerate",
   "warn": null,
   "choices": [
     {
-      "label": "Single target IP — full port scan",
+      "label": "Single target IP \u2014 full port scan",
       "next": "full_portscan"
     },
     {
-      "label": "Subnet — need to find live hosts first",
+      "label": "Subnet \u2014 need to find live hosts first",
       "next": "host_discovery"
     },
     {
-      "label": "Got a shell — need to pivot deeper",
+      "label": "Got a shell \u2014 need to pivot deeper",
       "next": "pivot_start"
     },
     {
-      "label": "Documentation — ATT&CK structured notes",
+      "label": "Documentation \u2014 ATT&CK structured notes",
       "next": "reporting"
     },
     {
-      "label": "Documentation — Report writing",
+      "label": "Documentation \u2014 Report writing",
       "next": "report_writing"
     },
     {
@@ -31,19 +31,23 @@
       "next": "mindset_stuck"
     },
     {
-      "label": "Pre-exam setup — before the clock starts",
+      "label": "Pre-exam setup \u2014 before the clock starts",
       "next": "mindset_preexam"
     },
     {
-      "label": "Jump to technique — skip the flow",
+      "label": "Jump to technique \u2014 skip the flow",
       "next": "jump_menu"
     },
     {
-      "label": "Fresh Kali setup — install the toolkit first",
+      "label": "Fresh Kali setup \u2014 install the toolkit first",
       "next": "tools_appendix"
     },
     {
-      "label": "Hit an AD domain with no creds — unauth recon",
+      "label": "\ud83d\udccb Note templates (paste into Obsidian)",
+      "next": "templates"
+    },
+    {
+      "label": "Hit an AD domain with no creds \u2014 unauth recon",
       "next": "ad_unauth_enum"
     }
   ]
