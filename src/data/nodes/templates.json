@@ -7,15 +7,15 @@
   "warn": "The obsidian button copies these templates as-is. On any normal technique node it still does the per-node export \u2014 only template nodes paste verbatim.",
   "choices": [
     {
-      "label": "Full engagement sheet (hosts/creds/progress)",
+      "label": "Engagement command center (multi-host)",
       "next": "template_engagement"
     },
     {
-      "label": "Single-host breakdown (ports/services/users)",
+      "label": "Host worksheet (per-target, pre-seeded to-try)",
       "next": "template_host"
     },
     {
-      "label": "Credentials + reuse tracker",
+      "label": "Credential & spray tracker",
       "next": "template_creds"
     },
     {
