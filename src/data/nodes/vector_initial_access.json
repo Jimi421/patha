@@ -1,0 +1,38 @@
+{
+  "id": "vector_initial_access",
+  "phase": "VECTOR",
+  "title": "Initial Access \u2014 Pick the Entry Vector",
+  "body": "Go where the exploit is PRE-AUTH. A version-pinned service with an unauthenticated exploit beats a service that needs creds you don't have. And a file-read primitive IS an access vector if you read the right files.",
+  "cmd": "# WHAT'S YOUR ENTRY SURFACE? Enumerate, then pick the CHEAPEST pre-auth path.\n# Order of preference:\n#   1) version-pinned service + UNAUTH public exploit  (best - no creds)\n#   2) file-read / LFI \u2192 read creds/keys          (weak bug \u2192 access)\n#   3) default / weak creds on a login surface\n#   4) brute force                                      (last - slow, loud)\n\n# 1) Fingerprint EVERY service to an exact version, then check unauth exploits:\nwhatweb http://$ip ; nmap -sV -p- $ip\nwpscan --url http://$ip --enumerate vp,vt --plugins-detection aggressive\nsearchsploit <product> <version>\n# Rule: a version-pinned app/plugin with an \"Unauthenticated\" exploit = your door.\n# BEYOND: wpscan pinned Duplicator 1.3.26 \u2192 searchsploit \u2192 unauth file read.\n\n# 2) Only a FILE READ / LFI (not RCE)? Still an access vector:\n#    /etc/passwd          \u2192 enumerate real users (grep /bin/bash = can log in)\n#    /home/<user>/.ssh/id_rsa \u2192 private key \u2192 crack passphrase \u2192 SSH\n#    app config (wp-config.php/.env) \u2192 DB / service creds\n# BEYOND: Duplicator file-read \u2192 passwd \u2192 daniela's id_rsa \u2192 ssh.\n\n# 3) Login surface? Try defaults/looted creds BEFORE brute:\n#    admin/admin, app defaults, creds already looted elsewhere.",
+  "warn": "Don't jump to brute force or a cred-required service while an unauthenticated, version-matched exploit sits unused. Fingerprint to an EXACT version first - the exploit you need is usually pre-auth.",
+  "choices": [
+    {
+      "label": "Version-pinned service \u2014 check public exploits",
+      "next": "evaluate_public_exploits"
+    },
+    {
+      "label": "Web app \u2014 enumerate it fully first",
+      "next": "web_enum"
+    },
+    {
+      "label": "Have a file-read / LFI \u2014 turn it into access",
+      "next": "lfi"
+    },
+    {
+      "label": "Got an SSH key \u2014 crack & use it",
+      "next": "ssh_key"
+    },
+    {
+      "label": "Have creds from another box \u2014 reuse them",
+      "next": "creds_found"
+    },
+    {
+      "label": "No exploit, no creds \u2014 brute a login",
+      "next": "bruteforce"
+    },
+    {
+      "label": "Back to Vector Finder",
+      "next": "vector_finder"
+    }
+  ]
+}

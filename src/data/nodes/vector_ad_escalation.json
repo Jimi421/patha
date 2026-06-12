@@ -1,0 +1,54 @@
+{
+  "id": "vector_ad_escalation",
+  "phase": "VECTOR",
+  "title": "AD Escalation \u2014 Pick the Vector from Your Finding",
+  "body": "In a domain, credential reuse beats exploits. You rarely need a CVE \u2014 you need to find who's roastable, who's logged in where, and whose creds you can replay. Match the finding to the vector.",
+  "cmd": "# AD ESCALATION - match FINDING \u2192 VECTOR. Creds (memory/disk) > exploits.\n\n# FINDING: user has an SPN  (BloodHound \"kerberoastable\" / GetUserSPNs)\n#   \u2192 KERBEROAST: request TGS, crack offline. Quiet, no host touch.\n#   BEYOND: daniela had http/internalsrv1 SPN \u2192 roast \u2192 cracked.\n\n# FINDING: user has \"Do not require preauth\"\n#   \u2192 AS-REP ROAST: pull hash unauthenticated, crack offline.\n\n# FINDING: SMB signing NOT required + you can coerce auth\n#   \u2192 NTLM RELAY: relay to a target, run a payload.\n#   BEYOND: relayed to INTERNALSRV1.\n\n# FINDING: local admin on a box where a HIGHER-PRIV user has a session\n#   \u2192 DUMP LSASS (mimikatz / sa): cleartext + NTLM in memory.\n#   BEYOND: beccy (DA) had a session on the relayed host \u2192 mimikatz.\n\n# FINDING: BloodHound shows an ACL edge (GenericAll/WriteDACL) you OWN\n#   \u2192 ACL ABUSE: reset pw / add to group / RBCD.\n#   (CONFIRM the edge in BloodHound - winPEAS ACL claims are often false.)\n\n# FINDING: you hold DA / replication rights\n#   \u2192 DCSYNC: pull krbtgt + all hashes. Domain owned.\n\n# FINDING: a cracked/looted password\n#   \u2192 SPRAY it across users/hosts (nxc) - reuse is the #1 AD win,\n#   then PtH / psexec with the hash or password to land on the target.",
+  "warn": "Confirm ACL findings (GenericAll/WriteDACL) in BloodHound before acting - local enum tools like winPEAS routinely over-report domain ACLs. The graph that resolves effective access is the arbiter, not the winPEAS dump.",
+  "choices": [
+    {
+      "label": "User has an SPN \u2014 Kerberoast",
+      "next": "kerberoast"
+    },
+    {
+      "label": "No-preauth user \u2014 AS-REP roast",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "Signing off + coercion \u2014 NTLM relay",
+      "next": "ntlm_relay"
+    },
+    {
+      "label": "Poison LLMNR/NBT-NS for hashes",
+      "next": "responder"
+    },
+    {
+      "label": "Admin on a box w/ a priv session \u2014 dump LSASS",
+      "next": "mimikatz"
+    },
+    {
+      "label": "BloodHound ACL edge \u2014 abuse it",
+      "next": "acl_abuse"
+    },
+    {
+      "label": "Have a password \u2014 spray it",
+      "next": "ad_spray"
+    },
+    {
+      "label": "Have DA / repl rights \u2014 DCSync",
+      "next": "dcsync"
+    },
+    {
+      "label": "Replay creds \u2014 lateral movement (PtH/psexec)",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Read the graph first \u2014 BloodHound",
+      "next": "bloodhound_guide"
+    },
+    {
+      "label": "Back to Vector Finder",
+      "next": "vector_finder"
+    }
+  ]
+}

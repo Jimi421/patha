@@ -7,6 +7,10 @@
   "warn": null,
   "choices": [
     {
+      "label": "LDAP enumeration (users + creds)",
+      "next": "ldap_enum"
+    },
+    {
       "label": "AD authentication primer \u2014 how NTLM/Kerberos work",
       "next": "ad_auth_primer"
     },

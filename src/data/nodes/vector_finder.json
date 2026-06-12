@@ -1,0 +1,34 @@
+{
+  "id": "vector_finder",
+  "phase": "VECTOR",
+  "title": "Vector Finder \u2014 From a Finding to the Right Vector",
+  "body": "You have a finding (a scan, an enum dump, a foothold) and need the RIGHT vector \u2014 not a menu of everything. Pick where you are in the chain. Each selector asks what you found and routes you to the execution node, quietest-and-surest vector first.",
+  "cmd": "# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# VECTOR FINDER \u2014 ordering principle\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# Always work the CHEAP, DETERMINISTIC, QUIET vector before the loud one:\n#\n#   deterministic + quiet   \u2192   exploit + risky\n#   sudo rule / known creds \u2192   memory-corruption / kernel CVE\n#   credential reuse        \u2192   noisy exploitation\n#\n# Exhaust the reliable path first. A NOPASSWD sudo rule beats a kernel\n# exploit; replaying a looted password beats popping a service.\n#\n# Pick your stage below \u2192 answer what you found \u2192 get routed to execute.",
+  "warn": "These selectors order vectors by PREFERENCE, not just list them. The point is to stop you reaching for the loud/risky vector (kernel exploit, brute force, memory corruption) while a cheap reliable one (sudo rule, file-read, reused cred) sits unused.",
+  "choices": [
+    {
+      "label": "Initial access \u2014 target/service, no shell yet",
+      "next": "vector_initial_access"
+    },
+    {
+      "label": "Linux privesc \u2014 I have a user shell (Linux)",
+      "next": "vector_privesc_linux"
+    },
+    {
+      "label": "Windows privesc \u2014 I have a user shell (Windows)",
+      "next": "vector_privesc_windows"
+    },
+    {
+      "label": "Local dead-end \u2014 nothing escalates, now what?",
+      "next": "vector_pivot_decision"
+    },
+    {
+      "label": "AD escalation \u2014 I'm a domain user, where next?",
+      "next": "vector_ad_escalation"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

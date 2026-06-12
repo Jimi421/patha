@@ -1,0 +1,34 @@
+{
+  "id": "vector_pivot_decision",
+  "phase": "VECTOR",
+  "title": "Local Dead-End \u2014 Switch to Domain / Pivot Vectors",
+  "body": "When local privesc dead-ends on a domain-joined box, you don't need local SYSTEM \u2014 the account's DOMAIN REACH is the privesc. Stop grinding the host; start abusing what the account can already touch in AD, and pivot to internal subnets the host can see.",
+  "cmd": "# LOCAL PRIVESC DEAD-ENDED on a domain box: the account's REACH is the path.\n# Two questions decide where you go:\n\n# Q1 - WHAT CAN THIS ACCOUNT DO IN THE DOMAIN? (BloodHound, mark owned)\n#   collect \u2192 \"Shortest paths from Owned\" - the graph is ground truth.\n#   Look for: kerberoastable SPNs, AS-REP (no preauth), ACL edges, and\n#   sessions of higher-priv users on reachable boxes.\n#   BEYOND: marcus had no local SYSTEM, but daniela was kerberoastable and\n#   beccy (DA) had a session on a reachable host - that was the whole path.\n\n# Q2 - WHAT INTERNAL HOSTS CAN THIS BOX SEE? (new subnets = new targets)\nipconfig /all        # second NIC? internal range?\narp -a               # known hosts\nroute print\n#   New internal subnet \u2192 set up a pivot (Ligolo) and scan it.\n#   BEYOND: CLIENTWK1 saw 172.16.x \u2192 pivoted in \u2192 INTERNALSRV1 + DC.\n\n# Then route to the right AD escalation vector \u2192",
+  "warn": "The mistake is grinding a workstation for local SYSTEM that doesn't exist. On a domain-joined box with no local privesc, switch frames immediately: the account can already reach AD objects and internal hosts. BloodHound + ipconfig tell you where to go.",
+  "choices": [
+    {
+      "label": "Map what my account can do \u2014 AD escalation",
+      "next": "vector_ad_escalation"
+    },
+    {
+      "label": "Set up a pivot into a new subnet (Ligolo)",
+      "next": "ligolo"
+    },
+    {
+      "label": "Plan the pivot / map the network",
+      "next": "pivot_start"
+    },
+    {
+      "label": "Enter AD \u2014 assumed-breach playbook",
+      "next": "ad_start"
+    },
+    {
+      "label": "Run BloodHound and read the graph",
+      "next": "bloodhound_guide"
+    },
+    {
+      "label": "Back to Vector Finder",
+      "next": "vector_finder"
+    }
+  ]
+}

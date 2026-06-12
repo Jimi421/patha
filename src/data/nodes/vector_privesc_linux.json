@@ -1,0 +1,46 @@
+{
+  "id": "vector_privesc_linux",
+  "phase": "VECTOR",
+  "title": "Linux Privesc \u2014 Vector by Priority",
+  "body": "Check vectors in order of deterministic+quiet \u2192 exploit+risky. sudo/GTFObins first (instant, no crash), then SUID/caps, then cron/service, then kernel LAST (can panic the box and kill your shell).",
+  "cmd": "# LINUX PRIVESC PRIORITY LADDER - check in THIS order, stop at first win.\n\n# 1) SUDO RULE (quickest, zero risk) - ALWAYS first:\nsudo -l\n#   Any NOPASSWD entry? \u2192 GTFObins escape for that binary = instant root.\n#   BEYOND: (ALL) NOPASSWD: /usr/bin/git \u2192 sudo git -p help \u2192 !/bin/bash\n#   The moment you see a sudo rule, you can almost skip the rest.\n\n# 2) SUID / CAPABILITIES (deterministic):\nfind / -perm -4000 -type f 2>/dev/null\ngetcap -r / 2>/dev/null\n#   Match the binary on GTFObins \u2192 SUID escape.\n\n# 3) CRON / WRITABLE SCRIPT / WEAK SERVICE (misconfig, reliable):\ncat /etc/crontab ; ls -la /etc/cron.*\n#   Writable script run by root = root.\n\n# 4) PASSWORD REUSE (cheap, overlooked):\n#   configs, history, .ssh - a looted password may just su to root.\n\n# 5) KERNEL EXPLOIT - LAST RESORT:\n#   linpeas flagged DirtyPipe etc. on BEYOND - you did NOT need them.\n#   Kernel exploits can PANIC the host and kill your shell. Only after 1-4.",
+  "warn": "linpeas dumps every candidate at once - that's noise, not a priority list. Work the ladder top-down: a NOPASSWD sudo rule beats a kernel CVE every time. Kernel exploits are last because they can crash the host.",
+  "choices": [
+    {
+      "label": "sudo -l has an entry \u2014 GTFObin it",
+      "next": "sudo_check"
+    },
+    {
+      "label": "GTFOBins reference (sudo/SUID escapes)",
+      "next": "gtfobins_linux"
+    },
+    {
+      "label": "SUID / capabilities binary",
+      "next": "suid_check"
+    },
+    {
+      "label": "Cron job / writable script",
+      "next": "cron_check"
+    },
+    {
+      "label": "Group abuse (docker/lxd/disk/PATH)",
+      "next": "linux_privesc_extra"
+    },
+    {
+      "label": "Hunt for reused passwords",
+      "next": "linux_password_hunt"
+    },
+    {
+      "label": "Exhausted everything \u2014 kernel exploit",
+      "next": "kernel_exploit"
+    },
+    {
+      "label": "Run linpeas to enumerate candidates",
+      "next": "linpeas"
+    },
+    {
+      "label": "Back to Vector Finder",
+      "next": "vector_finder"
+    }
+  ]
+}

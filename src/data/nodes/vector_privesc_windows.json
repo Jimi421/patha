@@ -1,0 +1,50 @@
+{
+  "id": "vector_privesc_windows",
+  "phase": "VECTOR",
+  "title": "Windows Privesc \u2014 Vector by Priority (+ when to pivot)",
+  "body": "Token privs FIRST (SeImpersonate \u2192 potato = instant SYSTEM). If absent, check service/registry/task misconfigs. If a plain Domain User with nothing modifiable \u2192 STOP local privesc and switch to domain vectors. Don't grind a workstation for SYSTEM that isn't there.",
+  "cmd": "# WINDOWS PRIVESC - token privs first, then misconfigs, then PIVOT.\n\n# 1) TOKEN PRIVILEGES (best local path):\nwhoami /priv\n#   SeImpersonate / SeAssignPrimaryToken ENABLED? \u2192 Potato = SYSTEM.\n#   (GodPotato / PrintSpoofer / SharpEfsPotato) \u2192 see token_privs.\n#   BEYOND: marcus had NEITHER - potato was OFF the table.\n\n# 2) SERVICE / REGISTRY / TASK MISCONFIG (if no token priv):\n#   - weak service perms (sc qc / accesschk)   \u2192 weak_service\n#   - unquoted service path                     \u2192 unquoted_service\n#   - AlwaysInstallElevated (HKCU+HKLM = 1)     \u2192 always_install_elevated\n#   - writable scheduled task                   \u2192 scheduled_tasks_win\n#   - DLL hijack in writable PATH dir           \u2192 win_dll_hijack\n#   winPEAS/PowerUp surface these. BEYOND: none modifiable on CLIENTWK1.\n\n# 3) STORED CREDS:  windows_creds / dpapi (registry, DPAPI, files, browser).\n\n# 4) NO LOCAL PATH? You're a plain Domain User on a domain-joined box.\n#   STOP hunting local SYSTEM. Your privesc is LATERAL/CREDENTIAL via the\n#   domain \u2192 go to the pivot decision. BEYOND: marcus had no local\n#   privesc, but his domain context let him kerberoast + relay to a DA.",
+  "warn": "winPEAS OVER-REPORTS AD ACLs - on BEYOND it claimed marcus had GenericAll over Domain Admins, krbtgt, and the DC. That was a FALSE POSITIVE; BloodHound (which resolves effective access) showed no such edge. Never act on a winPEAS GenericAll without confirming it in BloodHound first.",
+  "choices": [
+    {
+      "label": "SeImpersonate present \u2014 Potato to SYSTEM",
+      "next": "token_privs"
+    },
+    {
+      "label": "Weak service permissions",
+      "next": "weak_service"
+    },
+    {
+      "label": "Unquoted service path",
+      "next": "unquoted_service"
+    },
+    {
+      "label": "AlwaysInstallElevated",
+      "next": "always_install_elevated"
+    },
+    {
+      "label": "Writable scheduled task",
+      "next": "scheduled_tasks_win"
+    },
+    {
+      "label": "DLL hijack",
+      "next": "win_dll_hijack"
+    },
+    {
+      "label": "Stored creds (registry/DPAPI/files)",
+      "next": "windows_creds"
+    },
+    {
+      "label": "Run winPEAS to enumerate",
+      "next": "winpeas"
+    },
+    {
+      "label": "No local path \u2014 pivot to domain vectors",
+      "next": "vector_pivot_decision"
+    },
+    {
+      "label": "Back to Vector Finder",
+      "next": "vector_finder"
+    }
+  ]
+}

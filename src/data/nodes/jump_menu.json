@@ -11,6 +11,10 @@
       "next": "jump_web"
     },
     {
+      "label": "\ud83e\udded Vector Finder \u2014 pick a vector from a finding",
+      "next": "vector_finder"
+    },
+    {
       "label": "SQL injection",
       "next": "jump_sqli"
     },
@@ -93,6 +97,10 @@
     {
       "label": "\ud83d\udccb Note templates",
       "next": "templates"
+    },
+    {
+      "label": "Fresh Kali setup \u2014 install the toolkit",
+      "next": "tools_appendix"
     },
     {
       "label": "Back to start",

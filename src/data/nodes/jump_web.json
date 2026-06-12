@@ -1,7 +1,7 @@
 {
   "id": "jump_web",
   "phase": "JUMP",
-  "title": "Web Attacks — Jump Menu",
+  "title": "Web Attacks \u2014 Jump Menu",
   "body": "Pick the technique directly.",
   "cmd": "# Web attack reference",
   "warn": null,
@@ -11,11 +11,15 @@
       "next": "web_enum"
     },
     {
+      "label": "Web fuzzing (content discovery)",
+      "next": "web_fuzz"
+    },
+    {
       "label": "Deep fuzzing / parameter brute force",
       "next": "web_fuzz_deep"
     },
     {
-      "label": "Parameter found — test it",
+      "label": "Parameter found \u2014 test it",
       "next": "param_found"
     },
     {
@@ -27,7 +31,7 @@
       "next": "file_upload"
     },
     {
-      "label": "LFI → RCE chain",
+      "label": "LFI \u2192 RCE chain",
       "next": "lfi"
     },
     {
@@ -35,7 +39,7 @@
       "next": "ssrf"
     },
     {
-      "label": "SSTI — template injection",
+      "label": "SSTI \u2014 template injection",
       "next": "ssti"
     },
     {
@@ -59,7 +63,7 @@
       "next": "wordpress"
     },
     {
-      "label": "XAMPP — Apache + PHP + MariaDB stack",
+      "label": "XAMPP \u2014 Apache + PHP + MariaDB stack",
       "next": "xampp_default"
     },
     {
@@ -67,11 +71,11 @@
       "next": "grav_cms"
     },
     {
-      "label": "SSTI — template injection",
+      "label": "SSTI \u2014 template injection",
       "next": "ssti"
     },
     {
-      "label": "Login page — brute / bypass",
+      "label": "Login page \u2014 brute / bypass",
       "next": "login_page"
     },
     {

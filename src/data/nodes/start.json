@@ -11,20 +11,20 @@
       "next": "full_portscan"
     },
     {
-      "label": "Subnet \u2014 need to find live hosts first",
+      "label": "Subnet \u2014 find live hosts first",
       "next": "host_discovery"
     },
     {
-      "label": "Got a shell \u2014 need to pivot deeper",
+      "label": "AD domain, no creds \u2014 unauth recon",
+      "next": "ad_unauth_enum"
+    },
+    {
+      "label": "Got a shell \u2014 pivot deeper",
       "next": "pivot_start"
     },
     {
-      "label": "Documentation \u2014 ATT&CK structured notes",
-      "next": "reporting"
-    },
-    {
-      "label": "Documentation \u2014 Report writing",
-      "next": "report_writing"
+      "label": "\ud83e\udded Find the attack vector from a finding",
+      "next": "vector_finder"
     },
     {
       "label": "I am stuck / spinning / losing time",
@@ -35,20 +35,12 @@
       "next": "mindset_preexam"
     },
     {
+      "label": "Documentation & notes",
+      "next": "reporting"
+    },
+    {
       "label": "Jump to technique \u2014 skip the flow",
       "next": "jump_menu"
-    },
-    {
-      "label": "Fresh Kali setup \u2014 install the toolkit first",
-      "next": "tools_appendix"
-    },
-    {
-      "label": "\ud83d\udccb Note templates (paste into Obsidian)",
-      "next": "templates"
-    },
-    {
-      "label": "Hit an AD domain with no creds \u2014 unauth recon",
-      "next": "ad_unauth_enum"
     }
   ]
 }
