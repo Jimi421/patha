@@ -1,0 +1,30 @@
+{
+  "id": "hutch_lessons",
+  "phase": "MINDSET",
+  "title": "Tool Output Lies \u2014 Five Lessons on Not Trusting the Error",
+  "body": "A clean two-step AD box (description-field cred -> LAPS reader -> DC) teaches less about AD than it does about TRUSTING TOOL OUTPUT. Every wall on that box was a tool lying, and the skill that finishes boxes is knowing when to disbelieve the screen.\n\n1. A FAILURE FROM ONE TOOL IS NOT A FACT. nxc returned STATUS_LOGON_FAILURE on the LAPS local-admin password \u2014 then impacket-psexec walked in with the SAME creds. nxc had defaulted to a domain context; the account was local. Lesson: when creds 'fail,' try a second tool and a second auth mode before re-looting. One red line is a data point, not a verdict.\n\n2. AUTOMATED ENUM OVER-CLAIMS. winPEAS reported GenericAll on Domain Admins, the domain root, the DC computer object \u2014 69 objects. If true, you'd skip LAPS and just add yourself to DA. You couldn't, because it WASN'T true \u2014 winPEAS mis-attributed ACLs running as the service account and threw null-refs mid-scan. Lesson: if an enum tool hands you a path that's too good (DA in one step), the burden of proof is on the tool. Validate with PowerView/BloodHound before you believe it \u2014 and never put it in a report unverified.\n\n3. AN AUTH ERROR OFTEN ENCODES A GROUP MEMBERSHIP. evil-winrm gave WinRMAuthorizationError with valid creds \u2014 that's not 'wrong password,' it's 'not in Remote Management Users.' The creds were fine; WinRM just wasn't the door. Lesson: read the SPECIFIC error. Authorization != authentication. Don't burn 20 minutes re-checking a password the error already told you was correct.\n\n4. THE TASK ISN'T THE SHELL \u2014 IT'S THE CAPABILITY. The instinct was 'get a shell as the LAPS reader.' But reading LAPS is pure LDAP. The reader didn't need WinRM, didn't need a shell, didn't need to be pivoted to interactively. Lesson: ask what the principal can DO, not how to log in as them. Often the capability is one query away and the shell is a detour.\n\n5. MATCH THE PAYLOAD TO THE CATCHER. A meterpreter reverse_tcp caught with plain nc = a dead shell that connects and hangs (nc can't speak the staged meterpreter protocol). Lesson: nc catches shell_reverse_tcp; meterpreter needs multi/handler. A 'connected but dead' shell is almost always a payload/handler mismatch, not a broken target.",
+  "cmd": "# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# The reflexes these lessons should build\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# 1. Creds 'failed'? Second tool, second auth mode, before re-looting:\nnxc smb $ip -u USER -p 'PW'                 # domain context\nnxc smb $ip -u USER -p 'PW' --local-auth    # local context\nimpacket-psexec USER:'PW'@$ip               # different code path entirely\n\n# 2. Enum tool claims a god-mode ACL? Verify before you believe (or report) it:\nGet-DomainObjectAcl -Identity 'Domain Admins' -ResolveGUIDs |\n  ? { $_.SecurityIdentifier -eq (ConvertTo-SID $env:USERNAME) }\n\n# 3. Read the SPECIFIC auth error:\n#   WinRMAuthorizationError  -> valid creds, NOT in Remote Management Users -> pivot to LDAP/SMB\n#   STATUS_LOGON_FAILURE     -> wrong creds OR wrong context (try --local-auth)\n#   STATUS_ACCOUNT_RESTRICTION-> creds fine, logon-type/time/host restricted\n\n# 4. Ask 'what can this principal DO' \u2014 many capabilities need no shell:\n#   read LAPS, DCSync, read a GMSA password, kerberoast = all pure LDAP/RPC\n\n# 5. Payload <-> catcher pairing:\n#   shell_reverse_tcp  -> nc -nlvp PORT\n#   meterpreter/*      -> msfconsole multi/handler (matching payload)",
+  "warn": "These are anti-patterns to your own tooling, not the target's. The failure mode they prevent is the expensive one: hours spent re-deriving a credential or chasing a vuln that a tool hallucinated. When stuck, the first question is often 'is the tool lying to me?' not 'what else can I run?'",
+  "choices": [
+    {
+      "label": "Apply it \u2014 LAPS reader privesc walkthrough",
+      "next": "laps_read"
+    },
+    {
+      "label": "Apply it \u2014 hunt creds in LDAP description fields",
+      "next": "ldap_description_creds"
+    },
+    {
+      "label": "Verify an ACL claim properly \u2014 ACL abuse",
+      "next": "acl_abuse"
+    },
+    {
+      "label": "Reset methodology on a new box",
+      "next": "ad_start"
+    },
+    {
+      "label": "Back to lessons hub",
+      "next": "jump_lessons"
+    }
+  ]
+}

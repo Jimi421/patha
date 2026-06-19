@@ -35,6 +35,10 @@
       "next": "snookums_lessons"
     },
     {
+      "label": "Tool output lies \u2014 five debugging lessons",
+      "next": "hutch_lessons"
+    },
+    {
       "label": "Back to Jump menu",
       "next": "jump_menu"
     },

