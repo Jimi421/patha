@@ -53,6 +53,22 @@ function CmdCard({ label, cmd, note }) {
   );
 }
 
+// compact single-line result for the All-Path grep view
+function CmdLine({ cmd, src }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(cmd);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+  return (
+    <div className="cmdline" onClick={copy} title="Click to copy">
+      <pre className="cmdline-text">{tokenize(cmd)}</pre>
+      <span className="cmdline-src">{copied ? "copied" : src}</span>
+    </div>
+  );
+}
+
 function Chip({ label, value }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -318,14 +334,20 @@ export default function CommandCalculator() {
 
   // ── global filter across every service ──────────────────
   const q = filter.trim().toLowerCase();
+  // tokenized AND match — every whitespace-separated term must appear
+  const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+  const matchAll = (text) => {
+    const t = (text || "").toLowerCase();
+    return tokens.every((tok) => t.includes(tok));
+  };
   const filtered = useMemo(() => {
-    if (!q) return null;
+    if (!tokens.length) return null;
     const out = [];
     for (const [id, svc] of Object.entries(services)) {
       const cmds = [];
       for (const g of svc.groups)
         for (const c of g.cmds)
-          if (c.label.toLowerCase().includes(q) || c.cmd.toLowerCase().includes(q))
+          if (matchAll(c.label) || matchAll(c.cmd))
             cmds.push({ ...c, phase: g.phase });
       if (cmds.length) out.push({ id, name: svc.name, cmds });
     }
@@ -354,44 +376,68 @@ export default function CommandCalculator() {
     .replace(/\$pass\b/gi, SEC)
     .replace(/\$ip\b/gi, IP);
 
+  // boil a node's cmd down to its runnable form: drop # comments, ═ banners,
+  // inline annotations, and blank lines. What's left is what you actually type.
+  const boil = (cmd) =>
+    (cmd || "")
+      .split("\n")
+      .map((l) => l.replace(/\s+$/, ""))
+      .filter((l) => l.trim() && !l.trim().startsWith("#"));
+
+  const phaseMeta = (p) => ({
+    color: (PHASES[p] || {}).color || "#7fb3ff",
+    icon: (PHASES[p] || {}).icon || "▪",
+  });
   const phaseOrder = Object.keys(PHASES);
+  const orderPhases = (keys) => [
+    ...phaseOrder.filter((p) => keys.includes(p)),
+    ...keys.filter((p) => !phaseOrder.includes(p)),
+  ];
+
+  // boiled command blocks, one per node, grouped by phase (prose-only nodes drop out)
   const allPath = useMemo(() => {
     const groups = {};
     for (const [id, n] of Object.entries(nodes)) {
-      if (!n.cmd || !n.cmd.trim()) continue; // command-focused: skip prose-only nodes
+      const lines = boil(n.cmd);
+      if (!lines.length) continue;
       const ph = n.phase || "OTHER";
-      (groups[ph] = groups[ph] || []).push({ id, ...n });
+      (groups[ph] = groups[ph] || []).push({ id, title: n.title || id, lines });
     }
-    const ordered = [
-      ...phaseOrder.filter((p) => groups[p]),
-      ...Object.keys(groups).filter((p) => !phaseOrder.includes(p)),
-    ];
-    return ordered.map((p) => ({
-      phase: p,
-      color: (PHASES[p] || {}).color || "#7fb3ff",
-      icon: (PHASES[p] || {}).icon || "▪",
-      nodes: groups[p],
+    return orderPhases(Object.keys(groups)).map((p) => ({
+      phase: p, ...phaseMeta(p), nodes: groups[p],
     }));
   }, [phaseOrder]);
 
   const allNodeCount = useMemo(
     () => allPath.reduce((n, g) => n + g.nodes.length, 0), [allPath]
   );
+  const allLineCount = useMemo(
+    () => allPath.reduce((n, g) => n + g.nodes.reduce((m, nd) => m + nd.lines.length, 0), 0),
+    [allPath]
+  );
 
+  // when searching, drop to LINE level: grep every runnable line across all nodes,
+  // dedupe identical commands, group by phase. This is the "find the one line" mode.
   const allFiltered = useMemo(() => {
     if (mode !== "all") return null;
-    if (!q) return allPath;
-    return allPath
-      .map((g) => ({
-        ...g,
-        nodes: g.nodes.filter(
-          (n) =>
-            (n.title || "").toLowerCase().includes(q) ||
-            (n.body || "").toLowerCase().includes(q) ||
-            (n.cmd || "").toLowerCase().includes(q)
-        ),
-      }))
-      .filter((g) => g.nodes.length);
+    if (!tokens.length) return { kind: "blocks", groups: allPath };
+    const seen = new Set();
+    const byPhase = {};
+    for (const g of allPath) {
+      for (const nd of g.nodes) {
+        for (const line of nd.lines) {
+          if (!matchAll(line) && !matchAll(nd.title)) continue;
+          const key = line.trim();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          (byPhase[g.phase] = byPhase[g.phase] || []).push({ line, src: nd.title });
+        }
+      }
+    }
+    const groups = orderPhases(Object.keys(byPhase)).map((p) => ({
+      phase: p, ...phaseMeta(p), lines: byPhase[p],
+    }));
+    return { kind: "lines", groups };
   }, [mode, q, allPath]);
 
   const svc = services[active];
@@ -457,12 +503,12 @@ export default function CommandCalculator() {
             Curated
           </button>
           <button className={`mode-btn${mode === "all" ? " on" : ""}`} onClick={() => setMode("all")}>
-            All Path · {allNodeCount}
+            All Path · {allLineCount}
           </button>
         </div>
         <span className="mode-hint">
           {mode === "all"
-            ? "Every node from The Path, your vars substituted in."
+            ? `${allNodeCount} nodes, commands only — type to grep every line`
             : "Hand-tuned commands with the auth toggle."}
         </span>
       </div>
@@ -473,7 +519,7 @@ export default function CommandCalculator() {
           className="filter"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder={mode === "all" ? "Search all Path nodes — title, body, or command…" : "Filter every binary — psexec, kerberoast, snmpwalk…"}
+          placeholder={mode === "all" ? "grep every Path command — space = AND (e.g. impacket hashes)" : "Filter every binary — psexec, kerberoast, snmpwalk…"}
           spellCheck={false}
         />
         {filter && <button className="filter-clear" onClick={() => setFilter("")}>clear</button>}
@@ -482,10 +528,26 @@ export default function CommandCalculator() {
       {/* CONTENT */}
       {mode === "all" ? (
         <div className="results">
-          {allFiltered.length === 0 ? (
-            <div className="empty">No Path node matches “{filter}”.</div>
+          {allFiltered.groups.length === 0 ? (
+            <div className="empty">No Path command matches “{filter}”.</div>
+          ) : allFiltered.kind === "lines" ? (
+            // line-level grep: one matching command per row, deduped, with source tag
+            allFiltered.groups.map((g) => (
+              <section key={g.phase} className="svc-block">
+                <h2 className="svc-name" style={{ color: g.color }}>
+                  <span style={{ marginRight: ".4rem" }}>{g.icon}</span>{g.phase}
+                  <span className="phase-count">{g.lines.length}</span>
+                </h2>
+                <div className="cmd-list">
+                  {g.lines.map((ln, i) => (
+                    <CmdLine key={i} cmd={subPath(ln.line)} src={ln.src} />
+                  ))}
+                </div>
+              </section>
+            ))
           ) : (
-            allFiltered.map((g) => (
+            // browse: boiled command block per node, grouped by phase
+            allFiltered.groups.map((g) => (
               <section key={g.phase} className="svc-block">
                 <h2 className="svc-name" style={{ color: g.color }}>
                   <span style={{ marginRight: ".4rem" }}>{g.icon}</span>{g.phase}
@@ -493,11 +555,7 @@ export default function CommandCalculator() {
                 </h2>
                 <div className="cmd-list">
                   {g.nodes.map((n) => (
-                    <div key={n.id} className="node">
-                      <div className="node-title">{n.title || n.id}</div>
-                      {n.body && <div className="node-body">{n.body}</div>}
-                      <CmdCard label={n.phase} cmd={subPath(n.cmd)} note={n.warn ? `⚠ ${n.warn}` : null} />
-                    </div>
+                    <CmdCard key={n.id} label={n.title} cmd={subPath(n.lines.join("\n"))} />
                   ))}
                 </div>
               </section>
@@ -574,6 +632,14 @@ const css = `
   .node{display:flex;flex-direction:column;gap:.3rem;padding:.2rem 0}
   .node-title{font-size:.72rem;color:#cdd9e6;font-weight:500}
   .node-body{font-size:.64rem;color:var(--dim);line-height:1.5}
+
+  .cmdline{display:flex;align-items:center;gap:.6rem;background:var(--panel2);border:1px solid var(--line);
+    border-radius:6px;padding:.4rem .6rem;cursor:pointer;transition:border-color .12s}
+  .cmdline:hover{border-color:#2b3a49}
+  .cmdline:active{transform:translateY(1px)}
+  .cmdline-text{flex:1;font-size:.7rem;line-height:1.5;color:#aac4e0;white-space:pre-wrap;word-break:break-all;margin:0}
+  .cmdline-text .tok{color:var(--amber);background:var(--amber-soft);border-radius:3px;padding:0 .15rem;font-weight:500}
+  .cmdline-src{flex-shrink:0;font-size:.54rem;color:var(--dim);max-width:32%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
 
   .varbar{position:sticky;top:0;z-index:20;max-width:1080px;margin:0 auto 1rem;
     background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.9rem;
