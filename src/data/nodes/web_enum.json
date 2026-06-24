@@ -55,6 +55,10 @@
       "next": "web_fuzz"
     },
     {
+      "label": "Other CMS \u2014 fingerprint + find version",
+      "next": "cms_version_enum"
+    },
+    {
       "label": "Back to jump menu",
       "next": "jump_menu"
     }

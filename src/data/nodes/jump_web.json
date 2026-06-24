@@ -87,6 +87,10 @@
       "next": "subdomain_enum"
     },
     {
+      "label": "Python eval/exec endpoint (Werkzeug/Flask)",
+      "next": "python_eval_endpoint"
+    },
+    {
       "label": "Back to jump menu",
       "next": "jump_menu"
     }

