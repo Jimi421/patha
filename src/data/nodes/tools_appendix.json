@@ -23,6 +23,10 @@
       "next": "pivot_start"
     },
     {
+      "label": "pip blocked? set up venv / pipx",
+      "next": "python_venv_setup"
+    },
+    {
       "label": "Start the engagement flow",
       "next": "start"
     },
