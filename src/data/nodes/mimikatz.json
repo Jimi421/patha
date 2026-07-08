@@ -7,6 +7,10 @@
   "warn": "Mimikatz writes to LSASS and reads protected memory. Stable, but a buggy module on a real production DC can cause LSASS to crash → host reboot. On engagements, prefer offline parsing (dump → pypykatz) over live module execution. On exam labs, just go.",
   "choices": [
     {
+      "label": "Parse mimikatz output → hashcat-ready files + triage",
+      "next": "mimikatz_parse"
+    },
+    {
       "label": "Got NTLM hash — pass-the-hash to lateral move",
       "next": "pth"
     },
