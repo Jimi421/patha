@@ -1,34 +1,34 @@
 {
   "id": "vector_pivot_decision",
-  "phase": "VECTOR",
-  "title": "Local Dead-End \u2014 Switch to Domain / Pivot Vectors",
-  "body": "When local privesc dead-ends on a domain-joined box, you don't need local SYSTEM \u2014 the account's DOMAIN REACH is the privesc. Stop grinding the host; start abusing what the account can already touch in AD, and pivot to internal subnets the host can see.",
-  "cmd": "# LOCAL PRIVESC DEAD-ENDED on a domain box: the account's REACH is the path.\n# Two questions decide where you go:\n\n# Q1 - WHAT CAN THIS ACCOUNT DO IN THE DOMAIN? (BloodHound, mark owned)\n#   collect \u2192 \"Shortest paths from Owned\" - the graph is ground truth.\n#   Look for: kerberoastable SPNs, AS-REP (no preauth), ACL edges, and\n#   sessions of higher-priv users on reachable boxes.\n#   BEYOND: marcus had no local SYSTEM, but daniela was kerberoastable and\n#   beccy (DA) had a session on a reachable host - that was the whole path.\n\n# Q2 - WHAT INTERNAL HOSTS CAN THIS BOX SEE? (new subnets = new targets)\nipconfig /all        # second NIC? internal range?\narp -a               # known hosts\nroute print\n#   New internal subnet \u2192 set up a pivot (Ligolo) and scan it.\n#   BEYOND: CLIENTWK1 saw 172.16.x \u2192 pivoted in \u2192 INTERNALSRV1 + DC.\n\n# Then route to the right AD escalation vector \u2192",
-  "warn": "The mistake is grinding a workstation for local SYSTEM that doesn't exist. On a domain-joined box with no local privesc, switch frames immediately: the account can already reach AD objects and internal hosts. BloodHound + ipconfig tell you where to go.",
+  "phase": "PIVOT",
+  "title": "Pivot Decision — Do You Actually Need One?",
+  "body": "Before building a tunnel, answer one question: can Kali already reach the target directly? On PG Practice and OSCP labs, the VPN gateway often routes internal subnets for you — meaning you may have direct access to 'internal' machines without any pivot at all. Spending an hour fighting ligolo when the VPN already routes the subnet is the most common time waste in multi-machine labs.\n\nThe two-command test takes 10 seconds and definitively answers whether you need a pivot:\n\n  1. ip route get <target-ip> — shows which interface and gateway would carry packets. 'dev tun0' means the VPN handles it. 'dev tunnel1' means your pivot handles it.\n  2. nc -zv -w3 <target-ip> <port> — actually tries a TCP connection. 'Connection refused' means the host answered (reachable, port closed). 'Connection timed out' means routing failed or firewall dropped it.\n\nConnection refused = routed correctly, port is just closed or filtered at the host level.\nConnection timed out = not reachable — either no route or a firewall is dropping packets.\n\nDo this test BEFORE setting up any tunnel. If the target is reachable over tun0, proceed directly. If it times out, then build the pivot.\n\nThe other confusion: when local admin or SYSTEM on a machine is not needed. On domain-joined boxes, the account's DOMAIN REACH matters more than local privesc. If you have domain credentials, test them against internal targets directly before grinding local privesc.",
+  "cmd": "# ══════════════════════════════════════════════════\n# STEP 1 — CHECK ROUTING (10 seconds, do this first)\n# ══════════════════════════════════════════════════\nip route get <target-ip>\n# Output tells you everything:\n# '<target> via 192.168.45.254 dev tun0'  → VPN routes it, no pivot needed\n# '<target> dev tunnel1'                  → your pivot handles it\n# 'Network unreachable'                   → no route at all, need pivot\n\n# Show all routes to understand what's covered:\nip route show | grep -v 'linkdown'\n\n# ══════════════════════════════════════════════════\n# STEP 2 — TEST ACTUAL CONNECTIVITY\n# ══════════════════════════════════════════════════\n# Pick a port you expect to be open (445, 80, 22, 5985):\nnc -zv -w3 <target-ip> <port>\n# 'Connection refused'  = HOST REACHABLE, port closed/filtered at host — no pivot needed\n# 'Connection timed out' = NOT REACHABLE — need pivot or route is wrong\n# 'Connected'           = Host reachable AND port open — proceed directly\n\n# Quick multi-port check:\nfor port in 22 80 445 3389 5985; do nc -zv -w2 <target-ip> $port 2>&1; done\n\n# ══════════════════════════════════════════════════\n# STEP 3 — IF PIVOT IS NEEDED (timeout above)\n# ══════════════════════════════════════════════════\n# Do you have a shell on a box that CAN reach the target?\n# Check from that box:\n# (Windows)  Test-NetConnection <target-ip> -Port 445\n# (Linux)    nc -zv -w3 <target-ip> 445\n\n# If yes — set up ligolo, chisel, or SSH tunnel from that box\n# If no — find a different hop or re-examine the network topology\n\n# ══════════════════════════════════════════════════\n# FORCE TRAFFIC THROUGH A SPECIFIC INTERFACE\n# ══════════════════════════════════════════════════\n# Add a /32 host route (outranks any existing /24 — avoids 'File exists' error):\nsudo ip route replace <target-ip>/32 dev tunnel1\nip route get <target-ip>    # verify: must now say 'dev tunnel1'\n\n# Add a full subnet:\nsudo ip route replace <subnet>/24 dev tunnel1\n\n# Remove a route:\nsudo ip route del <target-ip>/32\nsudo ip route del <subnet>/24\n\n# ══════════════════════════════════════════════════\n# DOMAIN REACH CHECK (no local SYSTEM needed)\n# ══════════════════════════════════════════════════\n# If you have domain creds, test them against internal targets FIRST:\nnetexec smb <internal-target> -u USER -p 'PASS'\nnetexec winrm <internal-target> -u USER -p 'PASS'\nevil-winrm -i <internal-target> -u USER -p 'PASS'\n# (Pwn3d!) = you already have access without any privesc on the current box\n\n# From a Windows shell — test reachability to internal hosts:\nTest-NetConnection <target-ip> -Port 5985\nTest-NetConnection <target-ip> -Port 445",
+  "warn": "'Connection refused' and 'Connection timed out' mean completely different things. Refused = routed correctly, port is closed at the destination. Timeout = packets are not arriving at all (no route, or firewall dropping). Only timeout means you need a pivot. Also: ip route add throws 'RTNETLINK answers: File exists' if a route for that prefix already exists — use 'ip route replace' instead, which is idempotent.",
   "choices": [
     {
-      "label": "Map what my account can do \u2014 AD escalation",
-      "next": "vector_ad_escalation"
+      "label": "VPN routes it — no pivot needed, proceed directly",
+      "next": "creds_found"
     },
     {
-      "label": "Set up a pivot into a new subnet (Ligolo)",
+      "label": "Timeout — need ligolo pivot",
       "next": "ligolo"
     },
     {
-      "label": "Plan the pivot / map the network",
-      "next": "pivot_start"
+      "label": "Need chisel for port forwarding",
+      "next": "chisel"
     },
     {
-      "label": "Enter AD \u2014 assumed-breach playbook",
-      "next": "ad_start"
+      "label": "Need SSH tunnel",
+      "next": "ssh_tunnel"
     },
     {
-      "label": "Run BloodHound and read the graph",
-      "next": "bloodhound_guide"
+      "label": "Double pivot — second hop needed",
+      "next": "double_pivot"
     },
     {
-      "label": "Back to Vector Finder",
-      "next": "vector_finder"
+      "label": "Back to jump menu",
+      "next": "jump_menu"
     }
   ]
 }

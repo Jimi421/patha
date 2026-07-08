@@ -31,6 +31,14 @@
       "next": "acl_abuse"
     },
     {
+      "label": "AD CS misconfigured cert template (ESC1/ESC4) \u2192 ADCS",
+      "next": "adcs"
+    },
+    {
+      "label": "Delegation misconfigured \u2014 unconstrained/constrained/RBCD",
+      "next": "delegation"
+    },
+    {
       "label": "Have a password \u2014 spray it",
       "next": "ad_spray"
     },

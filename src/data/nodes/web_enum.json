@@ -27,6 +27,10 @@
       "next": "grav_cms"
     },
     {
+      "label": "ManageEngine AppManager on 8443/44444",
+      "next": "manageengine_appmanager"
+    },
+    {
       "label": "Jenkins on 8080/8443",
       "next": "jenkins"
     },

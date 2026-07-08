@@ -27,6 +27,10 @@
       "next": "ad_lateral_setup"
     },
     {
+      "label": "Domain creds confirmed \u2014 run BloodHound for attack paths",
+      "next": "bloodhound"
+    },
+    {
       "label": "Spray these creds everywhere NOW",
       "next": "cred_reuse"
     }
