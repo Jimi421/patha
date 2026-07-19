@@ -1,25 +1,29 @@
 {
   "id": "jump_windows",
   "phase": "JUMP",
-  "title": "Windows Privesc — Jump Menu",
+  "title": "Windows Privesc \u2014 Jump Menu",
   "body": "Pick the vector directly.",
   "cmd": "# Windows privesc reference",
   "warn": null,
   "choices": [
     {
-      "label": "Initial foothold — orient and enumerate",
+      "label": "Ordered checklist \u2014 what to check FIRST",
+      "next": "win_privesc_checklist"
+    },
+    {
+      "label": "Initial foothold \u2014 orient and enumerate",
       "next": "windows_post_exploit"
     },
     {
-      "label": "Quick enum reference — one-liners",
+      "label": "Quick enum reference \u2014 one-liners",
       "next": "windows_enum_quick"
     },
     {
-      "label": "WinPEAS — automated enum",
+      "label": "WinPEAS \u2014 automated enum",
       "next": "winpeas"
     },
     {
-      "label": "PowerUp — PowerShell privesc audit",
+      "label": "PowerUp \u2014 PowerShell privesc audit",
       "next": "powerup"
     },
     {
