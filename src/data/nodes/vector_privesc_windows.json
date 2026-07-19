@@ -7,6 +7,10 @@
   "warn": "winPEAS OVER-REPORTS AD ACLs - on BEYOND it claimed marcus had GenericAll over Domain Admins, krbtgt, and the DC. That was a FALSE POSITIVE; BloodHound (which resolves effective access) showed no such edge. Never act on a winPEAS GenericAll without confirming it in BloodHound first.",
   "choices": [
     {
+      "label": "Show me the ordered checklist (what to check first)",
+      "next": "win_privesc_checklist"
+    },
+    {
       "label": "SeImpersonate present \u2014 Potato to SYSTEM",
       "next": "token_privs"
     },

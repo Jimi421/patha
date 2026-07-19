@@ -1,0 +1,66 @@
+{
+  "id": "win_privesc_checklist",
+  "phase": "WINDOWS",
+  "title": "Windows Privesc \u2014 Ordered Checklist (what to check FIRST)",
+  "body": "A checklist is only useful if it's ORDERED - and if you remember it's a LOOP, not a line. Run the six steps in sequence; the moment you land creds or a shell as a new user, RESTART at step 0 as that user (see 'THE LOOP'). Two things that trip people at the keyboard and are baked into step 0 now: (1) what shell am I in - a WinRM/bind/network logon makes service enumeration throw access-denied, so you need an interactive logon or you'll wrongly conclude 'no services'; (2) who else is logged on - a live privileged session is a mimikatz/token-theft branch you'd otherwise miss. Mental model: (a) do I have a privilege that IS the exploit? (token privs), (b) did someone leave a cred or writable thing around? (creds -> misconfigs), (c) is this box even the right target? (exit to domain). Token privs first (highest-hit, lowest-effort); kernel last (can crash). Treat winPEAS/PowerUp as POINTERS you confirm by hand - never proof.",
+  "cmd": "# ==== 0. ORIENT - 30 seconds, ALWAYS first ==========\nwhoami /priv         # this line alone decides your first move\nwhoami /groups       # integrity level (Medium/High) + interesting groups\nwhoami /all\nsysteminfo | findstr /i \"OS Name|OS Version|System Type\"   # save for step 5\n\n# >> WHAT SHELL AM I IN? (check this or step 4 lies to you) <<\n#  WinRM / bind / reverse (NETWORK logon): Get-CimInstance & Get-Service\n#    THROW ACCESS-DENIED for a non-admin -> you'll wrongly think \"no services\".\n#    Fix: get an INTERACTIVE logon (RDP, or runas) before enumerating services.\n#  RDP / console (INTERACTIVE logon): service enum works normally.\n#  integrity: Medium = normal user OR filtered-admin (UAC). High = already elevated.\n\n# >> WHO ELSE IS HERE? (opens the memory/impersonation branch) <<\nquery user            # another logged-on user = mimikatz / token theft target\nquery session\nGet-Process | Select Id,ProcessName,@{N=\"User\";E={(Get-Process -Id $_.Id -IncludeUserName -EA 0).UserName}}\n#  A privileged user with a live session -> dump LSASS -> their creds/token. (mimikatz)\n\n# ==== 1. TOKEN PRIVS - check FIRST (fastest win) ====\nwhoami /priv\n#  SeImpersonate / SeAssignPrimaryToken  -> POTATO = instant SYSTEM. STOP here.\n#  SeBackup / SeRestore                  -> reg save SAM+SYSTEM -> dump hashes\n#  SeTakeOwnership                       -> take SAM -> read it\n#  SeDebug                               -> mimikatz into a SYSTEM proc\n#  SeLoadDriver                          -> malicious driver\n#  ** Disabled != absent ** - the tool enables it. Presence is what matters.\n#  WHY FIRST: IIS/MSSQL/service-account shells have SeImpersonate constantly.\n#  It's the highest-hit, lowest-effort path on OSCP. Don't skip past it.\n\n# ==== 2. ALREADY ADMIN @ MEDIUM INTEGRITY? ==========\n# In Administrators but whoami /groups shows Medium Mandatory Level:\n#   -> you don't need a \"hunt\", you need a UAC BYPASS. (win_uac_bypass)\n\n# ==== 3. STORED CREDS - cheap, high-hit ============\n# >> kick off winPEAS NOW (it's slow), read it in step 4 while you do this manually <<\nStart-Process .\\winPEASx64.exe -RedirectStandardOutput peas.txt   # or just run it in a 2nd shell\n# PS history + transcripts (users clear Clear-History, NOT PSReadline):\n(Get-PSReadlineOption).HistorySavePath\ntype <that path>\nGet-ChildItem C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt -ErrorAction SilentlyContinue | gc\n# Autologon / cmdkey / configs:\nreg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v DefaultPassword\ncmdkey /list\n# config files, kdbx, unattend, my.ini, web.config, RDCMan .settings  -> windows_creds\n#  ** THE PATTERN: every new cred -> RE-ENUMERATE as that user. **\n#  dave->steve->backupadmin was 3 creds in 3 files, each unlocked the next.\n\n# ==== 4. MISCONFIGS - fast native check, THEN peas ==\n# FAST + no big binary on disk (do this before/while winPEAS churns):\n.\\accesschk.exe /accepteula -uwcqv \"Authenticated Users\" *   # writable services\n.\\accesschk.exe /accepteula -uwcqv \"Users\" *\n# writable dirs in PATH (DLL hijack surface):\n$env:PATH -split ';' | % { icacls $_ 2>$null } | findstr /i \"Users Everyone Authenticated\"\n# THEN read the winPEAS/PowerUp output you kicked off in step 3:\n. .\\PowerUp.ps1 ; Invoke-AllChecks\n# Verify each hit in priority order (tools POINT, they don't PROVE):\n#   weak service perms   -> icacls, look for EXPLICIT (F) w/o (I)  -> weak_service\n#   unquoted service     -> space + no quotes + writable prefix    -> unquoted_service\n#   AlwaysInstallElevated-> BOTH HKCU+HKLM = 1                      -> always_install_elevated\n#     payoff: msfvenom -f msi -o e.msi ; msiexec /quiet /qn /i e.msi\n#   writable sched task  -> icacls the action script               -> scheduled_tasks_win\n#   DLL hijack           -> NAME NOT FOUND in writable dir          -> win_dll_hijack\n\n# ==== 5. KERNEL / APP EXPLOIT - LAST resort =========\n# Only when 1-4 are dry, source is reviewable, and a crash is acceptable.\n# systeminfo -> wesng / searchsploit                               -> win_kernel_exploit\n\n# ==== 6. EXIT CONDITION - the part people miss =======\n# Plain domain user + nothing modifiable + no token priv:\n#   -> STOP local privesc. This box may have NO SYSTEM path for you.\n#   -> Your privesc is the DOMAIN: kerberoast / BloodHound / relay.\n#   Don't grind a workstation for a SYSTEM that was never there.  -> vector_pivot_decision\n\n# ==== THE LOOP - privesc is CYCLICAL, not one-pass ===\n#  Got a shell/creds as a NEW user (steve, backupadmin, a svc acct)?\n#  -> DON'T continue forward. RESTART at step 0 AS THAT USER.\n#  New user = new whoami /priv, new readable files, new group memberships,\n#  new service perms. The OffSec chain only works because each user re-ran\n#  the whole checklist. A cred is a reset button, not a finish line.\n\n# ==== TOOL-OUTPUT REALITY CHECK (winPEAS/PowerUp) ===\n#  winPEAS RED != confirmed. It over-reports. Manually verify every hit.\n#  winPEAS OS detect is unreliable (called Win11 \"Win10\"). Trust systeminfo.\n#  winPEAS MISSES things: it skipped the desktop meeting-note, the transcript,\n#    the PS history in the OffSec labs. Automated != complete. Do manual too.\n#  winPEAS AD ACLs (GenericAll/WriteDACL) are the WORST offenders - it claimed\n#    marcus had GenericAll over Domain Admins/krbtgt/DC. FALSE. Confirm every\n#    AD edge in BloodHound (effective access) before you act on it.\n#  PowerUp Install-ServiceBinary FALSELY says \"not modifiable\" when the service\n#    path has a file-arg (--defaults-file=...). Trust your icacls (F), go manual.\n#  Rule: PEAS/PowerUp DETECT. icacls / whoami /priv / BloodHound CONFIRM.",
+  "warn": "Order matters more than completeness. whoami /priv FIRST - SeImpersonate ends the hunt immediately. winPEAS RED = 'look here', not 'confirmed'; it over-reports (especially AD ACLs) AND misses things (desktop notes, transcripts, PS history). PEAS/PowerUp DETECT; icacls, whoami /priv, and BloodHound CONFIRM. If you're a plain domain user with nothing modifiable, STOP - the box may have no SYSTEM path and your privesc is the domain.",
+  "choices": [
+    {
+      "label": "1. Token privs (SeImpersonate/Backup/Debug)",
+      "next": "token_privs"
+    },
+    {
+      "label": "2. Already admin @ medium - UAC bypass",
+      "next": "win_uac_bypass"
+    },
+    {
+      "label": "Another user logged on - dump LSASS/token",
+      "next": "mimikatz"
+    },
+    {
+      "label": "3. Hunt stored credentials",
+      "next": "windows_creds"
+    },
+    {
+      "label": "4a. Run winPEAS (detect, then confirm)",
+      "next": "winpeas"
+    },
+    {
+      "label": "4b. Run PowerUp (detect, then confirm)",
+      "next": "powerup"
+    },
+    {
+      "label": "4c. Weak service perms",
+      "next": "weak_service"
+    },
+    {
+      "label": "4d. Unquoted service path",
+      "next": "unquoted_service"
+    },
+    {
+      "label": "4e. AlwaysInstallElevated",
+      "next": "always_install_elevated"
+    },
+    {
+      "label": "4f. Writable scheduled task",
+      "next": "scheduled_tasks_win"
+    },
+    {
+      "label": "4g. DLL hijack",
+      "next": "win_dll_hijack"
+    },
+    {
+      "label": "5. Kernel / app exploit (last resort)",
+      "next": "win_kernel_exploit"
+    },
+    {
+      "label": "6. No local path - pivot to domain",
+      "next": "vector_pivot_decision"
+    },
+    {
+      "label": "Back to Windows privesc vector hub",
+      "next": "vector_privesc_windows"
+    }
+  ]
+}

