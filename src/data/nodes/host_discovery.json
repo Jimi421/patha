@@ -2,17 +2,33 @@
   "id": "host_discovery",
   "phase": "DISCOVERY",
   "title": "Host Discovery",
-  "body": "Run all methods in parallel. ARP cannot be blocked on the local subnet — most reliable method. ICMP gets filtered constantly. Merge everything into one list.",
-  "cmd": "sudo nmap -sn $subnet -oG scan.txt\ngrep Up scan.txt | cut -d \" \" -f 2 > ips_nmap.txt\n\nsudo arp-scan $subnet | tee arp.txt\n\nfping -a -g $subnet 2>/dev/null | tee fping.txt\n\ncat ips_nmap.txt fping.txt | sort -u | grep -v \"^$\" > live_hosts.txt\ncat live_hosts.txt",
-  "warn": "ARP only works on your local subnet. Through a tunnel ARP is gone — use ICMP and TCP probes only.",
+  "body": "Turning IPs into an attack map. Two rules: (1) match the method to your VANTAGE - ARP/ICMP work on a LOCAL subnet but are useless THROUGH A PIVOT (L2 dies at the tunnel, ICMP gets filtered), so pivoted discovery is TCP-only. (2) Don't stop at live IPs - RESOLVE NAMES. Reverse-resolving SMB hosts to FQDN exposes the domain, the hostnames (FILES02, DEV04), and - critically - the DC. An IP list is lame; a named domain map with the DC identified is the actual goal.",
+  "cmd": "# ========== PICK YOUR CONTEXT ==========\n# On the LOCAL subnet (direct L2 access): ARP works, use it - unblockable.\n# THROUGH A PIVOT (ligolo/proxychains): ARP + ICMP are USELESS (L2 dies at the\n#   tunnel, ICMP gets filtered). Discover hosts by TCP instead. See pivot_portscan.\n\n# ========== LOCAL SUBNET (direct) ==========\nsudo arp-scan -I $iface $subnet | tee arp.txt        # most reliable on-subnet\nsudo nmap -sn $subnet -oG ping.txt                   # ICMP/ARP combo\nfping -a -g $subnet 2>/dev/null | tee fping.txt\ncat arp.txt fping.txt | grep -oE '([0-9]{1,3}\\.){3}[0-9]{1,3}' | sort -u > live_hosts.txt\n\n# ========== THROUGH A PIVOT (TCP discovery) ==========\n# ICMP lies over ligolo (Destination Host Unreachable even when host is UP).\n# A host is \"live\" if ANY common port answers. --open cuts the phantoms.\nnmap -sT -Pn -p 445,135,139,3389,5985,80,22,88,389 $subnet --open -oG tcp_disc.txt\ngrep -oE '([0-9]{1,3}\\.){3}[0-9]{1,3}' tcp_disc.txt | sort -u > live_hosts.txt\n#  >> if a sweep says ALL 255 hosts are 'up' = false positive (ICMP/gateway\n#     answering for the range). Trust --open TCP results, not ping counts. <<\n\n# ========== RESOLVE NAMES = EXPOSE THE DOMAIN ==========\n# This is the step that turns IPs into an attack map. nxc reverse-resolves\n# SMB hosts to FQDN + domain in one shot:\nnxc smb $subnet                      # name:HOST  domain:CORP.COM  (signing/SMBv1)\nnxc smb $subnet --generate-hosts-file hosts.txt    # ready-made /etc/hosts block\n#   -> tells you hostnames (FILES02, DEV04...), the DOMAIN, and OS in one pass.\n\n# Seed /etc/hosts so kerberos/ldap tooling resolves names (BACK IT UP FIRST):\nsudo cp /etc/hosts /etc/hosts.bak.$(date +%F_%H%M%S)\n# then append the  IP  FQDN  HOST  lines (nxc --generate-hosts-file gives these)\n\n# ========== FIND THE DC (do NOT skip) ==========\n# The box answering Kerberos(88) + LDAP(389) + GC(3268) is the domain controller.\nnmap -sT -Pn -p 88,389,3268,445,53 $subnet --open\nnxc smb $subnet | grep -i \"domain controller\"        # nxc flags DCs\nnslookup -type=SRV _ldap._tcp.dc._msdcs.<DOMAIN> <any_internal_dns_ip>\n#  DC missing from THIS subnet? it's behind another hop - the domain-joined\n#  members can reach it even if your pivot host can't. (see double_pivot)\n\n# ========== VALIDATED: MEDTECH (PG-style DMZ->internal) ==========\n# Landed SYSTEM on WEB02 (DMZ, non-domain-joined, dmz.corp). ligolo up to the\n# internal 172.16.x. TCP sweep + nxc resolved the whole domain:\n#   .11 FILES02  .12 DEV04  .13 PROD01  .82/.83 CLIENTxx  .254 WEB02(pivot NIC)\n# WEB02's nltest gave NO_SUCH_DOMAIN (it's DMZ) - the DC sits with the members,\n# reachable only once the pivot's up. A domain user (joe) was useless on WEB02\n# but became the key to enumerating every internal box. Names first, then joe.",
+  "warn": "Through a pivot, ICMP/ping LIES - a sweep reporting all 255 hosts 'up' is a false positive (gateway answering for the range); trust --open TCP results only. Always back up /etc/hosts before seeding names. And always scan 88/389/3268 to find the DC - if it's not on this subnet it's behind another hop, not absent.",
   "choices": [
     {
-      "label": "Have host list — mass port scan",
+      "label": "Resolved names + found SMB hosts",
+      "next": "smb_enum"
+    },
+    {
+      "label": "Found the DC (88/389/3268)",
+      "next": "ad_start"
+    },
+    {
+      "label": "Have host list \u2014 mass port scan",
       "next": "mass_portscan"
     },
     {
-      "label": "One interesting host — deep scan it",
+      "label": "Discovering through a pivot \u2014 TCP methods",
+      "next": "pivot_portscan"
+    },
+    {
+      "label": "One interesting host \u2014 deep scan",
       "next": "full_portscan"
+    },
+    {
+      "label": "DC not on this subnet \u2014 another hop",
+      "next": "double_pivot"
     }
   ]
 }
