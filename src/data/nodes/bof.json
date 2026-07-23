@@ -17,6 +17,10 @@
     {
       "label": "Shell died — try EXITFUNC=thread",
       "next": "bof"
+    },
+    {
+      "label": "Linux x64 binary — sudo custom binary / ROP chain",
+      "next": "bof_linux"
     }
   ]
 }
