@@ -16,7 +16,7 @@
     },
     {
       "label": "Potato failed — try other Windows privesc",
-      "next": "windows_privesc"
+      "next": "vector_privesc_windows"
     }
   ]
 }

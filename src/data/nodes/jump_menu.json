@@ -3,24 +3,52 @@
   "phase": "JUMP",
   "title": "Jump to Technique",
   "body": "Direct access to any section. Use this for labs, CTFs, or when you already know what you are dealing with and need the technique fast.",
-  "cmd": "# No commands here \u2014 pick your domain",
+  "cmd": "# No commands here — pick your domain",
   "warn": null,
   "choices": [
     {
-      "label": "Web attacks",
-      "next": "jump_web"
+      "label": "🧭 Vector Finder — pick a vector from a finding",
+      "next": "vector_finder"
     },
     {
-      "label": "\ud83e\udded Vector Finder \u2014 pick a vector from a finding",
-      "next": "vector_finder"
+      "label": "Scan notes — document findings",
+      "next": "scan_notes"
+    },
+    {
+      "label": "Version # danger reference",
+      "next": "version_ref"
+    },
+    {
+      "label": "Web attacks",
+      "next": "jump_web"
     },
     {
       "label": "SQL injection",
       "next": "jump_sqli"
     },
     {
+      "label": "Services & ports",
+      "next": "jump_services"
+    },
+    {
+      "label": "💣 Exploits — find, fix venv, run public PoCs",
+      "next": "jump_exploits"
+    },
+    {
+      "label": "Password attacks hub",
+      "next": "password_attacks"
+    },
+    {
+      "label": "HTTP password brute force",
+      "next": "bruteforce"
+    },
+    {
       "label": "Shells & payloads",
       "next": "jump_shells"
+    },
+    {
+      "label": "msfvenom — payload generator",
+      "next": "msfvenom"
     },
     {
       "label": "File transfer & exfil",
@@ -35,71 +63,47 @@
       "next": "jump_windows"
     },
     {
-      "label": "Active Directory",
-      "next": "jump_ad"
-    },
-    {
-      "label": "Services & ports",
-      "next": "jump_services"
-    },
-    {
-      "label": "Windows persistence",
-      "next": "persistence"
-    },
-    {
-      "label": "LOLBins \u2014 Windows built-in abuse",
+      "label": "LOLBins — Windows built-in abuse",
       "next": "lolbins"
     },
     {
-      "label": "GTFOBins \u2014 Linux built-in abuse",
+      "label": "GTFOBins — Linux built-in abuse",
       "next": "gtfobins_linux"
     },
     {
-      "label": "Password attacks hub",
-      "next": "password_attacks"
-    },
-    {
-      "label": "HTTP password brute force",
-      "next": "bruteforce"
-    },
-    {
-      "label": "Scan notes \u2014 document findings",
-      "next": "scan_notes"
-    },
-    {
-      "label": "Version # danger reference",
-      "next": "version_ref"
+      "label": "Active Directory",
+      "next": "jump_ad"
     },
     {
       "label": "Pivoting & tunnels",
       "next": "jump_pivot"
     },
     {
-      "label": "Lessons from the lab \u2014 retrospectives",
-      "next": "jump_lessons"
-    },
-    {
-      "label": "Documentation & reporting",
-      "next": "reporting"
+      "label": "Windows persistence",
+      "next": "persistence"
     },
     {
       "label": "Metasploit (MSF)",
       "next": "msfconsole"
     },
     {
-      "label": "Sliver C2 \u2014 modern post-ex framework",
+      "label": "Sliver C2 — modern post-ex framework",
       "next": "sliver_c2"
     },
     {
-      "label": "msfvenom \u2014 payload generator",
-      "next": "msfvenom"
+      "label": "Documentation & reporting",
+      "next": "reporting"
     },
     {
-      "label": "\ud83d\udccb Note templates",
+      "label": "📋 Note templates",
       "next": "templates"
     },
     {
-      "label": "Fresh Kali setup \u2014 install the toolkit",
+      "label": "Lessons from the lab — retrospectives",
+      "next": "jump_lessons"
+    },
+    {
+      "label": "Fresh Kali setup — install the toolkit",
       "next": "tools_appendix"
     },
     {

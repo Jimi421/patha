@@ -8,7 +8,7 @@
   "choices": [
     {
       "label": "Got RCE on Windows — transfer nc.exe and get shell",
-      "next": "windows_file_transfer"
+      "next": "transfer_windows"
     },
     {
       "label": "Got shell — check whoami /priv for SeImpersonate",

