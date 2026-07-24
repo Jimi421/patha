@@ -1,5 +1,122 @@
 import { useState, useEffect, useRef } from "react";
 import { nodes, PHASES } from "./utils/loadNodes";
+import { searchNodes } from "./utils/searchNodes";
+
+// ─────────────────────────────────────────────
+//  SEARCH OVERLAY — Cmd/Ctrl+K or "/" from anywhere
+// ─────────────────────────────────────────────
+function SearchOverlay({ open, onClose, onPick }) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  const inputRef = useRef(null);
+  const results = q.trim() ? searchNodes(q, 12) : [];
+
+  useEffect(() => {
+    if (open) {
+      setQ("");
+      setSel(0);
+      setTimeout(() => inputRef.current?.focus(), 20);
+    }
+  }, [open]);
+
+  useEffect(() => { setSel(0); }, [q]);
+
+  if (!open) return null;
+
+  const pick = (id) => { if (id) { onPick(id); onClose(); } };
+
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(s + 1, results.length - 1)); }
+    if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
+    if (e.key === "Enter") { e.preventDefault(); pick(results[sel]?.id); }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000,
+        background: "rgba(4,6,9,0.78)", backdropFilter: "blur(2px)",
+        display: "flex", alignItems: "flex-start", justifyContent: "center",
+        paddingTop: "12vh",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(680px, 92vw)", background: "#0c1017",
+          border: "1px solid #2a3648", borderRadius: 8,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.6)", overflow: "hidden",
+          fontFamily: "'JetBrains Mono','Fira Code',monospace",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "1px solid #1a2432" }}>
+          <span style={{ color: "#4a9eff", fontSize: 16 }}>⌕</span>
+          <input
+            ref={inputRef}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={onKey}
+            placeholder="Search all nodes — ligolo, venv, kerberoast, SeImpersonate…"
+            style={{
+              flex: 1, background: "transparent", border: "none", outline: "none",
+              color: "#cdd6e0", fontSize: 15, fontFamily: "inherit",
+            }}
+          />
+          <kbd style={{ color: "#54627a", fontSize: 11, border: "1px solid #263243", borderRadius: 4, padding: "2px 6px" }}>esc</kbd>
+        </div>
+
+        <div style={{ maxHeight: "56vh", overflowY: "auto" }}>
+          {q.trim() && results.length === 0 && (
+            <div style={{ padding: "22px 16px", color: "#54627a", fontSize: 13 }}>
+              No nodes match “{q}”. Try a tool name, CVE, or command fragment.
+            </div>
+          )}
+          {results.map((r, i) => {
+            const ph = PHASES[r.phase];
+            const active = i === sel;
+            return (
+              <div
+                key={r.id}
+                onMouseEnter={() => setSel(i)}
+                onClick={() => pick(r.id)}
+                style={{
+                  padding: "10px 16px", cursor: "pointer",
+                  background: active ? "#141c28" : "transparent",
+                  borderLeft: active ? "2px solid #4a9eff" : "2px solid transparent",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {r.phase && (
+                    <span style={{
+                      fontSize: 10, letterSpacing: 1, textTransform: "uppercase",
+                      color: ph?.color || "#8899aa",
+                      border: `1px solid ${ph?.color || "#8899aa"}33`,
+                      borderRadius: 3, padding: "1px 6px",
+                    }}>{r.phase}</span>
+                  )}
+                  <span style={{ color: "#e3ebf5", fontSize: 14 }}>{r.title}</span>
+                  <span style={{ color: "#3a4656", fontSize: 11, marginLeft: "auto" }}>{r.id}</span>
+                </div>
+                {r.snippet && (
+                  <div style={{ color: "#6b7a90", fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{r.snippet}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ padding: "8px 16px", borderTop: "1px solid #1a2432", display: "flex", gap: 16, color: "#54627a", fontSize: 11 }}>
+          <span>↑↓ navigate</span>
+          <span>⏎ open</span>
+          <span>esc close</span>
+          <span style={{ marginLeft: "auto" }}>{results.length ? `${results.length} result${results.length > 1 ? "s" : ""}` : ""}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 
 // ─────────────────────────────────────────────
@@ -10,6 +127,7 @@ export default function OSCPAdventure() {
   const [copied, setCopied] = useState(false);
   const [animKey, setAnimKey] = useState(0);
   const [showAbout, setShowAbout] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const topRef = useRef(null);
 
   const currentId = history[history.length - 1];
@@ -103,8 +221,16 @@ export default function OSCPAdventure() {
 
   useEffect(() => {
     const handleKey = (e) => {
+      // Cmd/Ctrl+K opens search from anywhere, even while typing in a field.
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault(); setShowSearch(true); return;
+      }
+      // Search overlay owns its own keys while open.
+      if (showSearch) return;
       if (showAbout) { if (e.key === "Escape") setShowAbout(false); return; }
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      // "/" opens search (common convention), like GitHub / docs sites.
+      if (e.key === "/") { e.preventDefault(); setShowSearch(true); return; }
       const num = parseInt(e.key);
       if (!isNaN(num) && num >= 1 && num <= node.choices.length) {
         const choice = node.choices[num - 1]; if (choice.href) window.open(choice.href, "_blank"); else go(choice.next);
@@ -115,7 +241,7 @@ export default function OSCPAdventure() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [node, history, showAbout]);
+  }, [node, history, showAbout, showSearch]);
 
   return (
     <div style={{
@@ -127,6 +253,8 @@ export default function OSCPAdventure() {
       flexDirection: "column",
       alignItems: "center",
     }}>
+
+      <SearchOverlay open={showSearch} onClose={() => setShowSearch(false)} onPick={(id) => go(id)} />
 
       {/* ── HEADER ─────────────────────────── */}
       <header ref={topRef} style={{
@@ -209,6 +337,28 @@ export default function OSCPAdventure() {
           >
             ⎇ github
           </a>
+          <button
+            onClick={() => setShowSearch(true)}
+            title="Search all nodes (press / or Ctrl+K)"
+            style={{
+              background: "transparent",
+              border: "1px solid #1e2838",
+              color: "#8899aa",
+              padding: "5px 12px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: 15,
+              letterSpacing: 2,
+              borderRadius: 2,
+              textTransform: "uppercase",
+              transition: "all 0.2s",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#3a4858"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#1e2838"}
+          >⌕ search <kbd style={{ fontSize: 10, color: "#54627a", border: "1px solid #263243", borderRadius: 3, padding: "0 4px", letterSpacing: 0 }}>/</kbd></button>
           <button
             onClick={() => setShowAbout(true)}
             style={{
