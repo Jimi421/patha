@@ -53,20 +53,47 @@ function tokenize(cmd) {
   });
 }
 
+// URL-encode a command for pasting into a browser webshell query string
+// (e.g. cmd.php?cmd=...). Spaces → +, reserved/special chars → %XX.
+// Only the value belongs in the URL, so we encode the whole command string.
+// Multi-line commands collapse to the first line — browser webshells are one-shot.
+function urlEncodeCmd(cmd) {
+  const firstLine = cmd.split("\n")[0];
+  // encodeURIComponent handles most chars; then swap %20 → + (webshell convention)
+  // and encode a few it leaves alone that still break query strings.
+  return encodeURIComponent(firstLine)
+    .replace(/%20/g, "+")   // spaces as + (standard for query strings)
+    .replace(/'/g, "%27")   // single quote
+    .replace(/\(/g, "%28")
+    .replace(/\)/g, "%29")
+    .replace(/\*/g, "%2A")
+    .replace(/!/g, "%21");
+}
+
 function CmdCard({ label, cmd, note }) {
   const [copied, setCopied] = useState(false);
+  const [enc, setEnc] = useState(false); // url-encoded view toggle
+  const shown = enc ? urlEncodeCmd(cmd) : cmd;
   const copy = () => {
-    navigator.clipboard?.writeText(cmd);
+    navigator.clipboard?.writeText(shown);
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
   };
+  const toggleEnc = (e) => { e.stopPropagation(); setEnc((v) => !v); };
   return (
     <div className="cmd" onClick={copy} title="Click to copy">
       <div className="cmd-head">
         <span className="cmd-label">{label}</span>
-        <span className={`cmd-copy${copied ? " ok" : ""}`}>{copied ? "copied" : "copy"}</span>
+        <span className="cmd-head-right">
+          <button
+            className={`cmd-url${enc ? " on" : ""}`}
+            onClick={toggleEnc}
+            title="Toggle URL-encoded form for browser webshells (spaces → +, specials → %XX)"
+          >url</button>
+          <span className={`cmd-copy${copied ? " ok" : ""}`}>{copied ? "copied" : "copy"}</span>
+        </span>
       </div>
-      <pre className="cmd-text">{tokenize(cmd)}</pre>
+      <pre className="cmd-text">{enc ? shown : tokenize(cmd)}</pre>
       {note && <div className="cmd-note">{note}</div>}
     </div>
   );
@@ -1030,6 +1057,12 @@ const css = `
   .cmd-head{display:flex;justify-content:space-between;align-items:center;
     padding:.4rem .65rem;background:#0a0e13;border-bottom:1px solid var(--line)}
   .cmd-label{font-size:.64rem;color:var(--accent);letter-spacing:.02em}
+  .cmd-head-right{display:flex;align-items:center;gap:.5rem}
+  .cmd-url{background:none;border:1px solid var(--line);color:var(--dim);font-family:inherit;
+    font-size:.5rem;text-transform:uppercase;letter-spacing:.1em;padding:.1rem .35rem;border-radius:4px;
+    cursor:pointer;transition:all .12s}
+  .cmd-url:hover{color:var(--ink);border-color:var(--dim)}
+  .cmd-url.on{background:var(--amber);color:#1a1206;border-color:var(--amber);font-weight:700}
   .cmd-copy{font-size:.56rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim)}
   .cmd-copy.ok{color:var(--ok)}
   .cmd-text{padding:.6rem .65rem;font-size:.7rem;line-height:1.7;color:#aac4e0;

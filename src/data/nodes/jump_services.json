@@ -109,6 +109,26 @@
     {
       "label": "SaltStack (4505/4506 ZeroMQ) — CVE-2020-11651",
       "next": "saltstack"
+    },
+    {
+      "label": "Squid Proxy (3128) — internal port scan + pivot",
+      "next": "squid_proxy"
+    },
+    {
+      "label": "phpMyAdmin — default creds + SQL INTO OUTFILE webshell",
+      "next": "phpmyadmin"
+    },
+    {
+      "label": "Confluence (8090) — CVE-2022-26134 unauthenticated RCE",
+      "next": "confluence_cve"
+    },
+    {
+      "label": "SaltStack (4505/4506 ZeroMQ) — CVE-2020-11651",
+      "next": "saltstack"
+    },
+    {
+      "label": "Subrion CMS /panel/ — CVE-2018-19422 file upload RCE",
+      "next": "subrion"
     }
   ]
 }
