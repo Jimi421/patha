@@ -1,13 +1,13 @@
 {
   "id": "jump_services",
   "phase": "JUMP",
-  "title": "Services & Ports — Jump Menu",
+  "title": "Services & Ports \u2014 Jump Menu",
   "body": "Jump directly to a service. Same as unknown_service but organized by category.",
   "cmd": "# Service reference index",
   "warn": null,
   "choices": [
     {
-      "label": "Web (HTTP/HTTPS) — full enum",
+      "label": "Web (HTTP/HTTPS) \u2014 full enum",
       "next": "web_enum"
     },
     {
@@ -91,44 +91,40 @@
       "next": "port_knocking"
     },
     {
-      "label": "Credential reuse — spray everywhere",
+      "label": "Credential reuse \u2014 spray everywhere",
       "next": "cred_reuse"
     },
     {
-      "label": "File transfer — get tools on target",
+      "label": "File transfer \u2014 get tools on target",
       "next": "file_transfer"
+    },
+    {
+      "label": "Openfire (9090/7070) \u2014 CVE-2023-32315 auth bypass \u2192 RCE",
+      "next": "openfire"
     },
     {
       "label": "Back to jump menu",
       "next": "jump_menu"
     },
     {
-      "label": "Subrion CMS /panel/ — CVE-2018-19422 file upload RCE",
+      "label": "Subrion CMS /panel/ \u2014 CVE-2018-19422 file upload RCE",
       "next": "subrion"
     },
     {
-      "label": "SaltStack (4505/4506 ZeroMQ) — CVE-2020-11651",
+      "label": "SaltStack (4505/4506 ZeroMQ) \u2014 CVE-2020-11651",
       "next": "saltstack"
     },
     {
-      "label": "Squid Proxy (3128) — internal port scan + pivot",
+      "label": "Squid Proxy (3128) \u2014 internal port scan + pivot",
       "next": "squid_proxy"
     },
     {
-      "label": "phpMyAdmin — default creds + SQL INTO OUTFILE webshell",
+      "label": "phpMyAdmin \u2014 default creds + SQL INTO OUTFILE webshell",
       "next": "phpmyadmin"
     },
     {
-      "label": "Confluence (8090) — CVE-2022-26134 unauthenticated RCE",
+      "label": "Confluence (8090) \u2014 CVE-2022-26134 unauthenticated RCE",
       "next": "confluence_cve"
-    },
-    {
-      "label": "SaltStack (4505/4506 ZeroMQ) — CVE-2020-11651",
-      "next": "saltstack"
-    },
-    {
-      "label": "Subrion CMS /panel/ — CVE-2018-19422 file upload RCE",
-      "next": "subrion"
     }
   ]
 }

