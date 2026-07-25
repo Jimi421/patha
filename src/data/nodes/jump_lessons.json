@@ -43,6 +43,10 @@
       "next": "resourced_lessons"
     },
     {
+      "label": "Access \u2014 web upload bypass \u2192 kerberoast \u2192 SeManageVolume \u2192 SYSTEM",
+      "next": "access_lessons"
+    },
+    {
       "label": "Back to Jump menu",
       "next": "jump_menu"
     },
