@@ -1,0 +1,58 @@
+{
+  "id": "burp_hub",
+  "phase": "WEB",
+  "title": "Burp Suite \u2014 WSTG-Aligned Testing Hub",
+  "body": "The OWASP Web Security Testing Guide (WSTG 4.2) organises web testing into 12 categories. Burp is the tool you run them with. This hub routes to a node per category \u2014 don't just open Burp and fuzz randomly; work the categories in order. INFO/CONF first (understand the surface), then auth (fastest wins), then input validation (the classic vulns), then the ones scanners can't do: authorization, session, and business logic. Client-side (CLNT), API (APIT), WebSocket, and Request Smuggling complete the picture \u2014 these are the categories that separate thorough testers from surface-level ones.",
+  "cmd": "# \u2550\u2550 OWASP WSTG 4.2 \u2014 12 CATEGORIES, BURP IS YOUR TOOL \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# Work in this order. Every category has a node below.\n#\n# WSTG-INFO  Information Gathering        -> burp_recon\n# WSTG-CONF  Config & Deployment          -> burp_recon\n# WSTG-IDNT  Identity Management          -> burp_authn\n# WSTG-ATHN  Authentication               -> burp_authn\n# WSTG-ATHZ  Authorization                -> burp_authz\n# WSTG-SESS  Session Management           -> burp_session\n# WSTG-INPV  Input Validation             -> burp_input\n# WSTG-ERRH  Error Handling               -> burp_input (error disclosure)\n# WSTG-CRYP  Cryptography                 -> burp_session (TLS/token crypto)\n# WSTG-BUSL  Business Logic               -> burp_logic\n# WSTG-CLNT  Client-Side                  -> xss / burp_input\n# WSTG-APIT  API Testing                  -> burp_input + burp_authz\n#\n# *** THE THREE SCANNERS CAN'T DO ***\n# ATHZ / BUSL / IDNT \u2014 every request is valid, only context makes it abuse.\n# A scanner can't reason that order #1043 belongs to another user, or that\n# the password reset flow lets you skip email verification. That's you.\n#\n# SETUP: first visit? -> burp_setup\n\n# QUICK RECON \u2014 map the surface before you start testing:\n# Spider: Target -> right-click host -> Spider this host\n# JS analysis: Target -> Site map -> find .js files -> Engagement Tools -> Find scripts\n# Active scan (Pro): right-click -> Scan -> Audit",
+  "warn": "Don't open Burp and immediately go to Intruder. Map the surface first (WSTG-INFO/CONF) \u2014 you need to know what endpoints exist before you test them. The three categories that find the most real bugs (ATHZ, BUSL, IDNT) are manual reasoning, not tool output. Burp surfaces the requests; you supply the logic.",
+  "choices": [
+    {
+      "label": "Setup \u2014 proxy, CA cert, scope, FoxyProxy",
+      "next": "burp_setup"
+    },
+    {
+      "label": "INFO/CONF \u2014 recon, spider, JS, tech fingerprint",
+      "next": "burp_recon"
+    },
+    {
+      "label": "ATHN/IDNT \u2014 auth bypass, mass assignment, brute",
+      "next": "burp_authn"
+    },
+    {
+      "label": "ATHZ \u2014 IDOR, priv escalation, access control",
+      "next": "burp_authz"
+    },
+    {
+      "label": "SESS \u2014 cookies, JWT, CSRF, session fixation",
+      "next": "burp_session"
+    },
+    {
+      "label": "INPV \u2014 SQLi, XSS, SSRF, SSTI, XXE, CMDi",
+      "next": "burp_input"
+    },
+    {
+      "label": "BUSL \u2014 business logic, race conditions, workflow",
+      "next": "burp_logic"
+    },
+    {
+      "label": "CLNT \u2014 DOM XSS, clickjacking, postMessage, prototype pollution",
+      "next": "burp_client"
+    },
+    {
+      "label": "APIT \u2014 REST API, GraphQL, BOLA, mass assignment",
+      "next": "burp_api"
+    },
+    {
+      "label": "Request smuggling \u2014 CL.TE / TE.CL / H2.TE desync",
+      "next": "burp_smuggling"
+    },
+    {
+      "label": "WebSockets \u2014 injection, CSRF, auth testing",
+      "next": "burp_websocket"
+    },
+    {
+      "label": "Burp core workflow \u2014 Repeater/Intruder/Comparer",
+      "next": "burp_core"
+    }
+  ]
+}
