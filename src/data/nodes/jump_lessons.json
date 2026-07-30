@@ -47,6 +47,14 @@
       "next": "access_lessons"
     },
     {
+      "label": "Boolean -- mass assignment -> file manager traversal -> stored SSH key -> root",
+      "next": "boolean_lessons"
+    },
+    {
+      "label": "Law -- CVE-2022-35914 RCE -> writable cron -> chmod u+s /bin/bash -> root",
+      "next": "law_lessons"
+    },
+    {
       "label": "Back to Jump menu",
       "next": "jump_menu"
     },
