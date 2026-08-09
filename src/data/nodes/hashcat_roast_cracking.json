@@ -7,6 +7,10 @@
   "warn": "The wrong hashcat mode does not always error loudly — sometimes it loads and exhausts, leaving you convinced the password is hard when your command was simply wrong. Before assuming a roast hash is uncrackable, verify all three: mode matches the prefix, the rule file has every line you intended (check 'Rules: N' in hashcat's startup output), and the hash file contains only hash lines. This is a sensitive area for time pressure on the exam — a misdiagnosed 'uncrackable' hash sends people down the wrong path for hours.",
   "choices": [
     {
+      "label": "SPN table printed but no hash file — clock skew",
+      "next": "kerberos_clock_skew"
+    },
+    {
       "label": "I cracked it — spray the credential everywhere",
       "next": "cred_reuse"
     },
