@@ -7,6 +7,10 @@
   "warn": "One spray attempt per lockout window — locking accounts is exam failure. nxc (netexec) is the maintained fork of nxc with identical syntax. Spray SMB, WinRM, and RDP in the same pass.",
   "choices": [
     {
+      "label": "Already have a working credential? Use it first",
+      "next": "use_creds_first"
+    },
+    {
       "label": "Spray hit — got new creds",
       "next": "creds_found"
     },

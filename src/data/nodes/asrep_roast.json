@@ -7,6 +7,10 @@
   "warn": "AS-REP uses hashcat mode 18200 - NOT 13100 (that's kerberoast); mixing them gives 'no hashes loaded'. Clock skew is the #1 failure: ntpdate to the DC before requesting. An empty result WITH valid creds is a real answer (no vulnerable users), not a bug - don't burn time retrying. After cracking, SPRAY the credential everywhere before anything else.",
   "choices": [
     {
+      "label": "Wait — have I tried logging in with creds I already have?",
+      "next": "use_creds_first"
+    },
+    {
       "label": "Kerberos error: KRB_AP_ERR_SKEW / clock skew too great",
       "next": "kerberos_clock_skew"
     },

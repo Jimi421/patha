@@ -7,6 +7,10 @@
   "warn": null,
   "choices": [
     {
+      "label": "FIRST — try these creds for a direct login everywhere",
+      "next": "use_creds_first"
+    },
+    {
       "label": "SSH / shell access — Linux machine",
       "next": "linux_post_exploit"
     },

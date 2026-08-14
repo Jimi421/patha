@@ -7,6 +7,10 @@
   "warn": "Read the exploit source before running — public PoCs can be sabotaged or destructive (see the evaluate-public-exploits node). For the path arg: when in doubt, try WITH and WITHOUT the trailing slash — it's the single most common reason a working exploit 'fails'. And don't waste time stabilising the exploit's own shell; the first successful command should fetch a proper reverse shell.",
   "choices": [
     {
+      "label": "Exploit says 'patched' but recon says vulnerable",
+      "next": "exploit_selfcheck_block"
+    },
+    {
       "label": "Need venv / exploits hub",
       "next": "jump_exploits"
     },

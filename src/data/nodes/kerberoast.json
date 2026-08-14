@@ -7,6 +7,10 @@
   "warn": "Service accounts often have passwords like 'ServiceName2023!' or the company name — try custom wordlists first. Rubeus is AMSI-flagged on modern Windows — use obfuscated build or bypass AMSI first. AES hashes (mode 19700) are ~100x slower to crack than RC4 (mode 13100) — don't waste exam time if AES shows up. targetedKerberoast.py is the modern way for GenericWrite abuse — faster than the 3-step manual process. Clock skew is the #1 failure mode on Kali — sync time to the DC before you do anything Kerberos.",
   "choices": [
     {
+      "label": "Wait — have I tried logging in with creds I already have?",
+      "next": "use_creds_first"
+    },
+    {
       "label": "Kerberos error: KRB_AP_ERR_SKEW / clock skew too great",
       "next": "kerberos_clock_skew"
     },
