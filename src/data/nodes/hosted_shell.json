@@ -27,6 +27,10 @@
       "next": "linux_post_exploit"
     },
     {
+      "label": "SMB hosted shell — execute off-share, no disk write",
+      "next": "smb_hosted_shell"
+    },
+    {
       "label": "Back to jump menu",
       "next": "jump_menu"
     }

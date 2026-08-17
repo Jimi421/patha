@@ -17,6 +17,10 @@
     {
       "label": "Potato failed — try other Windows privesc",
       "next": "vector_privesc_windows"
+    },
+    {
+      "label": "Got SYSTEM — add user to local Admins for clean re-entry",
+      "next": "local_admin_add"
     }
   ]
 }

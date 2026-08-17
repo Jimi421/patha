@@ -7,6 +7,10 @@
   "warn": "PORT MISMATCH is the #1 dead-callback cause: the host:port is baked into the implant at generate time, so `generate --http HOST` (defaults to :80) paired with a listener on a custom port (e.g. http --lport 8080) silently fails — always pin the port on generate to match the listener. Sliver implants with --skip-symbols leak 'bishopfox/sliver' strings — verify with 'strings beacon.exe | grep sliver' and rebuild without flag if engagement is OPSEC-sensitive. socks5 pivoting only works in SESSION mode, not beacon — run 'interactive' first. DNS and WireGuard listeners both default to port 53 and conflict if run together. Armory install fails silently on bad DNS — set 8.8.8.8 in /etc/resolv.conf. Proxychains integration is flaky in v1.5.x — use Ligolo-NG alias instead. Always kill beacons/sessions before ending engagement or you leave persistent callbacks in the environment.",
   "choices": [
     {
+      "label": "Generate a beacon / implant (all OS + transport combos)",
+      "next": "sliver_generate"
+    },
+    {
       "label": "Token privesc via SharpEfsPotato (SeImpersonate → SYSTEM)",
       "next": "sharp_efs_potato_sliver"
     },
@@ -29,6 +33,10 @@
     {
       "label": "Lateral movement to other hosts",
       "next": "lateral_movement"
+    },
+    {
+      "label": "Shell upgrade / stabilise",
+      "next": "reverse_shell"
     },
     {
       "label": "Back to Windows post-ex",

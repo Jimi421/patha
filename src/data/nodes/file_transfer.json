@@ -19,6 +19,10 @@
       "next": "shell_troubleshoot"
     },
     {
+      "label": "SMB hosted shell — exec from share without disk write",
+      "next": "smb_hosted_shell"
+    },
+    {
       "label": "Back to jump menu",
       "next": "jump_menu"
     }

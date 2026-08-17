@@ -23,6 +23,10 @@
       "next": "file_upload"
     },
     {
+      "label": "PDFKit / wkhtmltopdf — error reveals gem version",
+      "next": "pdfkit_rce"
+    },
+    {
       "label": "Back to web triage",
       "next": "web_enum"
     },

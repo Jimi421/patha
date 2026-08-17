@@ -1,21 +1,21 @@
 {
   "id": "web_enum",
   "phase": "WEB",
-  "title": "Web Triage \u2192 Identify the Server, Route to the Attack",
+  "title": "Web Triage → Identify the Server, Route to the Attack",
   "body": "First contact with any HTTP service. Fingerprint it, check its verbs, glance at it - then ROUTE. This node's job is identify-and-route, not run-every-tool. If nothing's obvious, send yourself to web_fuzz, then come back and re-triage what you find.",
-  "cmd": "# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# WEB TRIAGE - what IS this server? (fingerprint BEFORE you fuzz)\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\n# -- STEP 1: Fingerprint the stack ---------------------------\nwhatweb http://$ip\ncurl -s -I http://$ip                       # server header, redirects\ncurl -s http://$ip/robots.txt               # free path disclosure\n# Note the SERVER: IIS -> .aspx world.  Apache/nginx+PHP -> .php world.\n\n# -- STEP 2: Check HTTP verbs (the step everyone skips) ------\ncurl -s -i -X OPTIONS http://$ip/ | grep -i allow\n# PUT / DELETE / MOVE / MKCOL / PROPFIND in Allow = WebDAV is ON.\n#   On IIS that's a near-direct upload->RCE. Take the WebDAV branch below.\nnmap -p80,443 --script http-methods,http-webdav-scan $ip\n\n# -- STEP 3: Eyeball it --------------------------------------\n# Open it in a browser / curl the body. Look for: CMS names, login forms,\n# ?params= in URLs, version strings, upload features, default pages.\n\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n# FINDING \u2192 WHERE TO GO  (this map IS the node)\n# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n#  IIS + OPTIONS shows PUT/MOVE ....... webdav   (upload -> RCE)\n#  IIS, no WebDAV .................... iis_aspx  (aspx shell path)\n#  WordPress ......................... wordpress\n#  XAMPP / Apache+PHP+MariaDB ........ xampp_default\n#  Grav CMS .......................... grav_cms\n#  Jenkins (8080/8443) ............... jenkins\n#  ?id= / ?file= / ?page= in URL ..... param_found (LFI/SQLi/SSTI)\n#  Login form ........................ login_page\n#  File upload feature ............... file_upload\n#  Backup/config/.git/source leak .... creds_found\n#  Nothing identifiable yet .......... web_fuzz  (then COME BACK here)\n",
+  "cmd": "# ════════════════════════════════════════════════════════\n# WEB TRIAGE - what IS this server? (fingerprint BEFORE you fuzz)\n# ════════════════════════════════════════════════════════\n\n# -- STEP 1: Fingerprint the stack ---------------------------\nwhatweb http://$ip\ncurl -s -I http://$ip                       # server header, redirects\ncurl -s http://$ip/robots.txt               # free path disclosure\n# Note the SERVER: IIS -> .aspx world.  Apache/nginx+PHP -> .php world.\n\n# -- STEP 2: Check HTTP verbs (the step everyone skips) ------\ncurl -s -i -X OPTIONS http://$ip/ | grep -i allow\n# PUT / DELETE / MOVE / MKCOL / PROPFIND in Allow = WebDAV is ON.\n#   On IIS that's a near-direct upload->RCE. Take the WebDAV branch below.\nnmap -p80,443 --script http-methods,http-webdav-scan $ip\n\n# -- STEP 3: Eyeball it --------------------------------------\n# Open it in a browser / curl the body. Look for: CMS names, login forms,\n# ?params= in URLs, version strings, upload features, default pages.\n\n# ════════════════════════════════════════════════════════\n# FINDING → WHERE TO GO  (this map IS the node)\n# ════════════════════════════════════════════════════════\n#  IIS + OPTIONS shows PUT/MOVE ....... webdav   (upload -> RCE)\n#  IIS, no WebDAV .................... iis_aspx  (aspx shell path)\n#  WordPress ......................... wordpress\n#  XAMPP / Apache+PHP+MariaDB ........ xampp_default\n#  Grav CMS .......................... grav_cms\n#  Jenkins (8080/8443) ............... jenkins\n#  ?id= / ?file= / ?page= in URL ..... param_found (LFI/SQLi/SSTI)\n#  Login form ........................ login_page\n#  File upload feature ............... file_upload\n#  Backup/config/.git/source leak .... creds_found\n#  Nothing identifiable yet .......... web_fuzz  (then COME BACK here)\n\n# ── WEBRICK / RUBY APP (unusual port — 3000, 8080) ────\n# nmap: WEBrick httpd x.x.x (Ruby x.x.x)\n# Browser: check title — 'HTML to PDF', 'converter', 'admin'\n# Trigger an error to reveal the backend gem:\ncurl -s -X POST http://<IP>:<PORT>/pdf -d 'url=ssdnf' | grep -i 'error\\|exception\\|kit\\|version'\n# PDFKit::Improper... → pdfkit_rce node\n# Other gem names → searchsploit <gem name>",
   "warn": "Fingerprint and check verbs (OPTIONS) BEFORE fuzzing - one OPTIONS request reveals WebDAV (upload->RCE) that directory fuzzing never finds. Match shells to the stack: IIS=.aspx, Apache/PHP=.php. Enumeration is a LOOP - when web_fuzz finds /admin, come back here and re-triage /admin before grinding.",
   "choices": [
     {
-      "label": "Burp \u2014 intercept, modify, find hidden params",
+      "label": "Burp — intercept, modify, find hidden params",
       "next": "burp_core"
     },
     {
-      "label": "IIS + WebDAV (PUT/MOVE) \u2192 upload to RCE",
+      "label": "IIS + WebDAV (PUT/MOVE) → upload to RCE",
       "next": "webdav"
     },
     {
-      "label": "IIS server \u2192 ASPX shell path",
+      "label": "IIS server → ASPX shell path",
       "next": "iis_aspx"
     },
     {
@@ -23,7 +23,7 @@
       "next": "wordpress"
     },
     {
-      "label": "XAMPP \u2192 full recon",
+      "label": "XAMPP → full recon",
       "next": "xampp_default"
     },
     {
@@ -51,6 +51,18 @@
       "next": "file_upload"
     },
     {
+      "label": "Exposed .git directory (nmap http-git / /.git/ in ferox)",
+      "next": "git_exposed"
+    },
+    {
+      "label": "Ruby app on unusual port (WEBrick / HTML-to-PDF)",
+      "next": "pdfkit_rce"
+    },
+    {
+      "label": "H2 Console on 8082 / IIS redirect to H2",
+      "next": "h2_console_rce"
+    },
+    {
       "label": "Found creds (backup/config/source leak)",
       "next": "creds_found"
     },
@@ -59,11 +71,11 @@
       "next": "subdomain_enum"
     },
     {
-      "label": "Nothing obvious yet \u2192 fuzz for content",
+      "label": "Nothing obvious yet → fuzz for content",
       "next": "web_fuzz"
     },
     {
-      "label": "Other CMS \u2014 fingerprint + find version",
+      "label": "Other CMS — fingerprint + find version",
       "next": "cms_version_enum"
     },
     {

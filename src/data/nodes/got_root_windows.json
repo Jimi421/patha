@@ -23,6 +23,10 @@
       "next": "golden_ticket"
     },
     {
+      "label": "Add user to local Admins before shell dies",
+      "next": "local_admin_add"
+    },
+    {
       "label": "Back to start — next machine",
       "next": "start"
     }
