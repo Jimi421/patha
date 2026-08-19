@@ -13,6 +13,10 @@
     {
       "label": "Port forward set — scan specific service",
       "next": "pivot_portscan"
+    },
+    {
+      "label": "Forward target-local service to Kali (-L)",
+      "next": "ssh_local_portfwd"
     }
   ]
 }

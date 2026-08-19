@@ -63,6 +63,14 @@
       "next": "h2_console_rce"
     },
     {
+      "label": "SeaCMS — gbook.php/member.php or seacms.sql in /install/",
+      "next": "seacms"
+    },
+    {
+      "label": "PDF from app — fingerprint with exiftool",
+      "next": "exiftool_fingerprint"
+    },
+    {
       "label": "Found creds (backup/config/source leak)",
       "next": "creds_found"
     },

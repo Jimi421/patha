@@ -1,0 +1,26 @@
+{
+  "id": "exiftool_fingerprint",
+  "phase": "RECON",
+  "title": "exiftool — Fingerprint Files for Library/Version Discovery",
+  "body": "exiftool reads metadata embedded in files — PDFs, images, office docs, and more. When a web app generates a file (a PDF, a report, an image), the library that created it often stamps its name and version into the metadata. That one line is a direct CVE handoff.\n\nThe most common pattern on OSCP/CTF boxes: the app gives you a PDF, exiftool shows 'Producer: mPDF 6.0', and you search for mPDF exploits. But the same logic applies to image generation (Pillow, ImageMagick), document generation (PHPWord, TCPDF, LibreOffice), and anything else that writes files.\n\nRun exiftool on EVERY file a web app gives you. It costs nothing and occasionally hands you the box.",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — BASIC USAGE\n# ══════════════════════════════════════════════════\nexiftool output.pdf\nexiftool image.png\nexiftool report.docx\n\n# Key fields to look at:\n#   Producer      → PDF generator library (mPDF, TCPDF, wkhtmltopdf, etc.)\n#   Creator       → same, sometimes different field\n#   Software      → image/doc generator\n#   Created By    → office doc generator\n#   Comment       → sometimes has version info\n#   Author        → can leak usernames\n\n# ══════════════════════════════════════════════════\n# 2 — QUICK VERSION EXTRACT\n# ══════════════════════════════════════════════════\nexiftool output.pdf | grep -iE 'producer|creator|software|version|comment'\n\n# Fallback if exiftool not installed:\npdfinfo output.pdf          # PDF only\nstrings output.pdf | grep -iE 'mpdf|tcpdf|wkhtmltopdf|fpdf|version'\n\n# For images:\nfile image.png              # basic type info\npython3 -c \"from PIL import Image; i=Image.open('image.png'); print(i.info)\" 2>/dev/null\n\n# ══════════════════════════════════════════════════\n# 3 — WHAT TO DO WITH THE VERSION\n# ══════════════════════════════════════════════════\n# Pattern: 'Producer: mPDF 6.0' → search for mPDF exploits:\nsearchsploit mpdf 6\nsearchsploit mpdf\n# sploitus.com → search 'mPDF 6.0'\n\n# Pattern: 'Producer: wkhtmltopdf 0.12.5' → SSRF/file read:\n# wkhtmltopdf follows file:// URLs — use <iframe src=\"file:///etc/passwd\">\n# (see pdfkit_rce node for the full technique)\n\n# Pattern: 'Software: ImageMagick 6.9.11' → CVE-2022-44268 (file read)\n# Pattern: 'Creator: TCPDF 6.3.2' → searchsploit tcpdf\n# Pattern: 'Created By: PHPWord' → searchsploit phpword\n\n# ══════════════════════════════════════════════════\n# 4 — OPSEC: WHAT METADATA LEAKS ABOUT YOU\n# ══════════════════════════════════════════════════\n# Office docs you submit can leak:\n#   - Your real name (Author field)\n#   - Your machine name (Computer field)\n#   - File path on your machine (Template path)\n# Strip before submitting anything on a real engagement:\nexiftool -all= document.docx\n# Or use mat2:\nmat2 document.docx",
+  "warn": "Not all fields are reliable — apps can set Producer/Creator to anything, and some strip metadata. If exiftool returns nothing useful, try strings or pdfinfo. The absence of version info doesn't rule out the vulnerability — some versions omit the field. Check the library name first, then try known exploits regardless of version if you can't confirm it.",
+  "choices": [
+    {
+      "label": "Found mPDF — annotation file disclosure",
+      "next": "mpdf_exploit"
+    },
+    {
+      "label": "Found wkhtmltopdf / PDFKit — SSRF file read",
+      "next": "pdfkit_rce"
+    },
+    {
+      "label": "Found library — search for CVEs",
+      "next": "analyze_versions"
+    },
+    {
+      "label": "Back to web enum",
+      "next": "web_enum"
+    }
+  ]
+}

@@ -15,6 +15,10 @@
       "next": "h2_console_rce"
     },
     {
+      "label": "Run exiftool on any file the app gave you",
+      "next": "exiftool_fingerprint"
+    },
+    {
       "label": "No CVE — back to attack surface priority",
       "next": "analyze_multiservice"
     },

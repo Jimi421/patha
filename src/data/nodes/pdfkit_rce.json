@@ -23,6 +23,10 @@
       "next": "sudo_check"
     },
     {
+      "label": "mPDF instead of PDFKit — annotation exploit",
+      "next": "mpdf_exploit"
+    },
+    {
       "label": "Back to web enum",
       "next": "web_enum"
     }

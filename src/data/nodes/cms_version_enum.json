@@ -27,6 +27,10 @@
       "next": "pdfkit_rce"
     },
     {
+      "label": "SeaCMS — randomised admin slug, SQLi, LFI",
+      "next": "seacms"
+    },
+    {
       "label": "Back to web triage",
       "next": "web_enum"
     },
