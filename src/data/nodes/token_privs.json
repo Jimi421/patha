@@ -8,11 +8,11 @@
   "choices": [
     {
       "label": "SeImpersonate / SeAssignPrimaryToken \u2014 Potato to SYSTEM",
-      "next": "potato_attacks"
+      "next": "seimpersonate"
     },
     {
-      "label": "SeManageVolume \u2014 open C:\\ write \u2192 SYSTEM",
-      "next": "se_managevolume"
+      "label": "SeManageVolume - open C:\\ write -> System32 DLL hijack -> SYSTEM (Access chain)",
+      "next": "access_lessons"
     },
     {
       "label": "SeRestore \u2014 write anywhere \u2192 SYSTEM",
