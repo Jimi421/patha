@@ -7,6 +7,10 @@
   "warn": "No (Pwn3d!) does NOT mean no access. Pwn3d! reports local admin only. WinRM shells come from the Remote Management Users group and MSSQL logins are granted per-login — both are invisible to a Pwn3d! check, and both are common OSCP footholds. Always attempt evil-winrm and mssqlclient by hand even when the spray output looks unremarkable. Check the lockout policy before spraying a password across many accounts, but authenticating one known-good credential against many services is not a spray and carries no lockout risk.",
   "choices": [
     {
+      "label": "No creds yet — check default credentials for the app",
+      "next": "default_creds"
+    },
+    {
       "label": "Got a shell — post-exploitation",
       "next": "windows_post_exploit"
     },

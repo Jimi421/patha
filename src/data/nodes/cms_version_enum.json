@@ -31,6 +31,10 @@
       "next": "seacms"
     },
     {
+      "label": "Try default credentials for this CMS",
+      "next": "default_creds"
+    },
+    {
       "label": "Back to web triage",
       "next": "web_enum"
     },

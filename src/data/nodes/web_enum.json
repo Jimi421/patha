@@ -7,6 +7,10 @@
   "warn": "Fingerprint and check verbs (OPTIONS) BEFORE fuzzing - one OPTIONS request reveals WebDAV (upload->RCE) that directory fuzzing never finds. Match shells to the stack: IIS=.aspx, Apache/PHP=.php. Enumeration is a LOOP - when web_fuzz finds /admin, come back here and re-triage /admin before grinding.",
   "choices": [
     {
+      "label": "Login page found — try default credentials first",
+      "next": "default_creds"
+    },
+    {
       "label": "Burp — intercept, modify, find hidden params",
       "next": "burp_core"
     },
@@ -69,6 +73,14 @@
     {
       "label": "PDF from app — fingerprint with exiftool",
       "next": "exiftool_fingerprint"
+    },
+    {
+      "label": "Maltrail IDS login page",
+      "next": "maltrail_searchor_rce"
+    },
+    {
+      "label": "pyLoad download manager UI",
+      "next": "pyload_rce"
     },
     {
       "label": "Found creds (backup/config/source leak)",

